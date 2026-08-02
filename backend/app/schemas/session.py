@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 class SessionStart(BaseModel):
@@ -30,5 +30,4 @@ class SessionResponse(BaseModel):
     exercise_name: str | None = None
     patient_name: str | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

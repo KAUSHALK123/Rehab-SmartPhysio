@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy import Column, String, DateTime, Boolean, Integer, ForeignKey
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database.database import Base
 
 class CalibrationSession(Base):
@@ -9,7 +9,7 @@ class CalibrationSession(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     patient_id = Column(String(36), nullable=True) # Nullable until patient profiles are set up
-    calibration_time = Column(DateTime, default=datetime.utcnow, nullable=False)
+    calibration_time = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     
     mpu_status = Column(Boolean, default=True, nullable=False)
     pressure_status = Column(Boolean, default=True, nullable=False)

@@ -1,7 +1,7 @@
 import uuid
 from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database.database import Base
 
 class ExerciseSession(Base):
@@ -10,7 +10,7 @@ class ExerciseSession(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     patient_id = Column(String(36), ForeignKey("patients.id"), nullable=False)
     exercise_id = Column(String(36), ForeignKey("exercises.id"), nullable=False)
-    start_time = Column(DateTime, default=datetime.utcnow, nullable=False)
+    start_time = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     end_time = Column(DateTime, nullable=True)
     duration_seconds = Column(Integer, nullable=True, default=0)
     repetitions_completed = Column(Integer, nullable=True, default=0)

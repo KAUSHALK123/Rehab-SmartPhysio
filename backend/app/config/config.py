@@ -1,5 +1,5 @@
 import os
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     APP_NAME: str = "SmartPhysio API"
@@ -16,7 +16,6 @@ class Settings(BaseSettings):
     MQTT_BROKER: str = os.getenv("MQTT_BROKER", "broker.hivemq.com")
     MQTT_PORT: int = int(os.getenv("MQTT_PORT", "1883"))
     
-    class Config:
-        case_sensitive = True
+    model_config = SettingsConfigDict(case_sensitive=True)
 
 settings = Settings()

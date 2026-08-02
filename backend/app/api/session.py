@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
@@ -41,7 +41,7 @@ def start_session(
     new_session = ExerciseSession(
         patient_id=session_in.patient_id,
         exercise_id=session_in.exercise_id,
-        start_time=datetime.utcnow()
+        start_time=datetime.now(timezone.utc)
     )
     db.add(new_session)
     db.commit()
@@ -71,14 +71,39 @@ def end_session(
         )
         
     # Save statistics
-    session_record.end_time = datetime.utcnow()
+    session_record.end_time = datetime.now(timezone.utc)
     session_record.duration_seconds = session_in.duration_seconds
     session_record.repetitions_completed = session_in.repetitions_completed
     session_record.repetitions_failed = session_in.repetitions_failed
     session_record.average_angle = session_in.average_angle
     session_record.max_angle = session_in.max_angle
     session_record.average_pressure = session_in.average_pressure
-    session_record.exercise_accuracy = session_in.exercise_accuracy
+    
+    # Calculate accuracy using Random Forest model service
+    from app.services.ml_service import ml_service
+    from app.models.exercise import Exercise
+    
+    exercise = db.query(Exercise).filter(Exercise.id == session_record.exercise_id).first()
+    exercise_name = exercise.exercise_name if exercise else "Unknown"
+    
+    # Pack average values as sensor data for evaluation
+    sensor_summary = {
+        "thumb": 15 if exercise_name == "Ball Squeeze" else 80,
+        "index": 15 if exercise_name == "Ball Squeeze" else 80,
+        "middle": 15 if exercise_name == "Ball Squeeze" else 80,
+        "ring": 15 if exercise_name == "Ball Squeeze" else 80,
+        "little": 15 if exercise_name == "Ball Squeeze" else 80,
+        "elbow": session_in.average_angle if exercise_name == "Elbow Curl" else 180,
+        "pressure": session_in.average_pressure,
+        "wrist_pitch": session_in.average_angle if exercise_name == "Wrist Flexion" else 0.0,
+        "wrist_roll": 0.0
+    }
+    
+    if ml_service.model is not None:
+        ml_accuracy = ml_service.evaluate_exercise(exercise_name, sensor_summary)
+        session_record.exercise_accuracy = ml_accuracy
+    else:
+        session_record.exercise_accuracy = session_in.exercise_accuracy
     
     db.commit()
     return {"message": "Session Saved Successfully"}

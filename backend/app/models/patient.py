@@ -1,7 +1,7 @@
 import uuid
 from sqlalchemy import Column, String, Integer, Float, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database.database import Base
 
 class Patient(Base):
@@ -17,7 +17,7 @@ class Patient(Base):
     dominant_hand = Column(String(50), nullable=False)
     injured_arm = Column(String(50), nullable=False)
     injury_type = Column(String(255), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relationship back to User
     user = relationship("User", backref="patients")

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 class CalibrationSubmit(BaseModel):
@@ -29,8 +29,7 @@ class CalibrationResponse(BaseModel):
     battery_percentage: int
     calibration_result: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class CalibrationResultResponse(BaseModel):
     result: str

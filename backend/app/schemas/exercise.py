@@ -1,11 +1,10 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 class ExerciseResponseShort(BaseModel):
     id: str
     exercise_name: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ExerciseResponse(BaseModel):
     id: str
@@ -19,5 +18,4 @@ class ExerciseResponse(BaseModel):
     rest_seconds: int
     difficulty: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
