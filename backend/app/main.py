@@ -147,8 +147,50 @@ def seed_users():
     finally:
         db.close()
 
+def seed_patients():
+    from app.models.patient import Patient
+    from app.models.user import User
+    from sqlalchemy.orm import Session
+    
+    db: Session = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == "testuser@gmail.com").first()
+        if user and db.query(Patient).count() == 0:
+            p1 = Patient(
+                user_id=user.id,
+                full_name="Sarah Jenkins",
+                age=34,
+                gender="Female",
+                height_cm=168.0,
+                weight_kg=62.0,
+                dominant_hand="Right",
+                injured_arm="Left",
+                injury_type="Rotator Cuff Tear"
+            )
+            p2 = Patient(
+                user_id=user.id,
+                full_name="Marcus Vance",
+                age=58,
+                gender="Male",
+                height_cm=182.0,
+                weight_kg=88.0,
+                dominant_hand="Right",
+                injured_arm="Right",
+                injury_type="Stroke Hemiparesis"
+            )
+            db.add(p1)
+            db.add(p2)
+            db.commit()
+            print("Successfully seeded default patient profiles: Sarah Jenkins & Marcus Vance.")
+    except Exception as e:
+        print(f"Error seeding patients: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
 seed_exercises()
 seed_users()
+seed_patients()
 
 app = FastAPI(
     title=settings.APP_NAME,

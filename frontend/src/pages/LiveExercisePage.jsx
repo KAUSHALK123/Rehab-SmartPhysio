@@ -258,7 +258,10 @@ function LiveExercisePage() {
 
   // WebSocket Connection
   const connectWebSocket = () => {
-    const ws = new WebSocket('ws://127.0.0.1:8000/api/v1/device/ws');
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const wsUrl = import.meta.env.VITE_WS_URL || `${protocol}//${host}/api/v1/device/ws`;
+    const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
