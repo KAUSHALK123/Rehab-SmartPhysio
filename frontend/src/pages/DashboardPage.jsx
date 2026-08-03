@@ -120,10 +120,12 @@ function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const wsUrl = import.meta.env.VITE_WS_URL || `${protocol}//${host}/api/v1/device/ws`;
-    const ws = new WebSocket(wsUrl);
+    const getWsUrl = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      return import.meta.env.VITE_WS_URL || `${protocol}//${host}/api/v1/device/ws`;
+    };
+    const ws = new WebSocket(getWsUrl());
     
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
