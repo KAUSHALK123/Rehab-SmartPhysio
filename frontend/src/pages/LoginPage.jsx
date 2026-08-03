@@ -30,58 +30,80 @@ function LoginPage() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 px-4">
-      <div className="max-w-md w-full bg-white p-8 rounded-xl shadow-md border border-slate-100 space-y-6">
-        <div>
-          <h2 className="text-3xl font-extrabold text-center text-slate-800 tracking-tight">SmartPhysio</h2>
-          <p className="text-center text-sm text-slate-500 mt-1">Sign in to your rehabilitation portal</p>
+    <div className="login-page-container">
+      {/* Background glowing decorations */}
+      <div className="login-bg-glow-1"></div>
+      <div className="login-bg-glow-2"></div>
+      
+      <div className="login-card-wrapper">
+        <div className="card">
+          <div className="light-layer">
+            <div className="slit"></div>
+            <div className="lumen">
+              <div className="min"></div>
+              <div className="mid"></div>
+              <div className="hi"></div>
+            </div>
+            <div className="darken">
+              <div className="sl"></div>
+              <div className="ll"></div>
+              <div className="slt"></div>
+              <div className="srt"></div>
+            </div>
+          </div>
+          <div className="content">
+            <div className="login-brand-header text-center">
+              <h2 className="login-title">SmartPhysio</h2>
+              <p className="login-subtitle">Intelligent Rehabilitation Portal</p>
+            </div>
+
+            <div className="login-form-container">
+
+              {error && (
+                <div className="login-error-toast">
+                  {error}
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit} className="login-form-fields">
+                <div className="input-group">
+                  <label>Email Address</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="e.g. john@example.com"
+                    required
+                  />
+                </div>
+                
+                <div className="input-group">
+                  <label>Password</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Min. 8 characters"
+                    required
+                  />
+                </div>
+
+                <button type="submit" disabled={loading} className="login-btn">
+                  {loading ? 'Signing In...' : 'Sign In'}
+                </button>
+              </form>
+
+              <div className="login-footer">
+                <p>
+                  Don't have an account?{' '}
+                  <Link to="/register" className="register-link">
+                    Register Here
+                  </Link>
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
-
-        {error && (
-          <div className="p-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg text-center font-medium">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Email Address</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="e.g. john@example.com"
-              className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-slate-800"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Min. 8 characters"
-              className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-slate-800"
-              required
-            />
-          </div>
-          
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-primary text-white font-medium rounded-lg hover:bg-blue-600 transition disabled:opacity-50 flex items-center justify-center"
-          >
-            {loading ? 'Signing In...' : 'Sign In'}
-          </button>
-        </form>
-        
-        <p className="text-center text-sm text-slate-600">
-          Don't have an account?{' '}
-          <Link to="/register" className="text-primary hover:underline font-semibold">
-            Register Here
-          </Link>
-        </p>
       </div>
     </div>
   );
