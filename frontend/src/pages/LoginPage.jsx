@@ -7,7 +7,6 @@ function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [lumenActive, setLumenActive] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -37,7 +36,7 @@ function LoginPage() {
       <div className="login-bg-glow-2"></div>
       
       <div className="login-card-wrapper">
-        <div className={`card ${lumenActive ? 'active' : ''}`}>
+        <div className="card">
           <div className="light-layer">
             <div className="slit"></div>
             <div className="lumen">
@@ -101,16 +100,6 @@ function LoginPage() {
                     Register Here
                   </Link>
                 </p>
-              </div>
-            </div>
-
-            <div className="bottom-toggle-container">
-              <div 
-                className={`toggle ${lumenActive ? 'active' : ''}`}
-                onClick={() => setLumenActive(!lumenActive)}
-              >
-                <div className="handle"></div>
-                <span>Activate Lumen</span>
               </div>
             </div>
           </div>
