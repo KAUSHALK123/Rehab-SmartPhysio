@@ -342,7 +342,7 @@ function DashboardPage() {
             </div>
           </Link>
 
-          <Link to="/dashboard" className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-blue-600 text-white transition text-xs font-bold shadow-md shadow-blue-600/10 relative">
+          <Link to="/patient" className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-blue-600 text-white transition text-xs font-bold shadow-md shadow-blue-600/10 relative">
             {/* Sidebar indicator blue dot/chevron mockup tick on the left */}
             <div className="absolute left-[-16px] top-1/2 -translate-y-1/2 w-2.5 h-6 bg-blue-600 rounded-r-lg"></div>
             <div className="flex items-center gap-3.5">
@@ -352,7 +352,7 @@ function DashboardPage() {
             <Plus className="w-3.5 h-3.5 opacity-90" />
           </Link>
 
-          <Link to="/dashboard" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
+          <Link to="/analytics" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
             isDark ? 'text-slate-400 hover:bg-slate-900/40 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
           }`}>
             <div className="flex items-center gap-3.5">
@@ -365,7 +365,7 @@ function DashboardPage() {
           {/* Overview Section Header */}
           <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pl-3 mt-4 mb-1 block">Overview</span>
 
-          <Link to="/dashboard" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
+          <Link to="/messages" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
             isDark ? 'text-slate-400 hover:bg-slate-900/40 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
           }`}>
             <div className="flex items-center gap-3.5">
@@ -374,7 +374,7 @@ function DashboardPage() {
             </div>
           </Link>
 
-          <Link to="/dashboard" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
+          <Link to="/appointments" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
             isDark ? 'text-slate-400 hover:bg-slate-900/40 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
           }`}>
             <div className="flex items-center gap-3.5">
@@ -383,7 +383,7 @@ function DashboardPage() {
             </div>
           </Link>
 
-          <Link to="/dashboard" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
+          <Link to="/reports" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
             isDark ? 'text-slate-400 hover:bg-slate-900/40 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
           }`}>
             <div className="flex items-center gap-3.5">
@@ -395,7 +395,7 @@ function DashboardPage() {
           {/* General Section Header */}
           <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pl-3 mt-4 mb-1 block">General</span>
 
-          <Link to="/dashboard" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
+          <Link to="/settings" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
             isDark ? 'text-slate-400 hover:bg-slate-900/40 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
           }`}>
             <div className="flex items-center gap-3.5">

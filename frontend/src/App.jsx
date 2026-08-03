@@ -12,6 +12,9 @@ import ExerciseLibraryPage from './pages/ExerciseLibraryPage';
 import LiveExercisePage from './pages/LiveExercisePage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
+import MessagesPage from './pages/MessagesPage';
+import AppointmentsPage from './pages/AppointmentsPage';
+import ReportsPage from './pages/ReportsPage';
 
 // Component to protect user pages
 function ProtectedRoute({ children }) {
@@ -64,6 +67,9 @@ function App() {
             <Route path="/exercise-session" element={<LiveExercisePage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/messages" element={<MessagesPage />} />
+            <Route path="/appointments" element={<AppointmentsPage />} />
+            <Route path="/reports" element={<ReportsPage />} />
           </Route>
 
           {/* Fallback */}
