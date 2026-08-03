@@ -82,8 +82,8 @@ body {
 	box-shadow: inset 0 1.01rem 0.2rem -1rem rgba(255, 255, 255, 0),
 		inset 0 -1.01rem 0.2rem -1rem rgba(0,0,0,0), 0 -1.02rem 0.2rem -1rem rgba(255,255,255,0),
 		0 1rem 0.2rem -1rem rgba(0,0,0,0), 0 0 0 1px rgba(255, 255, 255, 0.06), 0 12px 40px 0 rgba(0,0,0,0.6), 0 0 0 1px #222;
-	width: 22.5rem;
-	height: 31rem;
+	width: 22rem;
+	height: 25.5rem;
 	border-radius: 1.8rem;
 	color: #fff;
 	padding: 1.8rem;
@@ -320,7 +320,7 @@ body {
 
 .login-brand-header {
   position: absolute;
-  top: 1.4rem;
+  top: 0.2rem;
   left: 0;
   right: 0;
   z-index: 10;
@@ -330,7 +330,7 @@ body {
 .login-form-container {
   display: flex;
   flex-direction: column;
-  margin-top: 6.8rem;
+  margin-top: 5.2rem;
   z-index: 5;
 }
 
