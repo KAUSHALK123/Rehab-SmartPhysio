@@ -390,10 +390,12 @@ function CalibrationPage() {
     setErrorMsg('');
     setPhysicalDeviceConnected(false);
     
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const wsUrl = import.meta.env.VITE_WS_URL || `${protocol}//${host}/api/v1/device/ws`;
-    const ws = new WebSocket(wsUrl);
+    const getWsUrl = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      return import.meta.env.VITE_WS_URL || `${protocol}//${host}/api/v1/device/ws`;
+    };
+    const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
 
     const connectionTimeout = setTimeout(() => {
