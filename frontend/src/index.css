@@ -318,26 +318,39 @@ body {
 	transition: filter 0.4s ease-in-out;
 }
 
+.login-brand-header {
+  position: absolute;
+  top: 4.2rem;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+
 .login-form-container {
   display: flex;
   flex-direction: column;
-  margin-top: 3.2rem;
+  margin-top: 8.5rem;
   z-index: 5;
 }
 
 .login-title {
-  font-size: 1.45rem;
-  font-weight: 800;
-  letter-spacing: -0.04em;
-  color: #f8fafc;
+  font-size: 1.8rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #ffffff;
   margin-bottom: 0.2rem;
-  text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+  text-shadow: 0 2px 10px rgba(0,0,0,0.6);
   font-family: "Aeonik Pro Regular", 'Inter', sans-serif;
+  text-transform: uppercase;
 }
 
 .login-subtitle {
-  font-size: 0.7rem;
+  font-size: 0.62rem;
+  font-weight: 800;
   color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   margin-bottom: 1rem;
 }
 

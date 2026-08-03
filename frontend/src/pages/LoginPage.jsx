@@ -53,9 +53,12 @@ function LoginPage() {
             </div>
           </div>
           <div className="content">
+            <div className="login-brand-header text-center">
+              <h2 className="login-title">SmartPhysio</h2>
+              <p className="login-subtitle">Intelligent Rehabilitation Portal</p>
+            </div>
+
             <div className="login-form-container">
-              <h2 className="login-title text-center">SmartPhysio</h2>
-              <p className="login-subtitle text-center">Intelligent Rehabilitation Portal</p>
 
               {error && (
                 <div className="login-error-toast">
