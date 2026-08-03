@@ -7,6 +7,7 @@ function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [lumenActive, setLumenActive] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -30,58 +31,106 @@ function LoginPage() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 px-4">
-      <div className="max-w-md w-full bg-white p-8 rounded-xl shadow-md border border-slate-100 space-y-6">
-        <div>
-          <h2 className="text-3xl font-extrabold text-center text-slate-800 tracking-tight">SmartPhysio</h2>
-          <p className="text-center text-sm text-slate-500 mt-1">Sign in to your rehabilitation portal</p>
+    <div className="login-page-container">
+      {/* Background glowing decorations */}
+      <div className="login-bg-glow-1"></div>
+      <div className="login-bg-glow-2"></div>
+      
+      <div className="login-card-wrapper">
+        <div className={`card ${lumenActive ? 'active' : ''}`}>
+          <div className="light-layer">
+            <div className="slit"></div>
+            <div className="lumen">
+              <div className="min"></div>
+              <div className="mid"></div>
+              <div className="hi"></div>
+            </div>
+            <div className="darken">
+              <div className="sl"></div>
+              <div className="ll"></div>
+              <div className="slt"></div>
+              <div className="srt"></div>
+            </div>
+          </div>
+          <div className="content">
+            <div className="icon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="3.2rem" height="3.2rem" viewBox="0 0 1024 1024">
+                <path fill="url(#iconGradient)" d="M488.1 414.7V303.4L300.9 428l83.6 55.8zm254.1 137.7v-79.8l-59.8 39.9zM512 64C264.6 64 64 264.6 64 512s200.6 448 448 448s448-200.6 448-448S759.4 64 512 64m278 533c0 1.1-.1 2.1-.2 3.1c0 .4-.1.7-.2 1a14.2 14.2 0 0 1-.8 3.2c-.2.6-.4 1.2-.6 1.7c-.2.4-.4.8-.5 1.2c-.3.5-.5 1.1-.8 1.6c-.2.4-.4.7-.7 1.1c-.3.5-.7 1-1 1.5c-.3.4-.5.7-.8 1-.4.4-.8.9-1.2 1.3c-.3.3-.6.6-1 .9c-.4.4-.9.8-1.4 1.1c-.4.3-.7.6-1.1.8c-.1.1-.3.2-.4.3L525.2 786c-4 2.7-8.6 4-13.2 4c-4.7 0-9.3-1.4-13.3-4L244.6 616.9c-.1-.1-.3-.2-.4-.3l-1.1-.8c-.5-.4-.9-.7-1.3-1.1c-.3-.3-.6-.6-1-.9c-.4-.4-.8-.8-1.2-1.3a7 7 0 0 1-.8-1c-.4-.5-.7-1-1-1.5c-.2-.4-.5-.7-.7-1.1c-.3-.5-.6-1.1-.8-1.6c-.2-.4-.4-.8-.5-1.2c-.2-.6-.4-1.2-.6-1.7c-.1-.4-.3-.8-.4-1.2c-.2-.7-.3-1.3-.4-2c-.1-.3-.1-.7-.2-1c-.1-1-.2-2.1-.2-3.1V427.9c0-1 .1-2.1.2-3.1c.1-.3.1-.7.2-1a14.2 14.2 0 0 1 .8-3.2c.2-.6.4-1.2.6-1.7.2-.4.4-.8.5-1.2.2-.5.5-1.1.8-1.6.2-.4.4-.7.7-1.1.6-.9 1.2-1.7 1.8-2.5.4-.4.8-.9 1.2-1.3.3-.3.6-.6 1-.9.4-.4.9-.8 1.3-1.1s.7-.6 1.1-.8c.1-.1.3-.2.4-.3L498.7 239c8-5.3 18.5-5.3 26.5 0l254.1 169.1c.1.1.3.2.4.3l1.1.8l1.4 1.1c.3.3.6.6 1 .9c.4.4.8.8 1.2 1.3c.7.8 1.3 1.6 1.8 2.5.2.4.5.7.7 1.1c.3.5.6 1 .8 1.6c.2.4.4.8.5 1.2c.2.6.4 1.2.6 1.7c.1.4.3.8.4 1.2c.2.7.3 1.3.4 2c.1.3.1.7.2 1c.1 1 .2 2.1.2 3.1zm-254.1 13.3v111.3L723.1 597l-83.6-55.8zM281.8 472.6v79.8l59.8-39.9zM512 456.1l-84.5 56.4l84.5 56.4l84.5-56.4zM723.1 428L535.9 303.4v111.3l103.6 69.1zM384.5 541.2L300.9 597l187.2 124.6V610.3z" filter="url(#strong-inner)" />
+                <defs>
+                  <linearGradient id="iconGradient" x1="0" x2="0" y1="-1" y2="0.8">
+                    <stop offset="0%" stopColor="#bbb" />
+                    <stop offset="100%" stopColor="#555" />
+                  </linearGradient>
+                  <filter id="strong-inner">
+                    <feFlood floodColor="#fff2" />
+                    <feComposite operator="out" in2="SourceGraphic" />
+                    <feMorphology operator="dilate" radius="8" />
+                    <feGaussianBlur stdDeviation="32" />
+                    <feComposite operator="atop" in2="SourceGraphic" />
+                  </filter>
+                </defs>
+              </svg>
+            </div>
+
+            <div className="login-form-container">
+              <h2 className="login-title text-center">SmartPhysio</h2>
+              <p className="login-subtitle text-center">Intelligent Rehabilitation Portal</p>
+
+              {error && (
+                <div className="login-error-toast">
+                  {error}
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit} className="login-form-fields">
+                <div className="input-group">
+                  <label>Email Address</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="e.g. john@example.com"
+                    required
+                  />
+                </div>
+                
+                <div className="input-group">
+                  <label>Password</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Min. 8 characters"
+                    required
+                  />
+                </div>
+
+                <button type="submit" disabled={loading} className="login-btn">
+                  {loading ? 'Signing In...' : 'Sign In'}
+                </button>
+              </form>
+
+              <div className="login-footer">
+                <p>
+                  Don't have an account?{' '}
+                  <Link to="/register" className="register-link">
+                    Register Here
+                  </Link>
+                </p>
+              </div>
+            </div>
+
+            <div className="bottom-toggle-container">
+              <div 
+                className={`toggle ${lumenActive ? 'active' : ''}`}
+                onClick={() => setLumenActive(!lumenActive)}
+              >
+                <div className="handle"></div>
+                <span>Activate Lumen</span>
+              </div>
+            </div>
+          </div>
         </div>
-
-        {error && (
-          <div className="p-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg text-center font-medium">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Email Address</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="e.g. john@example.com"
-              className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-slate-800"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Min. 8 characters"
-              className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-slate-800"
-              required
-            />
-          </div>
-          
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-primary text-white font-medium rounded-lg hover:bg-blue-600 transition disabled:opacity-50 flex items-center justify-center"
-          >
-            {loading ? 'Signing In...' : 'Sign In'}
-          </button>
-        </form>
-        
-        <p className="text-center text-sm text-slate-600">
-          Don't have an account?{' '}
-          <Link to="/register" className="text-primary hover:underline font-semibold">
-            Register Here
-          </Link>
-        </p>
       </div>
     </div>
   );
