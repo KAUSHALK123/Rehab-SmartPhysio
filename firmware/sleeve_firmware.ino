@@ -37,14 +37,15 @@
 #include <MPU6050_tockn.h>
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
+#include <Preferences.h>
 
-// --- Wi-Fi Settings ---
-const char* ssid = "YOUR_WIFI_SSID";          // Replace with local Wi-Fi SSID
-const char* password = "YOUR_WIFI_PASSWORD";  // Replace with Wi-Fi Password
-
-// --- Backend Host Settings ---
-const char* server_host = "192.168.29.176";    // Replace with backend server machine IP (e.g. 192.168.x.x)
+// --- Wi-Fi & Server Configurations (Defaults loaded from NVS if present) ---
+String wifi_ssid = "YOUR_WIFI_SSID";
+String wifi_pass = "YOUR_WIFI_PASSWORD";
+String server_host = "10.30.134.199";
 const int server_port = 8000;
+
+Preferences preferences;
 
 // --- Analog Input Pins Assignment ---
 const int PIN_THUMB = 32;
@@ -110,10 +111,31 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 void setup() {
   Serial.begin(115200);
   delay(1000);
+
+  // Load preferences from non-volatile storage (NVS)
+  preferences.begin("physio", false);
+  String stored_ssid = preferences.getString("wifi_ssid", "");
+  String stored_pass = preferences.getString("wifi_pass", "");
+  String stored_host = preferences.getString("server_host", "");
+  preferences.end();
+
+  if (stored_ssid.length() > 0) {
+    wifi_ssid = stored_ssid;
+    wifi_pass = stored_pass;
+    Serial.printf("[NVS] Loaded Wi-Fi SSID from memory: %s\n", wifi_ssid.c_str());
+  } else {
+    Serial.println("[NVS] No Wi-Fi configuration stored in memory. Using code defaults.");
+  }
+  if (stored_host.length() > 0) {
+    server_host = stored_host;
+    Serial.printf("[NVS] Loaded server host from memory: %s\n", server_host.c_str());
+  } else {
+    Serial.println("[NVS] No server host stored in memory. Using code defaults.");
+  }
   
   // 1. Initialize Wi-Fi Connection
-  Serial.printf("\nConnecting to Wi-Fi SSID: %s\n", ssid);
-  WiFi.begin(ssid, password);
+  Serial.printf("\nConnecting to Wi-Fi SSID: %s\n", wifi_ssid.c_str());
+  WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
@@ -141,14 +163,53 @@ void setup() {
 
   // 3. Initialize WebSocket client connection
   // client_type=device query parameter informs backend this is the hardware device socket
-  Serial.printf("Connecting to WebSocket server: %s:%d...\n", server_host, server_port);
-  webSocket.begin(server_host, server_port, "/api/v1/device/ws?client_type=device");
+  Serial.printf("Connecting to WebSocket server: %s:%d...\n", server_host.c_str(), server_port);
+  webSocket.begin(server_host.c_str(), server_port, "/api/v1/device/ws?client_type=device");
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000); // Reconnect every 5 seconds if connection fails
 }
 
 void loop() {
   webSocket.loop();
+
+  // Listen for serial configuration commands
+  if (Serial.available() > 0) {
+    String serialData = Serial.readStringUntil('\n');
+    serialData.trim();
+    if (serialData.startsWith("SET_CONFIG:")) {
+      // Command format: SET_CONFIG:SSID,PASSWORD,SERVER_IP
+      String configData = serialData.substring(11);
+      int firstComma = configData.indexOf(',');
+      int secondComma = configData.indexOf(',', firstComma + 1);
+      
+      if (firstComma != -1 && secondComma != -1) {
+        String newSsid = configData.substring(0, firstComma);
+        String newPass = configData.substring(firstComma + 1, secondComma);
+        String newHost = configData.substring(secondComma + 1);
+        
+        newSsid.trim();
+        newPass.trim();
+        newHost.trim();
+        
+        Serial.println("\n[CONFIG] Received new configuration over Serial:");
+        Serial.printf("SSID: %s\n", newSsid.c_str());
+        Serial.printf("Host: %s\n", newHost.c_str());
+        
+        // Write to NVS
+        preferences.begin("physio", false);
+        preferences.putString("wifi_ssid", newSsid);
+        preferences.putString("wifi_pass", newPass);
+        preferences.putString("server_host", newHost);
+        preferences.end();
+        
+        Serial.println("[CONFIG] Saved to NVS! Rebooting ESP32...");
+        delay(1000);
+        ESP.restart();
+      } else {
+        Serial.println("[CONFIG] Error: Invalid format. Expected: SET_CONFIG:SSID,PASSWORD,SERVER_IP");
+      }
+    }
+  }
 
   // Stream data at 10Hz interval
   unsigned long currentTime = millis();
