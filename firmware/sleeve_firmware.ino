@@ -27,15 +27,14 @@
   -------------------------------------------------------------
   
   External Libraries Required:
-  1. Adafruit MPU6050 (by Adafruit)
+  1. MPU6050_tockn (by tockn)
   2. ArduinoJson (by Benoit Blanchon)
   3. WebSockets (by Markus Sattler)
 */
 
 #include <WiFi.h>
 #include <Wire.h>
-#include <Adafruit_MPU6050.h>
-#include <Adafruit_Sensor.h>
+#include <MPU6050_tockn.h>
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
 
@@ -57,7 +56,7 @@ const int PIN_ELBOW = 39;
 const int PIN_PRESSURE = 25;
 
 // --- Sensors Variables & Objects ---
-Adafruit_MPU6050 mpu;
+MPU6050 mpu(Wire);
 WebSocketsClient webSocket;
 bool wsConnected = false;
 bool mpuFound = false;
@@ -124,16 +123,20 @@ void setup() {
   Serial.println(WiFi.localIP());
 
   // 2. Initialize I2C and MPU6050
+  Wire.begin();
   Serial.println("Initializing MPU6050 Accelerometer...");
-  if (!mpu.begin()) {
+  
+  Wire.beginTransmission(0x68);
+  byte error = Wire.endTransmission();
+  
+  if (error != 0) {
     Serial.println("Warning: MPU6050 chip not found! Check SDA/SCL wire connections.");
     mpuFound = false;
   } else {
-    Serial.println("MPU6050 initialized successfully.");
+    mpu.begin();
+    Serial.println("MPU6050 initialized successfully. Calibrating gyro offsets (Keep sleeve static)...");
+    mpu.calcGyroOffsets(true);
     mpuFound = true;
-    mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-    mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-    mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
   }
 
   // 3. Initialize WebSocket client connection
@@ -176,14 +179,13 @@ void loop() {
     int gripForce = map(constrain(rawPressure, 0, 3000), 0, 3000, 0, 800);
 
     // C. Read MPU6050 orientation variables
-    sensors_event_t a, g, temp;
     float wristPitch = 0.0;
     float wristRoll = 0.0;
     
-    if (mpu.getEvent(&a, &g, &temp)) {
-      // Calculate roll/pitch orientation angles (in degrees) from gravity vectors
-      wristPitch = atan2(-a.acceleration.x, sqrt(a.acceleration.y * a.acceleration.y + a.acceleration.z * a.acceleration.z)) * 180.0 / M_PI;
-      wristRoll = atan2(a.acceleration.y, a.acceleration.z) * 180.0 / M_PI;
+    if (mpuFound) {
+      mpu.update();
+      wristPitch = mpu.getAngleX();
+      wristRoll = mpu.getAngleY();
     }
 
     // D. Build JSON Telemetry payload
