@@ -57,7 +57,7 @@ const int PIN_ELBOW = 39;
 const int PIN_PRESSURE = 25;
 
 // --- Sensors Variables & Objects ---
-MPU6050* mpu = nullptr;
+MPU6050 mpu(Wire);
 WebSocketsClient webSocket;
 bool wsConnected = false;
 bool mpuFound = false;
@@ -184,29 +184,27 @@ void setup() {
 
   // 2. Initialize I2C and MPU6050
   Wire.begin();
-  delay(100); // Wait for I2C bus to settle
+  delay(200); // Allow I2C bus pins to settle
   Serial.println("Initializing MPU6050 Accelerometer...");
   
-  byte mpuAddr = 0;
-  Wire.beginTransmission(0x68);
-  if (Wire.endTransmission() == 0) {
-    mpuAddr = 0x68;
-  } else {
-    Wire.beginTransmission(0x69);
-    if (Wire.endTransmission() == 0) {
-      mpuAddr = 0x69;
+  // Try to detect MPU6050 on address 0x68 (up to 3 retries)
+  byte error = 1;
+  for (int i = 0; i < 3; i++) {
+    Wire.beginTransmission(0x68);
+    error = Wire.endTransmission();
+    if (error == 0) {
+      break;
     }
+    delay(50);
   }
   
-  if (mpuAddr == 0) {
+  if (error != 0) {
     Serial.println("Warning: MPU6050 chip not found! Check SDA/SCL wire connections.");
     mpuFound = false;
   } else {
-    Serial.printf("MPU6050 detected at address 0x%02X\n", mpuAddr);
-    mpu = new MPU6050(Wire, mpuAddr);
-    mpu->begin();
+    mpu.begin();
     Serial.println("MPU6050 initialized successfully. Calibrating gyro offsets (Keep sleeve static)...");
-    mpu->calcGyroOffsets(true);
+    mpu.calcGyroOffsets(true);
     mpuFound = true;
   }
 
@@ -292,10 +290,10 @@ void loop() {
     float wristPitch = 0.0;
     float wristRoll = 0.0;
     
-    if (mpuFound && mpu != nullptr) {
-      mpu->update();
-      wristPitch = mpu->getAngleX();
-      wristRoll = mpu->getAngleY();
+    if (mpuFound) {
+      mpu.update();
+      wristPitch = mpu.getAngleX();
+      wristRoll = mpu.getAngleY();
     }
 
     // D. Build JSON Telemetry payload
