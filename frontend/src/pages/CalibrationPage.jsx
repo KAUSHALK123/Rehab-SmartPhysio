@@ -482,7 +482,7 @@ function CalibrationPage() {
 
     const connectionTimeout = setTimeout(() => {
       if (!physicalDeviceConnected) {
-        setErrorMsg('Physical ESP32 device not detected. Ensure your ESP32 sleeve is powered on and connected to the JioFiber-Ys2sx Wi-Fi subnet.');
+        setErrorMsg('Physical ESP32 device not detected. Ensure your ESP32 sleeve is powered on and connected to the same Wi-Fi subnet as your computer.');
         ws.close();
         setConnecting(false);
       }
