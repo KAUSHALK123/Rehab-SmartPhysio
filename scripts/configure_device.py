@@ -86,12 +86,12 @@ def main():
     # 4. Open serial and send configuration
     print(f"\n[+] Connecting to ESP32 on {com_port} at 115200 baud...")
     try:
-        ser = serial.Serial(com_port, 115200, timeout=2)
+        ser = serial.Serial(com_port, 115200, timeout=1)
         # Toggle DTR/RTS to reset ESP32
         ser.dtr = False
         time.sleep(0.1)
         ser.dtr = True
-        time.sleep(0.5)
+        time.sleep(1.0) # Wait for boot phase
         
         # Flush serial buffers
         ser.reset_input_buffer()
@@ -99,21 +99,32 @@ def main():
         
         # Build command payload
         payload = f"SET_CONFIG:{wifi_ssid},{wifi_pass},{server_ip}\n"
-        print(f"[+] Sending configuration payload to device...")
-        ser.write(payload.encode('utf-8'))
+        print(f"[+] Sending configuration payload (will repeat until acknowledgment received)...")
         
-        # Monitor response
-        print("[+] Monitoring Serial Output from ESP32 (Timeout 10s):")
         start_time = time.time()
-        while time.time() - start_time < 10:
+        last_send_time = 0
+        confirmed = False
+        
+        while time.time() - start_time < 12:
+            current_time = time.time()
+            # Send payload every 1.5 seconds if not confirmed yet
+            if current_time - last_send_time > 1.5:
+                ser.write(payload.encode('utf-8'))
+                last_send_time = current_time
+                
             if ser.in_waiting > 0:
                 line = ser.readline().decode('utf-8', errors='ignore').strip()
                 if line:
                     print(f"  [ESP32] {line}")
-                    if "Rebooting ESP32" in line or "Restarting ESP32" in line:
+                    if "Saved new config" in line or "Rebooting" in line or "Restarting" in line:
                         print("\n[+] SUCCESS: ESP32 has saved the new configuration and is rebooting!")
+                        confirmed = True
                         break
             time.sleep(0.1)
+            
+        if not confirmed:
+            print("\n[-] Warning: No confirmation acknowledgment received from ESP32.")
+            print("Make sure you uploaded the updated sketch and closed the Arduino Serial Monitor.")
             
         ser.close()
     except Exception as e:
