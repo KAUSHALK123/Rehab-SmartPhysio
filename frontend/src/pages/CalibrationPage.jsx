@@ -968,6 +968,16 @@ function CalibrationPage() {
 
                   {activeSensorIndex === 3 && (
                     <div className="space-y-3">
+                      {lastTelemetry && !lastTelemetry.mpu_working && (
+                        <div className="p-2.5 rounded-lg bg-red-50 border border-red-100 text-[10px] font-semibold text-red-700 flex items-start gap-1.5 leading-relaxed">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold block">MPU6050 Disconnected</span>
+                            The ESP32 reported that the MPU6050 chip is not detected on the I2C bus. Check your SDA/SCL wire connections!
+                          </div>
+                        </div>
+                      )}
+
                       <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 grid grid-cols-2 gap-2 text-center">
                         <div>
                           <span className="text-[9px] font-bold text-slate-400 uppercase block">X-Axis (Pitch)</span>
