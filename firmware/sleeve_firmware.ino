@@ -136,13 +136,51 @@ void setup() {
   // 1. Initialize Wi-Fi Connection
   Serial.printf("\nConnecting to Wi-Fi SSID: %s\n", wifi_ssid.c_str());
   WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
+  
+  unsigned long startWifiTime = millis();
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+    delay(200);
     Serial.print(".");
+    
+    // Check for serial configuration commands during connection block!
+    if (Serial.available() > 0) {
+      String serialData = Serial.readStringUntil('\n');
+      serialData.trim();
+      if (serialData.startsWith("SET_CONFIG:")) {
+        String configData = serialData.substring(11);
+        int firstComma = configData.indexOf(',');
+        int secondComma = configData.indexOf(',', firstComma + 1);
+        if (firstComma != -1 && secondComma != -1) {
+          String newSsid = configData.substring(0, firstComma);
+          String newPass = configData.substring(firstComma + 1, secondComma);
+          String newHost = configData.substring(secondComma + 1);
+          newSsid.trim(); newPass.trim(); newHost.trim();
+          
+          preferences.begin("physio", false);
+          preferences.putString("wifi_ssid", newSsid);
+          preferences.putString("wifi_pass", newPass);
+          preferences.putString("server_host", newHost);
+          preferences.end();
+          
+          Serial.println("\n[CONFIG] Saved new config to memory! Rebooting...");
+          delay(500);
+          ESP.restart();
+        }
+      }
+    }
+    
+    // 10 seconds connection timeout
+    if (millis() - startWifiTime > 10000) {
+      Serial.println("\n[WiFi] Connection timed out! Entering offline mode.");
+      break;
+    }
   }
-  Serial.println("\nWi-Fi Connected successfully!");
-  Serial.print("Local IP Address: ");
-  Serial.println(WiFi.localIP());
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWi-Fi Connected successfully!");
+    Serial.print("Local IP Address: ");
+    Serial.println(WiFi.localIP());
+  }
 
   // 2. Initialize I2C and MPU6050
   Wire.begin();
