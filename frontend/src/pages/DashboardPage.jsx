@@ -606,7 +606,7 @@ function DashboardPage() {
           isDark ? 'border-slate-900/10' : 'border-slate-100'
         }`}>
           {/* Slider toggler representation */}
-          <div className="switch-button scale-[0.6] origin-right">
+          <div className="switch-button scale-[0.6] origin-left">
             <div className="switch-outer">
               <input 
                 type="checkbox" 

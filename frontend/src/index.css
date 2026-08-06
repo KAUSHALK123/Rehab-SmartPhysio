@@ -24,16 +24,16 @@ body {
 .card-neumorphic-dark {
   background: #212121 !important;
   border-radius: 30px !important;
-  box-shadow: 15px 15px 30px rgb(25, 25, 25),
-              -15px -15px 30px rgb(60, 60, 60) !important;
+  box-shadow: 8px 8px 16px rgb(20, 20, 20),
+              -8px -8px 16px rgb(45, 45, 45) !important;
   border: none !important;
 }
 
 .card-neumorphic-light {
   background: #e0e0e0 !important;
   border-radius: 50px !important;
-  box-shadow: 20px 20px 60px #bebebe,
-              -20px -20px 60px #ffffff !important;
+  box-shadow: 8px 8px 16px #bebebe,
+              -8px -8px 16px #ffffff !important;
   border: none !important;
 }
 
@@ -46,8 +46,8 @@ body {
   align-items: center;
   -webkit-box-pack: center;
   justify-content: center;
-  justify-content: center;
-  margin: auto;
+  margin-right: auto;
+  margin-left: 5px;
   height: 55px;
 }
 
