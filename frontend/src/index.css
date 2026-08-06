@@ -28,3 +28,11 @@ body {
               -15px -15px 30px rgb(60, 60, 60) !important;
   border: none !important;
 }
+
+.card-neumorphic-light {
+  background: #e0e0e0 !important;
+  border-radius: 50px !important;
+  box-shadow: 20px 20px 60px #bebebe,
+              -20px -20px 60px #ffffff !important;
+  border: none !important;
+}

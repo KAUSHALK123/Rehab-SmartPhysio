@@ -273,12 +273,12 @@ function DashboardPage() {
           COLUMN 1: LEFT SIDEBAR PANEL
           =================================================== */}
       <div className={`w-full xl:w-72 flex flex-col gap-6 shrink-0 rounded-3xl border p-5 shadow-2xl transition-colors duration-300 ${
-        isDark ? 'card-neumorphic-dark text-white' : 'bg-[#FFFFFF] border-slate-200/80 shadow-md'
+        isDark ? 'card-neumorphic-dark text-white' : 'card-neumorphic-light text-slate-800'
       }`}>
         
         {/* Compact Unified Patient profile list card */}
         <div className={`rounded-2xl border p-4 shadow-lg transition-colors duration-300 ${
-          isDark ? 'card-neumorphic-dark text-white' : 'bg-[#F1F5F9]/90 border-slate-200'
+          isDark ? 'card-neumorphic-dark text-white' : 'card-neumorphic-light text-slate-800'
         }`}>
           {/* Active Patient info row */}
           <div className="flex items-center justify-between py-1 relative">
@@ -471,7 +471,7 @@ function DashboardPage() {
 
         {/* MAIN HOLOGRAPHIC ARM VISUALIZER CARD */}
         <div className={`rounded-3xl border shadow-2xl h-[470px] relative overflow-hidden flex items-center justify-center select-none transition-colors duration-300 ${
-          isDark ? 'card-neumorphic-dark text-white' : 'bg-[#FFFFFF] border-slate-200/80 shadow-md'
+          isDark ? 'card-neumorphic-dark text-white' : 'card-neumorphic-light text-slate-800'
         }`}>
           {/* 3D Visualizer Canvas component container */}
           <div className="absolute inset-0">
@@ -598,7 +598,7 @@ function DashboardPage() {
           COLUMN 3: RIGHT PANEL (SUPPLEMENTS & CLINICAL SCHEDULE)
           =================================================== */}
       <div className={`w-full xl:w-80 flex flex-col gap-6 shrink-0 rounded-3xl border p-5 shadow-2xl transition-colors duration-300 ${
-        isDark ? 'card-neumorphic-dark text-white' : 'bg-[#FFFFFF] border-slate-200/80 shadow-md'
+        isDark ? 'card-neumorphic-dark text-white' : 'card-neumorphic-light text-slate-800'
       }`}>
         
         {/* Toggle Slider Header */}
@@ -607,7 +607,7 @@ function DashboardPage() {
         }`}>
           {/* Slider toggler representation */}
           <div className={`flex items-center p-1 rounded-full border transition-colors duration-300 ${
-            isDark ? 'card-neumorphic-dark text-white' : 'bg-[#F1F5F9] border-slate-200'
+            isDark ? 'card-neumorphic-dark text-white' : 'card-neumorphic-light text-slate-800'
           }`}>
             <button 
               onClick={() => toggleTheme()}
@@ -776,7 +776,7 @@ function DashboardPage() {
           isDark ? 'bg-slate-950/70 backdrop-blur-sm' : 'bg-slate-900/40 backdrop-blur-sm'
         }`}>
           <div className={`rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border transition-colors ${
-            isDark ? 'card-neumorphic-dark text-white' : 'bg-[#FFFFFF] border-slate-200'
+            isDark ? 'card-neumorphic-dark text-white' : 'card-neumorphic-light text-slate-800'
           }`}>
             <div className={`px-6 py-4 border-b flex justify-between items-center ${
               isDark ? 'border-slate-850' : 'border-slate-100'
@@ -935,7 +935,7 @@ function DashboardPage() {
       {showDetailsModal && selectedSession && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:relative print:bg-white print:p-0">
           <div className={`rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border flex flex-col justify-between max-h-[90vh] print:max-h-none print:shadow-none print:border-none transition-colors duration-300 ${
-            isDark ? 'card-neumorphic-dark text-white' : 'bg-[#FFFFFF] border-slate-200'
+            isDark ? 'card-neumorphic-dark text-white' : 'card-neumorphic-light text-slate-800'
           }`}>
             
             {/* Modal Header */}
