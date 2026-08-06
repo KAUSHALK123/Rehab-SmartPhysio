@@ -35,6 +35,7 @@ import { getSessionHistory, getSessionDetails } from '../services/session';
 import { getDashboardAnalytics } from '../services/analytics';
 import { getPatients, createPatient } from '../services/patient';
 import apiClient from '../services/auth';
+import Arm3DVisualizer from '../components/Arm3DVisualizer';
 
 function DashboardPage() {
   const navigate = useNavigate();
@@ -56,6 +57,22 @@ function DashboardPage() {
   const [selectedSession, setSelectedSession] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [deviceConnected, setDeviceConnected] = useState(false);
+  const [liveTelemetry, setLiveTelemetry] = useState(null);
+  const [controls, setControls] = useState({
+    shoulder: 0,
+    elbow: 180,
+    forearm: 0,
+    finger: 0
+  });
+
+  const activeControls = deviceConnected && liveTelemetry
+    ? {
+        shoulder: controls.shoulder,
+        elbow: liveTelemetry.elbow,
+        forearm: liveTelemetry.wrist_roll,
+        finger: ((liveTelemetry.thumb || 0) + (liveTelemetry.index || 0) + (liveTelemetry.middle || 0) + (liveTelemetry.ring || 0) + (liveTelemetry.little || 0)) / 5
+      }
+    : controls;
 
   // Patient Registration Modal State
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -132,6 +149,9 @@ function DashboardPage() {
       const data = JSON.parse(event.data);
       if (data.type === 'status_update' && data.status === 'hardware_status_changed') {
         setDeviceConnected(data.hardware_connected);
+      }
+      if (data.type === 'sensor_data') {
+        setLiveTelemetry(data);
       }
     };
     
@@ -253,12 +273,12 @@ function DashboardPage() {
           COLUMN 1: LEFT SIDEBAR PANEL
           =================================================== */}
       <div className={`w-full xl:w-72 flex flex-col gap-6 shrink-0 rounded-3xl border p-5 shadow-2xl transition-colors duration-300 ${
-        isDark ? 'bg-[#09090C] border-slate-900/10' : 'bg-[#FFFFFF] border-slate-200/80 shadow-md'
+        isDark ? 'card-neumorphic-dark text-white' : 'bg-[#FFFFFF] border-slate-200/80 shadow-md'
       }`}>
         
         {/* Compact Unified Patient profile list card */}
         <div className={`rounded-2xl border p-4 shadow-lg transition-colors duration-300 ${
-          isDark ? 'bg-[#121620]/90 border-slate-900/10' : 'bg-[#F1F5F9]/90 border-slate-200'
+          isDark ? 'card-neumorphic-dark text-white' : 'bg-[#F1F5F9]/90 border-slate-200'
         }`}>
           {/* Active Patient info row */}
           <div className="flex items-center justify-between py-1 relative">
@@ -450,46 +470,125 @@ function DashboardPage() {
         </div>
 
         {/* MAIN HOLOGRAPHIC ARM VISUALIZER CARD */}
-        <div className={`rounded-3xl border shadow-2xl h-[470px] relative overflow-hidden flex items-center justify-center p-6 select-none transition-colors duration-300 ${
-          isDark ? 'bg-[#09090C] border-slate-900/10' : 'bg-[#FFFFFF] border-slate-200/80 shadow-md'
+        <div className={`rounded-3xl border shadow-2xl h-[470px] relative overflow-hidden flex items-center justify-center select-none transition-colors duration-300 ${
+          isDark ? 'card-neumorphic-dark text-white' : 'bg-[#FFFFFF] border-slate-200/80 shadow-md'
         }`}>
-          {/* Holographic glowing image background */}
-          <div className="absolute inset-0 flex items-center justify-center p-4">
-            <img 
-              src="/arm_flow_visualization.png" 
-              alt="Holographic Arm Visualization" 
-              className="w-auto h-full max-h-[440px] object-contain opacity-90 select-none pointer-events-none"
-            />
+          {/* 3D Visualizer Canvas component container */}
+          <div className="absolute inset-0">
+            <Arm3DVisualizer controls={activeControls} />
+          </div>
+
+          {/* Sliders Control Panel Overlay */}
+          <div className={`absolute top-4 left-4 z-20 border p-4 rounded-2xl w-48 text-left shadow-2xl backdrop-blur-md ${
+            isDark ? 'bg-[#121620]/85 border-slate-900/10 text-white' : 'bg-white/85 border-slate-200 text-slate-800'
+          }`}>
+            <span className="text-[11px] font-bold text-blue-500 uppercase tracking-wider block mb-3">Joint Calibration</span>
+            
+            <div className="space-y-2.5">
+              {/* Shoulder */}
+              <div>
+                <div className="flex justify-between text-[9px] font-semibold text-slate-400 mb-0.5">
+                  <span>Shoulder Rot.</span>
+                  <span>{activeControls.shoulder}°</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="-90" 
+                  max="90" 
+                  value={controls.shoulder} 
+                  onChange={(e) => setControls(prev => ({ ...prev, shoulder: parseInt(e.target.value) }))}
+                  className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+              </div>
+
+              {/* Elbow */}
+              <div>
+                <div className="flex justify-between text-[9px] font-semibold text-slate-400 mb-0.5">
+                  <span>Elbow Bend</span>
+                  <span>{Math.round(activeControls.elbow)}°</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="90" 
+                  max="180" 
+                  value={controls.elbow} 
+                  disabled={deviceConnected}
+                  onChange={(e) => setControls(prev => ({ ...prev, elbow: parseInt(e.target.value) }))}
+                  className={`w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 ${deviceConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                />
+              </div>
+
+              {/* Forearm */}
+              <div>
+                <div className="flex justify-between text-[9px] font-semibold text-slate-400 mb-0.5">
+                  <span>Forearm Twist</span>
+                  <span>{Math.round(activeControls.forearm)}°</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="-90" 
+                  max="90" 
+                  value={controls.forearm} 
+                  disabled={deviceConnected}
+                  onChange={(e) => setControls(prev => ({ ...prev, forearm: parseInt(e.target.value) }))}
+                  className={`w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 ${deviceConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                />
+              </div>
+
+              {/* Fingers */}
+              <div>
+                <div className="flex justify-between text-[9px] font-semibold text-slate-400 mb-0.5">
+                  <span>Fingers Curl</span>
+                  <span>{Math.round(activeControls.finger)}%</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="100" 
+                  value={controls.finger} 
+                  disabled={deviceConnected}
+                  onChange={(e) => setControls(prev => ({ ...prev, finger: parseInt(e.target.value) }))}
+                  className={`w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 ${deviceConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                />
+              </div>
+            </div>
+
+            {deviceConnected && (
+              <div className="mt-3 pt-2 border-t border-slate-700/20 flex items-center justify-between text-[8px] text-emerald-400 font-bold tracking-wider uppercase animate-pulse">
+                <span>Telemetry Active</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              </div>
+            )}
           </div>
 
           {/* DYNAMIC HUD STATISTIC FLOATING OVERLAYS */}
           
           {/* Card Overlay 1: Elbow Flex Cluster */}
-          <div className={`absolute top-10 left-12 border p-3.5 rounded-xl text-left shadow-2xl backdrop-blur-md max-w-[125px] transition hover:scale-105 ${
+          <div className={`absolute top-4 right-4 border p-3 rounded-xl text-left shadow-2xl backdrop-blur-md max-w-[125px] transition hover:scale-105 z-10 ${
             isDark ? 'bg-[#121620]/95 border-slate-900/10 text-white' : 'bg-white/95 border-slate-200 text-slate-800'
           }`}>
-            <span className="text-[14px] font-bold block">Flex Joint</span>
-            <span className="text-[9px] text-slate-500 mt-1 block">Elbow Flexion</span>
-            <div className="absolute bottom-[-15px] right-[-15px] w-5 h-5 border-l border-t border-slate-500/20"></div>
+            <span className="text-[12px] font-bold block">Flex Joint</span>
+            <span className="text-[8px] text-slate-500 mt-0.5 block">Elbow Flexion</span>
           </div>
 
           {/* Card Overlay 2: ROM Active Degrees */}
-          <div className={`absolute bottom-16 left-16 border p-4 rounded-xl text-left shadow-2xl backdrop-blur-md min-w-[125px] transition hover:scale-105 ${
+          <div className={`absolute bottom-4 left-4 border p-3 rounded-xl text-left shadow-2xl backdrop-blur-md min-w-[110px] transition hover:scale-105 z-10 ${
             isDark ? 'bg-[#121620]/95 border-slate-900/10 text-white' : 'bg-white/95 border-slate-200 text-slate-800'
           }`}>
-            <span className="text-2xl font-extrabold block">18°</span>
-            <span className="text-[9px] text-slate-500 mt-1 block leading-relaxed">ROM Active Flexion<br/>Angle Extension</span>
-            {/* Visual connector line indicator dot */}
-            <div className="absolute top-0 right-0 w-2 h-2 bg-blue-500 rounded-full m-2"></div>
+            <span className="text-xl font-extrabold block">
+              {deviceConnected && liveTelemetry ? `${Math.round(180 - liveTelemetry.elbow)}°` : '18°'}
+            </span>
+            <span className="text-[8px] text-slate-500 mt-0.5 block leading-normal">ROM Active Flexion<br/>Angle Extension</span>
           </div>
 
           {/* Card Overlay 3: Peak Grip Compression Force */}
-          <div className={`absolute bottom-24 right-16 border p-4 rounded-xl text-left shadow-2xl backdrop-blur-md min-w-[125px] transition hover:scale-105 ${
+          <div className={`absolute bottom-4 right-4 border p-3 rounded-xl text-left shadow-2xl backdrop-blur-md min-w-[110px] transition hover:scale-105 z-10 ${
             isDark ? 'bg-[#121620]/95 border-slate-900/10 text-white' : 'bg-white/95 border-slate-200 text-slate-800'
           }`}>
-            <span className="text-2xl font-extrabold block">23.3</span>
-            <span className="text-[9px] text-slate-500 mt-1 block leading-relaxed">Newtons Peak Force<br/>Muscular Squeeze</span>
-            <div className="absolute top-0 left-0 w-2 h-2 bg-blue-500 rounded-full m-2"></div>
+            <span className="text-xl font-extrabold block">
+              {deviceConnected && liveTelemetry ? `${(liveTelemetry.pressure / 10).toFixed(1)}` : '23.3'}
+            </span>
+            <span className="text-[8px] text-slate-500 mt-0.5 block leading-normal">Newtons Peak Force<br/>Muscular Squeeze</span>
           </div>
         </div>
 
@@ -499,7 +598,7 @@ function DashboardPage() {
           COLUMN 3: RIGHT PANEL (SUPPLEMENTS & CLINICAL SCHEDULE)
           =================================================== */}
       <div className={`w-full xl:w-80 flex flex-col gap-6 shrink-0 rounded-3xl border p-5 shadow-2xl transition-colors duration-300 ${
-        isDark ? 'bg-[#09090C] border-slate-900/10' : 'bg-[#FFFFFF] border-slate-200/80 shadow-md'
+        isDark ? 'card-neumorphic-dark text-white' : 'bg-[#FFFFFF] border-slate-200/80 shadow-md'
       }`}>
         
         {/* Toggle Slider Header */}
@@ -508,7 +607,7 @@ function DashboardPage() {
         }`}>
           {/* Slider toggler representation */}
           <div className={`flex items-center p-1 rounded-full border transition-colors duration-300 ${
-            isDark ? 'bg-[#121620] border-slate-900/10' : 'bg-[#F1F5F9] border-slate-200'
+            isDark ? 'card-neumorphic-dark text-white' : 'bg-[#F1F5F9] border-slate-200'
           }`}>
             <button 
               onClick={() => toggleTheme()}
@@ -677,7 +776,7 @@ function DashboardPage() {
           isDark ? 'bg-slate-950/70 backdrop-blur-sm' : 'bg-slate-900/40 backdrop-blur-sm'
         }`}>
           <div className={`rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border transition-colors ${
-            isDark ? 'bg-[#09090C] border-slate-900' : 'bg-[#FFFFFF] border-slate-200'
+            isDark ? 'card-neumorphic-dark text-white' : 'bg-[#FFFFFF] border-slate-200'
           }`}>
             <div className={`px-6 py-4 border-b flex justify-between items-center ${
               isDark ? 'border-slate-850' : 'border-slate-100'
@@ -836,7 +935,7 @@ function DashboardPage() {
       {showDetailsModal && selectedSession && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:relative print:bg-white print:p-0">
           <div className={`rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border flex flex-col justify-between max-h-[90vh] print:max-h-none print:shadow-none print:border-none transition-colors duration-300 ${
-            isDark ? 'bg-[#09090C] border-slate-900' : 'bg-[#FFFFFF] border-slate-200'
+            isDark ? 'card-neumorphic-dark text-white' : 'bg-[#FFFFFF] border-slate-200'
           }`}>
             
             {/* Modal Header */}

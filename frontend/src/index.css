@@ -20,3 +20,11 @@ body {
 .animate-progress-bar {
   animation: progressBar 2s linear forwards;
 }
+
+.card-neumorphic-dark {
+  background: #212121 !important;
+  border-radius: 30px !important;
+  box-shadow: 15px 15px 30px rgb(25, 25, 25),
+              -15px -15px 30px rgb(60, 60, 60) !important;
+  border: none !important;
+}
