@@ -606,25 +606,19 @@ function DashboardPage() {
           isDark ? 'border-slate-900/10' : 'border-slate-100'
         }`}>
           {/* Slider toggler representation */}
-          <div className={`flex items-center p-1 rounded-full border transition-colors duration-300 ${
-            isDark ? 'card-neumorphic-dark text-white' : 'card-neumorphic-light text-slate-800'
-          }`}>
-            <button 
-              onClick={() => toggleTheme()}
-              className={`w-6 h-6 rounded-full flex items-center justify-center transition cursor-pointer ${
-                !isDark ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-white'
-              }`}
-            >
-              <Sun className="w-3.5 h-3.5" />
-            </button>
-            <button 
-              onClick={() => toggleTheme()}
-              className={`w-6 h-6 rounded-full flex items-center justify-center transition cursor-pointer ${
-                isDark ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-505 hover:text-slate-950'
-              }`}
-            >
-              <Moon className="w-3.5 h-3.5" />
-            </button>
+          <div className="switch-button scale-[0.6] origin-right">
+            <div className="switch-outer">
+              <input 
+                type="checkbox" 
+                id="theme-switch" 
+                checked={isDark} 
+                onChange={() => toggleTheme()} 
+              />
+              <label className="button" htmlFor="theme-switch">
+                <span className="button-toggle"></span>
+                <span className="button-indicator"></span>
+              </label>
+            </div>
           </div>
         </div>
 
