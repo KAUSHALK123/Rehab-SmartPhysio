@@ -60,6 +60,7 @@ function DashboardPage() {
   const [liveTelemetry, setLiveTelemetry] = useState(null);
   const [controls, setControls] = useState({
     shoulderAngle: 0,
+    shoulderAngleX: 0,
     elbowAngle: 0,
     wristAngle: 0
   });
@@ -67,6 +68,7 @@ function DashboardPage() {
   const activeControls = deviceConnected && liveTelemetry
     ? {
         shoulderAngle: controls.shoulderAngle,
+        shoulderAngleX: controls.shoulderAngleX,
         elbowAngle: liveTelemetry.elbow,
         wristAngle: liveTelemetry.wrist_roll
       }
@@ -486,7 +488,7 @@ function DashboardPage() {
               {/* Shoulder Angle */}
               <div>
                 <div className="flex justify-between text-[9px] font-semibold text-slate-400 mb-0.5">
-                  <span>Shoulder Angle</span>
+                  <span>Shoulder (Forward/Back)</span>
                   <span>{Math.round(activeControls.shoulderAngle)}°</span>
                 </div>
                 <input 
@@ -495,6 +497,22 @@ function DashboardPage() {
                   max="90" 
                   value={controls.shoulderAngle} 
                   onChange={(e) => setControls(prev => ({ ...prev, shoulderAngle: parseInt(e.target.value) }))}
+                  className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+              </div>
+
+              {/* Shoulder Angle X */}
+              <div>
+                <div className="flex justify-between text-[9px] font-semibold text-slate-400 mb-0.5">
+                  <span>Shoulder (Side/Twist)</span>
+                  <span>{Math.round(activeControls.shoulderAngleX)}°</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="-90" 
+                  max="90" 
+                  value={controls.shoulderAngleX} 
+                  onChange={(e) => setControls(prev => ({ ...prev, shoulderAngleX: parseInt(e.target.value) }))}
                   className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>

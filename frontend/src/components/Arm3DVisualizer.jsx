@@ -15,6 +15,7 @@ function RiggedArmModel({ controls }) {
 
     // Convert degrees to radians
     const shoulderAngleRadians = (controls.shoulderAngle * Math.PI) / 180;
+    const shoulderAngleXRadians = ((controls.shoulderAngleX || 0) * Math.PI) / 180;
     const elbowAngleRadians = (controls.elbowAngle * Math.PI) / 180;
     const wristAngleRadians = (controls.wristAngle * Math.PI) / 180;
 
@@ -45,6 +46,8 @@ function RiggedArmModel({ controls }) {
     if (shoulderBone) {
       // Z axis is usually forward/backward (pitch) if X is side-to-side (yaw/roll)
       shoulderBone.rotation.z = THREE.MathUtils.lerp(shoulderBone.rotation.z, shoulderAngleRadians, 0.1);
+      // Add the X axis rotation from the new slider
+      shoulderBone.rotation.x = THREE.MathUtils.lerp(shoulderBone.rotation.x, shoulderAngleXRadians, 0.1);
     }
     if (elbowBone) {
       elbowBone.rotation.x = THREE.MathUtils.lerp(elbowBone.rotation.x, elbowAngleRadians, 0.1);
