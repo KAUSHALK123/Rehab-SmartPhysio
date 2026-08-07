@@ -20,14 +20,14 @@ function RiggedArmModel({ controls }) {
     const wristAngleRadians = (controls.wristAngle * Math.PI) / 180;
 
     // Find model parts exactly as specified by user for trial.glb (all lowercase internally)
-    const upperarm = gltf.nodes['upperarm'];
+    const shoulder = gltf.nodes['shoulder'];
     const forearm = gltf.nodes['forearm'];
     const palm = gltf.nodes['palm'];
 
     // Apply rotations with smooth interpolation
-    if (upperarm) {
-      upperarm.rotation.z = THREE.MathUtils.lerp(upperarm.rotation.z, shoulderAngleRadians, 0.1);
-      upperarm.rotation.x = THREE.MathUtils.lerp(upperarm.rotation.x, shoulderAngleXRadians, 0.1);
+    if (shoulder) {
+      shoulder.rotation.z = THREE.MathUtils.lerp(shoulder.rotation.z, shoulderAngleRadians, 0.1);
+      shoulder.rotation.x = THREE.MathUtils.lerp(shoulder.rotation.x, shoulderAngleXRadians, 0.1);
     }
     if (forearm) {
       forearm.rotation.x = THREE.MathUtils.lerp(forearm.rotation.x, elbowAngleRadians, 0.1);
