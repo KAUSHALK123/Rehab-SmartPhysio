@@ -18,20 +18,20 @@ function RiggedArmModel({ controls }) {
     const elbowAngleRadians = (controls.elbowAngle * Math.PI) / 180;
     const wristAngleRadians = (controls.wristAngle * Math.PI) / 180;
 
-    // Find model parts by exact name
-    const upperArm = gltf.nodes['UpperArm'];
-    const forearm = gltf.nodes['Forearm'];
-    const palm = gltf.nodes['Palm'];
+    // Find model parts by actual names in trial.glb
+    const shoulderNode = gltf.nodes['shoulder'];
+    const upperArmNode = gltf.nodes['shoulder.001']; // Acts as elbow joint
+    const palmNode = gltf.nodes['palm'];
 
     // Apply rotations with smooth interpolation
-    if (upperArm) {
-      upperArm.rotation.z = THREE.MathUtils.lerp(upperArm.rotation.z, shoulderAngleRadians, 0.1);
+    if (shoulderNode) {
+      shoulderNode.rotation.y = THREE.MathUtils.lerp(shoulderNode.rotation.y, shoulderAngleRadians, 0.1);
     }
-    if (forearm) {
-      forearm.rotation.z = THREE.MathUtils.lerp(forearm.rotation.z, elbowAngleRadians, 0.1);
+    if (upperArmNode) {
+      upperArmNode.rotation.z = THREE.MathUtils.lerp(upperArmNode.rotation.z, elbowAngleRadians, 0.1);
     }
-    if (palm) {
-      palm.rotation.z = THREE.MathUtils.lerp(palm.rotation.z, wristAngleRadians, 0.1);
+    if (palmNode) {
+      palmNode.rotation.z = THREE.MathUtils.lerp(palmNode.rotation.z, wristAngleRadians, 0.1);
     }
   });
 
