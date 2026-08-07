@@ -19,42 +19,23 @@ function RiggedArmModel({ controls }) {
     const elbowAngleRadians = (controls.elbowAngle * Math.PI) / 180;
     const wristAngleRadians = (controls.wristAngle * Math.PI) / 180;
 
-    // Find model parts (specifically bones) to ensure the whole arm moves
-    let shoulderBone = null;
-    let elbowBone = null;
-    let wristBone = null;
-
-    gltf.scene.traverse((node) => {
-      // In some GLBs, bones are standard Object3Ds inside the rig, or isBone is true
-      if (node.name === 'shoulder' && node.parent?.name === 'ArmRIG') {
-        shoulderBone = node;
-      } else if (node.name === 'shoulder' && node.isBone) {
-        shoulderBone = node;
-      }
-      if (node.name === 'shoulder.001') elbowBone = node;
-      if (node.name === 'palm' && (node.isBone || node.parent?.name === 'ArmRIG' || node.parent?.name?.includes('shoulder'))) {
-        wristBone = node;
-      }
-    });
-
-    // Fallback if traverse didn't cleanly isolate them
-    if (!shoulderBone) shoulderBone = gltf.nodes['shoulder'];
-    if (!elbowBone) elbowBone = gltf.nodes['shoulder.001'];
-    if (!wristBone) wristBone = gltf.nodes['palm'];
+    // Find model parts exactly as specified by user for trial.glb
+    const upperArm = gltf.nodes['UpperArm'];
+    const forearm = gltf.nodes['Forearm'];
+    const palm = gltf.nodes['Palm'];
 
     // Apply rotations with smooth interpolation
-    if (shoulderBone) {
-      // Z axis is usually forward/backward (pitch) if X is side-to-side (yaw/roll)
-      shoulderBone.rotation.z = THREE.MathUtils.lerp(shoulderBone.rotation.z, shoulderAngleRadians, 0.1);
-      // Add the X axis rotation from the new slider
-      shoulderBone.rotation.x = THREE.MathUtils.lerp(shoulderBone.rotation.x, shoulderAngleXRadians, 0.1);
+    if (upperArm) {
+      upperArm.rotation.z = THREE.MathUtils.lerp(upperArm.rotation.z, shoulderAngleRadians, 0.1);
+      upperArm.rotation.x = THREE.MathUtils.lerp(upperArm.rotation.x, shoulderAngleXRadians, 0.1);
     }
-    if (elbowBone) {
-      elbowBone.rotation.x = THREE.MathUtils.lerp(elbowBone.rotation.x, elbowAngleRadians, 0.1);
+    if (forearm) {
+      forearm.rotation.x = THREE.MathUtils.lerp(forearm.rotation.x, elbowAngleRadians, 0.1);
     }
-    if (wristBone) {
-      wristBone.rotation.x = THREE.MathUtils.lerp(wristBone.rotation.x, wristAngleRadians, 0.1);
+    if (palm) {
+      palm.rotation.x = THREE.MathUtils.lerp(palm.rotation.x, wristAngleRadians, 0.1);
     }
+
   });
 
   return (
