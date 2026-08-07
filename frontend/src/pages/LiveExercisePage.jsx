@@ -258,13 +258,12 @@ function LiveExercisePage() {
 
   // WebSocket Connection
   const connectWebSocket = () => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    let host = window.location.host;
-    if (host.includes('localhost:5173') || host.includes('127.0.0.1:5173')) {
-      host = host.replace('5173', '8000');
-    }
-    const wsUrl = import.meta.env.VITE_WS_URL || `${protocol}//${host}/api/v1/device/ws`;
-    const ws = new WebSocket(wsUrl);
+    const getWsUrl = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      return import.meta.env.VITE_WS_URL || `${protocol}//${host}/api/v1/device/ws`;
+    };
+    const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
 
     ws.onopen = () => {
