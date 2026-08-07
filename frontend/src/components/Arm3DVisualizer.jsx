@@ -43,14 +43,14 @@ function RiggedArmModel({ controls }) {
 
     // Apply rotations with smooth interpolation
     if (shoulderBone) {
-      // X axis is typically pitch (forward/backward)
-      shoulderBone.rotation.x = THREE.MathUtils.lerp(shoulderBone.rotation.x, shoulderAngleRadians, 0.1);
+      // Z axis is usually forward/backward (pitch) if X is side-to-side (yaw/roll)
+      shoulderBone.rotation.z = THREE.MathUtils.lerp(shoulderBone.rotation.z, shoulderAngleRadians, 0.1);
     }
     if (elbowBone) {
-      elbowBone.rotation.z = THREE.MathUtils.lerp(elbowBone.rotation.z, elbowAngleRadians, 0.1);
+      elbowBone.rotation.x = THREE.MathUtils.lerp(elbowBone.rotation.x, elbowAngleRadians, 0.1);
     }
     if (wristBone) {
-      wristBone.rotation.z = THREE.MathUtils.lerp(wristBone.rotation.z, wristAngleRadians, 0.1);
+      wristBone.rotation.x = THREE.MathUtils.lerp(wristBone.rotation.x, wristAngleRadians, 0.1);
     }
   });
 
