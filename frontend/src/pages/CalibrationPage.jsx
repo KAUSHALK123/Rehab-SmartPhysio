@@ -282,22 +282,97 @@ const LiveVisualizer = ({ sensorIndex, telemetry }) => {
       ctx.fill();
     }
     else if (sensorIndex === 3) {
-      // Wrist Rotation MPU (rotated 3D box)
+      // Wrist Rotation MPU (dynamic top-down hand/wrist visual)
       const pitch = telemetry.wrist_pitch || 0;
       const roll = telemetry.wrist_roll || 0;
 
+      // 1. Draw target background rings (radar style)
+      ctx.strokeStyle = 'rgba(100, 116, 139, 0.25)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(width / 2, height / 2, 28, 0, 2 * Math.PI); ctx.stroke();
+      ctx.beginPath(); ctx.arc(width / 2, height / 2, 45, 0, 2 * Math.PI); ctx.stroke();
+      
+      // Crosshairs
+      ctx.beginPath(); ctx.moveTo(width / 2 - 55, height / 2); ctx.lineTo(width / 2 + 55, height / 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(width / 2, height / 2 - 55); ctx.lineTo(width / 2, height / 2 + 55); ctx.stroke();
+
+      // 2. Draw forearm/arm base (static behind the hand)
+      ctx.strokeStyle = '#64748B';
+      ctx.fillStyle = '#334155';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      // Draw a sleeve base at the bottom of the joint
+      ctx.rect(width / 2 - 12, height / 2 + 25, 24, 45);
+      ctx.fill();
+      ctx.stroke();
+
+      // 3. Draw Hand / Wrist (pronating and supinating)
       ctx.save();
-      ctx.translate(width / 2, height / 2);
+      ctx.translate(width / 2, height / 2 + 25);
       ctx.rotate((roll * Math.PI) / 180);
 
       const scaleY = Math.cos((pitch * Math.PI) / 180);
-      ctx.fillStyle = '#3B82F6';
-      ctx.strokeStyle = '#93C5FD';
-      ctx.lineWidth = 1.5;
+      ctx.scale(1, scaleY);
+
+      // Palm outline
+      ctx.strokeStyle = '#3B82F6';
+      ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
+      ctx.lineWidth = 3;
+      ctx.lineJoin = 'round';
       ctx.beginPath();
-      ctx.rect(-22, -12 * scaleY, 44, 24 * scaleY);
+      ctx.moveTo(-16, 0);
+      ctx.lineTo(-18, -25); 
+      ctx.quadraticCurveTo(-18, -32, -12, -33); 
+      ctx.lineTo(12, -33); 
+      ctx.quadraticCurveTo(18, -32, 18, -25); 
+      ctx.lineTo(16, 0); 
+      ctx.closePath();
       ctx.fill();
       ctx.stroke();
+
+      // Joint pin
+      ctx.fillStyle = '#F59E0B';
+      ctx.beginPath();
+      ctx.arc(0, 0, 5, 0, 2 * Math.PI);
+      ctx.fill();
+
+      // Thumb
+      ctx.strokeStyle = '#60A5FA';
+      ctx.beginPath();
+      ctx.moveTo(-16, -10);
+      ctx.lineTo(-26, -16);
+      ctx.lineTo(-28, -26);
+      ctx.stroke();
+      ctx.fillStyle = '#93C5FD';
+      ctx.beginPath(); ctx.arc(-28, -26, 2.5, 0, 2 * Math.PI); ctx.fill();
+
+      // Index finger
+      ctx.beginPath();
+      ctx.moveTo(-12, -33);
+      ctx.lineTo(-14, -55);
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(-14, -55, 2.2, 0, 2 * Math.PI); ctx.fill();
+
+      // Middle finger
+      ctx.beginPath();
+      ctx.moveTo(-4, -33);
+      ctx.lineTo(-4, -61);
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(-4, -61, 2.2, 0, 2 * Math.PI); ctx.fill();
+
+      // Ring finger
+      ctx.beginPath();
+      ctx.moveTo(4, -33);
+      ctx.lineTo(6, -57);
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(6, -57, 2.2, 0, 2 * Math.PI); ctx.fill();
+
+      // Little finger
+      ctx.beginPath();
+      ctx.moveTo(12, -33);
+      ctx.lineTo(16, -49);
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(16, -49, 2.2, 0, 2 * Math.PI); ctx.fill();
 
       ctx.restore();
     }
@@ -316,9 +391,15 @@ const LiveVisualizer = ({ sensorIndex, telemetry }) => {
 
   }, [sensorIndex, telemetry]);
 
+  const isMpu = sensorIndex === 3;
   return (
     <div className="w-full h-full relative overflow-hidden rounded-lg bg-slate-700">
-      <canvas ref={canvasRef} width={140} height={70} className="w-full h-full block" />
+      <canvas 
+        ref={canvasRef} 
+        width={isMpu ? 280 : 140} 
+        height={isMpu ? 140 : 70} 
+        className="w-full h-full block" 
+      />
       <Video className="absolute bottom-2 right-2 w-4 h-4 text-slate-300" />
     </div>
   );
@@ -400,7 +481,7 @@ function CalibrationPage() {
 
     const connectionTimeout = setTimeout(() => {
       if (!physicalDeviceConnected) {
-        setErrorMsg('Physical ESP32 device not detected. Ensure your ESP32 sleeve is powered on and connected to the JioFiber-Ys2sx Wi-Fi subnet.');
+        setErrorMsg('Physical ESP32 device not detected. Ensure your ESP32 sleeve is powered on and connected to the same Wi-Fi subnet as your computer.');
         ws.close();
         setConnecting(false);
       }
@@ -818,18 +899,23 @@ function CalibrationPage() {
                 </div>
 
                 {/* Illustrated SVG + camera row */}
-                <div className="grid grid-cols-2 gap-4 h-24 items-center">
-                  <div className="flex items-center justify-center bg-slate-50 border border-slate-100 h-full rounded-lg">
-                    {activeSensorIndex === 0 && <Esp32Svg status={currentSensorStatus} />}
-                    {activeSensorIndex === 1 && <FlexGloveSvg status={currentSensorStatus} />}
-                    {activeSensorIndex === 2 && <ElbowPressureSvg status={currentSensorStatus} />}
-                    {activeSensorIndex === 3 && <Mpu6050Svg status={currentSensorStatus} />}
-                    {activeSensorIndex === 4 && <ElbowPressureSvg status={currentSensorStatus} />}
-                  </div>
-                  <div className="h-full bg-slate-800 rounded-lg overflow-hidden border border-slate-700">
+                {activeSensorIndex === 3 ? (
+                  <div className="h-32 bg-slate-800 rounded-lg overflow-hidden border border-slate-700">
                     <LiveVisualizer sensorIndex={activeSensorIndex} telemetry={lastTelemetry} />
                   </div>
-                </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-4 h-24 items-center">
+                    <div className="flex items-center justify-center bg-slate-50 border border-slate-100 h-full rounded-lg">
+                      {activeSensorIndex === 0 && <Esp32Svg status={currentSensorStatus} />}
+                      {activeSensorIndex === 1 && <FlexGloveSvg status={currentSensorStatus} />}
+                      {activeSensorIndex === 2 && <ElbowPressureSvg status={currentSensorStatus} />}
+                      {activeSensorIndex === 4 && <ElbowPressureSvg status={currentSensorStatus} />}
+                    </div>
+                    <div className="h-full bg-slate-800 rounded-lg overflow-hidden border border-slate-700">
+                      <LiveVisualizer sensorIndex={activeSensorIndex} telemetry={lastTelemetry} />
+                    </div>
+                  </div>
+                )}
 
                 {/* Real-time Numeric Values Display & Charts */}
                 <div className="space-y-3.5">
@@ -880,17 +966,44 @@ function CalibrationPage() {
                   )}
 
                   {activeSensorIndex === 3 && (
-                    <div className="space-y-2.5">
+                    <div className="space-y-3">
+                      {lastTelemetry && !lastTelemetry.mpu_working && (
+                        <div className="p-2.5 rounded-lg bg-red-50 border border-red-100 text-[10px] font-semibold text-red-700 flex items-start gap-1.5 leading-relaxed">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold block">MPU6050 Disconnected</span>
+                            The ESP32 reported that the MPU6050 chip is not detected on the I2C bus. Check your SDA/SCL wire connections!
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 grid grid-cols-2 gap-2 text-center">
+                        <div>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase block">X-Axis (Pitch)</span>
+                          <span className="text-xs font-bold text-slate-700">{lastTelemetry?.wrist_pitch || 0}°</span>
+                          <span className="text-[8px] font-semibold text-slate-400 block mt-0.5">
+                            {(lastTelemetry?.wrist_pitch || 0) > 5 ? 'Extension (Up)' : (lastTelemetry?.wrist_pitch || 0) < -5 ? 'Flexion (Down)' : 'Neutral'}
+                          </span>
+                        </div>
+                        <div className="border-l border-slate-200">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase block">Y-Axis (Roll)</span>
+                          <span className="text-xs font-bold text-slate-700">{lastTelemetry?.wrist_roll || 0}°</span>
+                          <span className="text-[8px] font-semibold text-slate-400 block mt-0.5">
+                            {(lastTelemetry?.wrist_roll || 0) > 5 ? 'Pronation (Right)' : (lastTelemetry?.wrist_roll || 0) < -5 ? 'Supination (Left)' : 'Neutral'}
+                          </span>
+                        </div>
+                      </div>
+                      
                       <div>
                         <div className="flex justify-between text-[10px] font-bold text-slate-600 mb-0.5">
-                          <span>Pitch Axis</span>
+                          <span>Pitch Range (Up/Down)</span>
                           <span>{lastTelemetry?.wrist_pitch || 0}°</span>
                         </div>
                         <LiveChart value={lastTelemetry?.wrist_pitch || 0} minVal={-90} maxVal={90} color="#3B82F6" />
                       </div>
                       <div>
                         <div className="flex justify-between text-[10px] font-bold text-slate-600 mb-0.5">
-                          <span>Roll Axis</span>
+                          <span>Roll Range (Left/Right)</span>
                           <span>{lastTelemetry?.wrist_roll || 0}°</span>
                         </div>
                         <LiveChart value={lastTelemetry?.wrist_roll || 0} minVal={-90} maxVal={90} color="#10B981" />
