@@ -30,10 +30,10 @@ function RiggedArmModel({ controls }) {
       shoulder.rotation.x = THREE.MathUtils.lerp(shoulder.rotation.x, shoulderAngleXRadians, 0.1);
     }
     if (forearm) {
-      forearm.rotation.x = THREE.MathUtils.lerp(forearm.rotation.x, elbowAngleRadians, 0.1);
+      forearm.rotation.z = THREE.MathUtils.lerp(forearm.rotation.z, elbowAngleRadians, 0.1);
     }
     if (palm) {
-      palm.rotation.x = THREE.MathUtils.lerp(palm.rotation.x, wristAngleRadians, 0.1);
+      palm.rotation.z = THREE.MathUtils.lerp(palm.rotation.z, wristAngleRadians, 0.1);
     }
 
   });
