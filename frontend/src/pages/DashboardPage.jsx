@@ -59,18 +59,16 @@ function DashboardPage() {
   const [deviceConnected, setDeviceConnected] = useState(false);
   const [liveTelemetry, setLiveTelemetry] = useState(null);
   const [controls, setControls] = useState({
-    shoulder: 0,
-    elbow: 180,
-    forearm: 0,
-    finger: 0
+    shoulderAngle: 0,
+    elbowAngle: 0,
+    wristAngle: 0
   });
 
   const activeControls = deviceConnected && liveTelemetry
     ? {
-        shoulder: controls.shoulder,
-        elbow: liveTelemetry.elbow,
-        forearm: liveTelemetry.wrist_roll,
-        finger: ((liveTelemetry.thumb || 0) + (liveTelemetry.index || 0) + (liveTelemetry.middle || 0) + (liveTelemetry.ring || 0) + (liveTelemetry.little || 0)) / 5
+        shoulderAngle: controls.shoulderAngle,
+        elbowAngle: liveTelemetry.elbow,
+        wristAngle: liveTelemetry.wrist_roll
       }
     : controls;
 
@@ -485,69 +483,52 @@ function DashboardPage() {
             <span className="text-[11px] font-bold text-blue-500 uppercase tracking-wider block mb-3">Joint Calibration</span>
             
             <div className="space-y-2.5">
-              {/* Shoulder */}
+              {/* Shoulder Angle */}
               <div>
                 <div className="flex justify-between text-[9px] font-semibold text-slate-400 mb-0.5">
-                  <span>Shoulder Rot.</span>
-                  <span>{activeControls.shoulder}°</span>
+                  <span>Shoulder Angle</span>
+                  <span>{Math.round(activeControls.shoulderAngle)}°</span>
                 </div>
                 <input 
                   type="range" 
                   min="-90" 
                   max="90" 
-                  value={controls.shoulder} 
-                  onChange={(e) => setControls(prev => ({ ...prev, shoulder: parseInt(e.target.value) }))}
+                  value={controls.shoulderAngle} 
+                  onChange={(e) => setControls(prev => ({ ...prev, shoulderAngle: parseInt(e.target.value) }))}
                   className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
 
-              {/* Elbow */}
+              {/* Elbow Angle */}
               <div>
                 <div className="flex justify-between text-[9px] font-semibold text-slate-400 mb-0.5">
-                  <span>Elbow Bend</span>
-                  <span>{Math.round(activeControls.elbow)}°</span>
+                  <span>Elbow Angle</span>
+                  <span>{Math.round(activeControls.elbowAngle)}°</span>
                 </div>
                 <input 
                   type="range" 
-                  min="90" 
-                  max="180" 
-                  value={controls.elbow} 
+                  min="0" 
+                  max="135" 
+                  value={controls.elbowAngle} 
                   disabled={deviceConnected}
-                  onChange={(e) => setControls(prev => ({ ...prev, elbow: parseInt(e.target.value) }))}
+                  onChange={(e) => setControls(prev => ({ ...prev, elbowAngle: parseInt(e.target.value) }))}
                   className={`w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 ${deviceConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
                 />
               </div>
 
-              {/* Forearm */}
+              {/* Wrist Angle */}
               <div>
                 <div className="flex justify-between text-[9px] font-semibold text-slate-400 mb-0.5">
-                  <span>Forearm Twist</span>
-                  <span>{Math.round(activeControls.forearm)}°</span>
+                  <span>Wrist Angle</span>
+                  <span>{Math.round(activeControls.wristAngle)}°</span>
                 </div>
                 <input 
                   type="range" 
                   min="-90" 
                   max="90" 
-                  value={controls.forearm} 
+                  value={controls.wristAngle} 
                   disabled={deviceConnected}
-                  onChange={(e) => setControls(prev => ({ ...prev, forearm: parseInt(e.target.value) }))}
-                  className={`w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 ${deviceConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
-                />
-              </div>
-
-              {/* Fingers */}
-              <div>
-                <div className="flex justify-between text-[9px] font-semibold text-slate-400 mb-0.5">
-                  <span>Fingers Curl</span>
-                  <span>{Math.round(activeControls.finger)}%</span>
-                </div>
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="100" 
-                  value={controls.finger} 
-                  disabled={deviceConnected}
-                  onChange={(e) => setControls(prev => ({ ...prev, finger: parseInt(e.target.value) }))}
+                  onChange={(e) => setControls(prev => ({ ...prev, wristAngle: parseInt(e.target.value) }))}
                   className={`w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 ${deviceConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
                 />
               </div>
