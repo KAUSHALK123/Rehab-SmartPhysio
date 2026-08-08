@@ -734,7 +734,7 @@ function CalibrationPage() {
     : sensorStatuses[currentSensorKey];
 
   return (
-    <div className="min-h-screen p-6 calib-bg text-slate-700">
+    <div className="min-h-[calc(100vh-5rem)] -m-8 p-8 calib-bg text-slate-700">
       <div className="max-w-6xl mx-auto space-y-6">
       
       {/* 1. Header Wizard Tabs */}
