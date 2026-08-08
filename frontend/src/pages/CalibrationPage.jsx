@@ -700,19 +700,7 @@ function CalibrationPage() {
     }
   };
 
-  // Auto-advance when current sensor is fully calibrated
-  useEffect(() => {
-    const currentKey = componentRows[activeSensorIndex]?.statusKey;
-    if (currentKey && currentKey !== 'esp32' && sensorStatuses[currentKey] === 'ready') {
-      // Wait 1.5 seconds so user can see it turned green, then jump to next
-      const timer = setTimeout(() => {
-        if (activeSensorIndex < 4) {
-          handleNextSensor();
-        }
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [activeSensorIndex, sensorStatuses]);
+
 
   const handleSkipSensor = () => {
     const currentKey = componentRows[activeSensorIndex].statusKey;
@@ -914,7 +902,7 @@ function CalibrationPage() {
                             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Live Stream Waveforms</span>
                             
                             {idx === 0 && (
-                              <div className="space-y-2">
+                              <div className="space-y-3">
                                 <div className="flex justify-between text-xs font-semibold text-slate-600">
                                   <span>Connection Status</span>
                                   <span className={deviceConnected ? "text-emerald-500 font-bold" : "text-red-500 font-bold animate-pulse"}>
@@ -922,6 +910,60 @@ function CalibrationPage() {
                                   </span>
                                 </div>
                                 <LiveChart value={lastTelemetry ? 1 : 0} minVal={0} maxVal={1} color="#10B981" />
+                                
+                                <div className="pt-2 border-t border-slate-200">
+                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">GPIO Pin Health Status</span>
+                                  <div className="grid grid-cols-2 gap-1.5 text-[10px] font-semibold">
+                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                      <span className="text-slate-500 font-medium">GPIO 32 (Thumb)</span>
+                                      <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
+                                        {lastTelemetry ? "● OK" : "○ OFFLINE"}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                      <span className="text-slate-500 font-medium">GPIO 33 (Index)</span>
+                                      <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
+                                        {lastTelemetry ? "● OK" : "○ OFFLINE"}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                      <span className="text-slate-500 font-medium">GPIO 34 (Middle)</span>
+                                      <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
+                                        {lastTelemetry ? "● OK" : "○ OFFLINE"}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                      <span className="text-slate-500 font-medium">GPIO 35 (Ring)</span>
+                                      <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
+                                        {lastTelemetry ? "● OK" : "○ OFFLINE"}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                      <span className="text-slate-500 font-medium">GPIO 36 (Little)</span>
+                                      <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
+                                        {lastTelemetry ? "● OK" : "○ OFFLINE"}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                      <span className="text-slate-500 font-medium">GPIO 39 (Elbow)</span>
+                                      <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
+                                        {lastTelemetry ? "● OK" : "○ OFFLINE"}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                      <span className="text-slate-500 font-medium">GPIO 25 (Pressure)</span>
+                                      <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
+                                        {lastTelemetry ? "● OK" : "○ OFFLINE"}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                      <span className="text-slate-500 font-medium">I2C SDA/SCL (MPU)</span>
+                                      <span className={lastTelemetry && lastTelemetry.mpu_working ? "text-emerald-500 font-bold" : lastTelemetry ? "text-rose-500 animate-pulse font-bold" : "text-slate-400"}>
+                                        {lastTelemetry && lastTelemetry.mpu_working ? "● OK" : lastTelemetry ? "▲ ERROR" : "○ OFFLINE"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
                             )}
 
