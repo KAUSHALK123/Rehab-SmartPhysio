@@ -877,6 +877,7 @@ function CalibrationPage() {
                   </button>
                 </div>
               </div>
+            </div>
 
               {/* RIGHT SIDE DIAGNOSTIC POPUP PANEL */}
               <div className="neu-panel lg:col-span-4 p-5 space-y-5 animate-slide-in relative">
