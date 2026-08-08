@@ -882,10 +882,13 @@ function CalibrationPage() {
                                   bendAngle={bendAngle} 
                                 />
                               </div>
+                            ) : idx === 0 ? (
+                              <div className="flex items-center justify-center neu-panel h-64 rounded-xl p-4">
+                                <Esp32Svg status={status} />
+                              </div>
                             ) : (
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 h-64 items-center">
                                 <div className="flex items-center justify-center neu-panel h-full rounded-xl p-4">
-                                  {idx === 0 && <Esp32Svg status={status} />}
                                   {idx === 1 && <FlexGloveSvg status={status} />}
                                   {idx === 2 && <ElbowPressureSvg status={status} />}
                                   {idx === 4 && <ElbowPressureSvg status={status} />}
@@ -903,13 +906,12 @@ function CalibrationPage() {
                             
                             {idx === 0 && (
                               <div className="space-y-3">
-                                <div className="flex justify-between text-xs font-semibold text-slate-600">
+                                <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1">
                                   <span>Connection Status</span>
                                   <span className={deviceConnected ? "text-emerald-500 font-bold" : "text-red-500 font-bold animate-pulse"}>
                                     {deviceConnected ? "ACTIVE" : "INACTIVE"}
                                   </span>
                                 </div>
-                                <LiveChart value={lastTelemetry ? 1 : 0} minVal={0} maxVal={1} color="#10B981" />
                                 
                                 <div className="pt-2 border-t border-slate-200">
                                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">GPIO Pin Health Status</span>
