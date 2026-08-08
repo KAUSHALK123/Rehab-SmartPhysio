@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/auth';
 import WristCalibrationViewer from '../components/WristCalibrationViewer';
+import ElbowCalibrationViewer from '../components/ElbowCalibrationViewer';
 import { 
   Wifi, 
   WifiOff, 
@@ -456,14 +457,17 @@ function CalibrationPage() {
   });
   const [sideAngle, setSideAngle] = useState(0);
   const [bendAngle, setBendAngle] = useState(0);
+  const [elbowAngle, setElbowAngle] = useState(180);
 
-  // Sync sideAngle/bendAngle with physical sensor telemetry if available
+  // Sync sideAngle/bendAngle/elbowAngle with physical sensor telemetry if available
   useEffect(() => {
     if (lastTelemetry) {
       const roll = Math.max(-45, Math.min(45, lastTelemetry.wrist_roll || 0));
       const pitch = Math.max(-45, Math.min(45, lastTelemetry.wrist_pitch || 0));
+      const elbow = Math.max(90, Math.min(180, lastTelemetry.elbow || 180));
       setSideAngle(roll);
       setBendAngle(pitch);
+      setElbowAngle(elbow);
     }
   }, [lastTelemetry]);
 
@@ -882,6 +886,12 @@ function CalibrationPage() {
                                   bendAngle={bendAngle} 
                                 />
                               </div>
+                            ) : idx === 2 ? (
+                              <div className="h-80 bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-inner relative flex items-center justify-center">
+                                <ElbowCalibrationViewer 
+                                  elbowAngle={elbowAngle} 
+                                />
+                              </div>
                             ) : idx === 0 ? (
                               <div className="flex items-center justify-center neu-panel h-64 rounded-xl p-4">
                                 <Esp32Svg status={status} />
@@ -890,7 +900,6 @@ function CalibrationPage() {
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 h-64 items-center">
                                 <div className="flex items-center justify-center neu-panel h-full rounded-xl p-4">
                                   {idx === 1 && <FlexGloveSvg status={status} />}
-                                  {idx === 2 && <ElbowPressureSvg status={status} />}
                                   {idx === 4 && <ElbowPressureSvg status={status} />}
                                 </div>
                                 <div className="h-full bg-slate-800 rounded-xl overflow-hidden border border-slate-700">
@@ -992,12 +1001,30 @@ function CalibrationPage() {
                             )}
 
                             {idx === 2 && (
-                              <div className="space-y-2">
+                              <div className="space-y-3">
                                 <div className="flex justify-between text-xs font-semibold text-slate-600">
                                   <span>Elbow Bend Angle</span>
-                                  <span className="font-bold text-primary">{lastTelemetry?.elbow || 180}°</span>
+                                  <span className="font-bold text-amber-500">{elbowAngle}°</span>
                                 </div>
-                                <LiveChart value={lastTelemetry?.elbow || 180} minVal={90} maxVal={180} color="#F59E0B" />
+                                <LiveChart value={elbowAngle} minVal={90} maxVal={180} color="#F59E0B" />
+                                
+                                <div className="space-y-3 pt-2.5 border-t border-slate-200">
+                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">3D Arm Prototype Controls</span>
+                                  <div>
+                                    <div className="flex justify-between text-[10px] font-semibold text-slate-500 mb-0.5">
+                                      <span>Elbow Flexion ↔ Extension</span>
+                                      <span className="font-bold text-amber-500">{elbowAngle}°</span>
+                                    </div>
+                                    <input 
+                                      type="range" 
+                                      min="90" 
+                                      max="180" 
+                                      value={elbowAngle} 
+                                      onChange={(e) => setElbowAngle(Number(e.target.value))} 
+                                      className="w-full accent-amber-500 cursor-pointer h-1 bg-slate-200 rounded-lg appearance-none"
+                                    />
+                                  </div>
+                                </div>
                               </div>
                             )}
 
