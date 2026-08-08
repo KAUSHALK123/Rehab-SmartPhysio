@@ -472,9 +472,14 @@ function CalibrationPage() {
     setPhysicalDeviceConnected(false);
     
     const getWsUrl = () => {
+      if (import.meta.env.VITE_WS_URL) {
+        return import.meta.env.VITE_WS_URL;
+      }
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
-      return import.meta.env.VITE_WS_URL || `${protocol}//${host}/api/v1/device/ws`;
+      // If running on Vite dev server (port 5173), redirect WS to FastAPI port 8000
+      const wsHost = host.includes(':5173') ? host.replace(':5173', ':8000') : host;
+      return `${protocol}//${wsHost}/api/v1/device/ws`;
     };
     const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
