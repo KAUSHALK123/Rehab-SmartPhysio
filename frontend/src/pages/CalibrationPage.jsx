@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/auth';
+import Wrist3DVisualizer from '../components/Wrist3DVisualizer';
 import { 
   Wifi, 
   WifiOff, 
@@ -903,8 +904,11 @@ function CalibrationPage() {
 
                 {/* Illustrated SVG + camera row */}
                 {activeSensorIndex === 3 ? (
-                  <div className="h-32 bg-slate-800 rounded-lg overflow-hidden border border-slate-700">
-                    <LiveVisualizer sensorIndex={activeSensorIndex} telemetry={lastTelemetry} />
+                  <div className="h-48 bg-slate-800 rounded-lg overflow-hidden border border-slate-700">
+                    <Wrist3DVisualizer 
+                      roll={lastTelemetry?.wrist_roll || 0} 
+                      pitch={lastTelemetry?.wrist_pitch || 0} 
+                    />
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-4 h-24 items-center">
