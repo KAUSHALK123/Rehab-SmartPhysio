@@ -402,7 +402,6 @@ const LiveVisualizer = ({ sensorIndex, telemetry }) => {
       />
       <Video className="absolute bottom-2 right-2 w-4 h-4 text-slate-300" />
     </div>
-    </div>
   );
 };
 
