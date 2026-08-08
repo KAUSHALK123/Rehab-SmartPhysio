@@ -75,6 +75,92 @@ body {
   pointer-events: none;
 }
 
+/* --- Calibration Page Neumorphism --- */
+.calib-bg {
+  background-color: #ebf0f5 !important;
+}
+
+.neu-panel {
+  background: #ebf0f5 !important;
+  border-radius: 24px !important;
+  box-shadow: 12px 12px 24px #c8cdd1,
+              -12px -12px 24px #ffffff !important;
+  border: none !important;
+}
+
+.neu-panel-inset {
+  background: #ebf0f5 !important;
+  border-radius: 16px !important;
+  box-shadow: inset 8px 8px 16px #c8cdd1,
+              inset -8px -8px 16px #ffffff !important;
+  border: none !important;
+}
+
+.neu-button {
+  background: #ebf0f5;
+  border-radius: 12px;
+  box-shadow: 6px 6px 12px #c8cdd1,
+              -6px -6px 12px #ffffff;
+  border: none !important;
+  transition: all 0.2s ease-in-out;
+}
+
+.neu-button:active {
+  box-shadow: inset 4px 4px 8px #c8cdd1,
+              inset -4px -4px 8px #ffffff;
+}
+
+.neu-button-primary {
+  background: linear-gradient(145deg, #448cf8, #3976d1) !important;
+  color: white !important;
+  box-shadow: 6px 6px 12px #c8cdd1,
+              -6px -6px 12px #ffffff !important;
+  border: none !important;
+}
+
+.neu-button-primary:active {
+  box-shadow: inset 4px 4px 8px #2b599c,
+              inset -4px -4px 8px #4ea0ff !important;
+}
+
+/* Theme Switch Button */
+.switch-button {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  justify-content: center;
+  margin-right: auto;
+  margin-left: 5px;
+  height: 55px;
+}
+
+.switch-button .switch-outer {
+  height: 100%;
+  background: #252532;
+  width: 115px;
+  border-radius: 165px;
+  -webkit-box-shadow: inset 0px 5px 10px 0px #16151c, 0px 3px 6px -2px #403f4e;
+  box-shadow: inset 0px 5px 10px 0px #16151c, 0px 3px 6px -2px #403f4e;
+  border: 1px solid #32303e;
+  padding: 6px;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.switch-button .switch-outer input[type="checkbox"] {
+  opacity: 0;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  position: absolute;
+}
+
+
 /* Scoped Luminous Card Design */
 .login-page-container .card {
 	position: relative;
