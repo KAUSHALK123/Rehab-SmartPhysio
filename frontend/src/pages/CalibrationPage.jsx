@@ -402,6 +402,7 @@ const LiveVisualizer = ({ sensorIndex, telemetry }) => {
       />
       <Video className="absolute bottom-2 right-2 w-4 h-4 text-slate-300" />
     </div>
+    </div>
   );
 };
 
@@ -682,6 +683,20 @@ function CalibrationPage() {
     }
   };
 
+  // Auto-advance when current sensor is fully calibrated
+  useEffect(() => {
+    const currentKey = componentRows[activeSensorIndex]?.statusKey;
+    if (currentKey && currentKey !== 'esp32' && sensorStatuses[currentKey] === 'ready') {
+      // Wait 1.5 seconds so user can see it turned green, then jump to next
+      const timer = setTimeout(() => {
+        if (activeSensorIndex < 4) {
+          handleNextSensor();
+        }
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [activeSensorIndex, sensorStatuses]);
+
   const handleSkipSensor = () => {
     const currentKey = componentRows[activeSensorIndex].statusKey;
     setSensorStatuses(prev => ({ ...prev, [currentKey]: 'skipped' }));
@@ -720,10 +735,11 @@ function CalibrationPage() {
     : sensorStatuses[currentSensorKey];
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="min-h-screen p-6 calib-bg text-slate-700">
+      <div className="max-w-6xl mx-auto space-y-6">
       
       {/* 1. Header Wizard Tabs */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+      <div className="neu-panel p-6 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Activity className="w-6 h-6 text-primary" />
           <h3 className="text-lg font-bold text-slate-800">Calibration Wizard</h3>
@@ -747,43 +763,34 @@ function CalibrationPage() {
           STEP 1: COMPONENTS & SIDE POPUP VIEW
           ========================================== */}
       {step === 1 && (
-        <>
-          {!linkEstablished ? (
-            <div className="bg-white p-12 rounded-2xl border border-slate-200 shadow-sm text-center max-w-xl mx-auto space-y-6 animate-fade-in">
-              <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
-                <WifiOff className="w-8 h-8" />
-              </div>
-              <div className="space-y-2">
-                <h4 className="text-2xl font-bold text-slate-800">Connect Wearable Sleeve</h4>
-                <p className="text-slate-500 max-w-sm mx-auto text-sm">
-                  Please turn on your ESP32 wearable sleeve and make sure the battery charging switch is set to ON.
-                </p>
-              </div>
-
-              <button
-                onClick={connectDevice}
-                disabled={connecting}
-                className="w-full py-3 bg-primary hover:bg-blue-600 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-blue-500/10"
-              >
-                {connecting ? (
-                  <>
-                    <RefreshCw className="w-5 h-5 animate-spin" />
-                    Searching for physical ESP32...
-                  </>
-                ) : (
-                  <>
-                    <Wifi className="w-5 h-5" />
-                    Establish Device Link
-                  </>
-                )}
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fade-in items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fade-in items-start">
               
-              {/* LEFT MAIN CARD: Component list */}
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm lg:col-span-8 space-y-4">
-                <h4 className="font-bold text-slate-800 text-lg">Device Link Established - Component Diagnostics</h4>
+          {/* LEFT MAIN CARD: Component list */}
+          <div className="neu-panel p-6 lg:col-span-8 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 pb-4 border-b border-slate-300">
+              <h4 className="font-bold text-slate-800 text-lg">Component Diagnostics</h4>
+              {!linkEstablished ? (
+                <button
+                  onClick={connectDevice}
+                  disabled={connecting}
+                  className="neu-button-primary px-6 py-2.5 text-sm font-bold flex items-center justify-center gap-2 w-full sm:w-auto"
+                >
+                  {connecting ? (
+                    <><RefreshCw className="w-4 h-4 animate-spin" /> Connecting...</>
+                  ) : (
+                    <><Wifi className="w-4 h-4" /> Establish Link</>
+                  )}
+                </button>
+              ) : (
+                <button 
+                  onClick={disconnectDevice}
+                  className="neu-button px-4 py-2 text-xs font-bold text-slate-500 hover:text-red-500"
+                >
+                  Disconnect Link
+                </button>
+              )}
+            </div>
+            <div className="space-y-4">
                 
                 <div className="space-y-3">
                   {componentRows.map((row, idx) => {
@@ -799,11 +806,9 @@ function CalibrationPage() {
                             setSensorStatuses(prev => ({ ...prev, [row.statusKey]: 'calibrating' }));
                           }
                         }}
-                        className={`flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 rounded-xl border transition cursor-pointer ${
-                          isActive 
-                            ? 'border-primary bg-blue-50/20 shadow-sm' 
-                            : 'border-slate-200 hover:border-slate-300 bg-slate-50/50'
-                        }`}
+                        className={`flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 rounded-xl transition cursor-pointer ${
+                          isActive ? 'neu-panel-inset' : 'neu-button opacity-80'
+                        } ${!linkEstablished && idx > 0 ? 'pointer-events-none opacity-40' : ''}`}
                       >
                         <div>
                           <span className="font-bold text-slate-800 block">{row.name}</span>
@@ -812,7 +817,7 @@ function CalibrationPage() {
 
                         {/* Middle Icons row matching the Finger row mockup */}
                         {row.icons && (
-                          <div className="flex items-center gap-2 py-2 sm:py-0 px-3 bg-white rounded-lg border border-slate-100 shadow-inner">
+                          <div className="flex items-center gap-2 py-2 sm:py-0 px-3 rounded-lg neu-panel-inset">
                             <Cpu className="w-4 h-4 text-slate-400" />
                             <div className="w-0.5 h-4 bg-slate-100" />
                             <Sliders className="w-4 h-4 text-slate-400" />
@@ -856,25 +861,18 @@ function CalibrationPage() {
                   })}
                 </div>
 
-                {/* Bottom Card Row containing Communication status */}
-                <div className="flex justify-between items-center pt-2 border-t border-slate-100 text-sm text-slate-500">
+                <div className="flex justify-between items-center pt-2 border-t border-slate-300 text-sm text-slate-500">
                   <div className="flex items-center gap-2">
-                    <RefreshCw className="w-4 h-4 text-primary animate-spin" />
-                    <span>Real-time link streaming at 10Hz</span>
+                    {linkEstablished && <RefreshCw className="w-4 h-4 text-primary animate-spin" />}
+                    <span>{linkEstablished ? 'Real-time link streaming at 10Hz' : 'Awaiting connection...'}</span>
                   </div>
-                  <button 
-                    onClick={disconnectDevice}
-                    className="text-xs font-bold text-slate-400 hover:text-red-500 transition"
-                  >
-                    Disconnect Link
-                  </button>
                 </div>
 
                 <div className="pt-2">
                   <button
                     onClick={() => setStep(2)}
                     disabled={Object.values(sensorStatuses).some(s => s === 'pending' || s === 'calibrating')}
-                    className="w-full py-3 bg-primary hover:bg-blue-600 text-white font-semibold rounded-xl transition cursor-pointer disabled:opacity-50 shadow-md shadow-blue-500/10"
+                    className="w-full py-3 neu-button-primary rounded-xl transition cursor-pointer disabled:opacity-50"
                   >
                     Continue to Motion Verification &rarr;
                   </button>
@@ -882,7 +880,7 @@ function CalibrationPage() {
               </div>
 
               {/* RIGHT SIDE DIAGNOSTIC POPUP PANEL */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-lg lg:col-span-4 p-5 space-y-5 animate-slide-in relative">
+              <div className="neu-panel lg:col-span-4 p-5 space-y-5 animate-slide-in relative">
                 
                 {/* Header info */}
                 <div className="flex justify-between items-center pb-2 border-b border-slate-100">
@@ -905,7 +903,7 @@ function CalibrationPage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-4 h-24 items-center">
-                    <div className="flex items-center justify-center bg-slate-50 border border-slate-100 h-full rounded-lg">
+                    <div className="flex items-center justify-center neu-panel h-full rounded-lg">
                       {activeSensorIndex === 0 && <Esp32Svg status={currentSensorStatus} />}
                       {activeSensorIndex === 1 && <FlexGloveSvg status={currentSensorStatus} />}
                       {activeSensorIndex === 2 && <ElbowPressureSvg status={currentSensorStatus} />}
@@ -938,7 +936,7 @@ function CalibrationPage() {
                       {lastTelemetry && (
                         <div className="grid grid-cols-5 gap-1.5 text-center">
                           {['thumb', 'index', 'middle', 'ring', 'little'].map((finger) => (
-                            <div key={finger} className="bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                            <div key={finger} className="neu-panel p-1.5 rounded-lg">
                               <span className="text-[9px] font-bold text-slate-400 uppercase block">{finger.slice(0, 3)}</span>
                               <span className="text-xs font-bold text-slate-700">{lastTelemetry[finger]}%</span>
                             </div>
@@ -977,7 +975,7 @@ function CalibrationPage() {
                         </div>
                       )}
 
-                      <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 grid grid-cols-2 gap-2 text-center">
+                      <div className="neu-panel-inset p-2.5 rounded-lg grid grid-cols-2 gap-2 text-center">
                         <div>
                           <span className="text-[9px] font-bold text-slate-400 uppercase block">X-Axis (Pitch)</span>
                           <span className="text-xs font-bold text-slate-700">{lastTelemetry?.wrist_pitch || 0}°</span>
@@ -1073,9 +1071,7 @@ function CalibrationPage() {
 
               </div>
 
-            </div>
-          )}
-        </>
+        </div>
       )}
 
       {/* ==========================================
@@ -1083,7 +1079,7 @@ function CalibrationPage() {
           ========================================== */}
       {step === 2 && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in animate-fade-in">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm md:col-span-2 space-y-6">
+          <div className="neu-panel md:col-span-2 p-6 space-y-6">
             <div>
               <h4 className="font-bold text-slate-800 text-lg">Step 2: Motion Verification</h4>
               <p className="text-sm text-slate-500">Perform the following movements to calibrate target thresholds.</p>
@@ -1163,9 +1159,9 @@ function CalibrationPage() {
             </button>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+          <div className="neu-panel md:col-span-1 p-6 space-y-6">
             <h5 className="font-bold text-slate-800">Diagnostics Stream</h5>
-            <div className="space-y-3.5 text-sm text-slate-600 font-mono bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div className="space-y-3.5 text-sm text-slate-600 font-mono neu-panel-inset p-4 rounded-xl">
               <div>Wrist Pitch: {liveValues.wrist_pitch.toFixed(1)}°</div>
               <div>Elbow Flex: {liveValues.elbow.toFixed(0)}°</div>
               <div>Grip Force: {liveValues.pressure} N</div>
@@ -1186,7 +1182,7 @@ function CalibrationPage() {
 
       {/* STEP 3: Complete Screen */}
       {step === 3 && (
-        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm text-center max-w-xl mx-auto space-y-6">
+        <div className="neu-panel p-8 text-center max-w-xl mx-auto space-y-6">
           <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto text-green-600">
             <CheckCircle2 className="w-10 h-10" />
           </div>
@@ -1205,6 +1201,7 @@ function CalibrationPage() {
           </button>
         </div>
       )}
+    </div>
     </div>
   );
 }
