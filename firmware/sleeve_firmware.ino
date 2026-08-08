@@ -279,9 +279,12 @@ void loop() {
     int ringFlex = mapFlexSensor(rawRing, ringMin, ringMax);
     int littleFlex = mapFlexSensor(rawLittle, littleMin, littleMax);
     
-    // Elbow straight (180 deg) down to flexed (90 deg)
-    int rawElbowPercent = mapFlexSensor(rawElbow, elbowMin, elbowMax);
-    int elbowAngle = 180 - map(rawElbowPercent, 0, 100, 0, 90); 
+    // Elbow straight (180°) down to flexed (90°)
+    // Directly map raw ADC value to angle range for clearer behavior
+    // Ensure elbowMin corresponds to fully extended (180°) and elbowMax to full flex (90°)
+    int elbowAngle = map(rawElbow, elbowMin, elbowMax, 180, 90);
+    // Debug output for calibration (remove for production)
+    Serial.printf("[ELBOW] raw=%d angle=%d\n", rawElbow, elbowAngle);
 
     // Grip pressure resistance force (arbitrary Newton approximation)
     int gripForce = map(constrain(rawPressure, 0, 3000), 0, 3000, 0, 800);
