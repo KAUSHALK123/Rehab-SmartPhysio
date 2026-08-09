@@ -31,8 +31,8 @@ function ElbowModel({ elbowAngle }) {
       // Map 180 -> 0 degrees, 90 -> 90 degrees bend
       const bendDeg = 180 - elbowAngle; 
       
-      // Bending rotation around local Y-axis (negative to bend forward in front view)
-      const targetRotation = THREE.MathUtils.degToRad(-bendDeg);
+      // Bending rotation around local Y-axis (positive to bend forward in side view)
+      const targetRotation = THREE.MathUtils.degToRad(bendDeg);
 
       forearmNode.rotation.y = THREE.MathUtils.lerp(
         forearmNode.rotation.y,
@@ -44,7 +44,7 @@ function ElbowModel({ elbowAngle }) {
 
   return (
     // Align to side profile to match the reference image (biceps facing side)
-    <group rotation={[0, -Math.PI / 2, 0]} scale={[2.0, 2.0, 2.0]} position={[0, -0.1, 0]}>
+    <group rotation={[0, -Math.PI / 2, 0]} scale={[1.3, 1.3, 1.3]} position={[0, -0.2, 0]}>
       <primitive object={scene} />
     </group>
   );
@@ -54,7 +54,7 @@ export default function ElbowCalibrationViewer({ elbowAngle = 180 }) {
   return (
     <div className="w-full h-full relative select-none">
       <Canvas
-        camera={{ position: [0, 0.05, 1.85], fov: 35 }}
+        camera={{ position: [0, 0, 2.8], fov: 35 }}
         gl={{ antialias: true, alpha: true }}
       >
         <ambientLight intensity={0.7} />
