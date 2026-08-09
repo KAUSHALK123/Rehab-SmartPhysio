@@ -43,8 +43,8 @@ function ElbowModel({ elbowAngle }) {
   });
 
   return (
-    // Align vertical to match the front-facing reference image exactly
-    <group rotation={[0, 0, 0]} scale={[2.0, 2.0, 2.0]} position={[0, -0.1, 0]}>
+    // Align to side profile to match the reference image (biceps facing side)
+    <group rotation={[0, -Math.PI / 2, 0]} scale={[2.0, 2.0, 2.0]} position={[0, -0.1, 0]}>
       <primitive object={scene} />
     </group>
   );
