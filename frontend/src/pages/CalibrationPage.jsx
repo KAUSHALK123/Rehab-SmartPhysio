@@ -456,24 +456,7 @@ function CalibrationPage() {
     bendElbow: false,
     closeHand: false
   });
-  const [sideAngle, setSideAngle] = useState(0);
-  const [bendAngle, setBendAngle] = useState(0);
-  const [elbowAngle, setElbowAngle] = useState(180);
-  const [pressureForce, setPressureForce] = useState(0);
-
-  // Sync sideAngle/bendAngle/elbowAngle with physical sensor telemetry if available
-  useEffect(() => {
-    if (lastTelemetry) {
-      const roll = Math.max(-45, Math.min(45, lastTelemetry.wrist_roll || 0));
-      const pitch = Math.max(-45, Math.min(45, lastTelemetry.wrist_pitch || 0));
-      const elbow = Math.max(90, Math.min(180, lastTelemetry.elbow || 180));
-      const press = Math.max(0, Math.min(800, lastTelemetry.pressure || 0));
-      setSideAngle(roll);
-      setBendAngle(pitch);
-      setElbowAngle(elbow);
-      setPressureForce(press);
-    }
-  }, [lastTelemetry]);
+  // Live states are handled locally inside individual sensor subcomponents to prevent lag
 
   const wsRef = useRef(null);
 
@@ -880,273 +863,138 @@ function CalibrationPage() {
                       {/* Accordion Row Collapsible Details */}
                       {isActive && (
                         <div className="mt-5 pt-5 border-t border-slate-300 grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
-                          {/* Expanded Left: 3D or 2D Visualizer */}
-                          <div className="flex flex-col space-y-3">
-                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Visual Diagnostics</span>
-                            {idx === 3 ? (
-                              <div className="h-80 bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-inner relative flex items-center justify-center">
-                                <WristCalibrationViewer 
-                                  sideAngle={sideAngle} 
-                                  bendAngle={bendAngle} 
-                                />
-                              </div>
-                            ) : idx === 2 ? (
-                              <div className="h-80 bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-inner relative flex items-center justify-center">
-                                <ElbowCalibrationViewer 
-                                  elbowAngle={elbowAngle} 
-                                />
-                              </div>
-                            ) : idx === 0 ? (
-                              <div className="flex items-center justify-center neu-panel h-64 rounded-xl p-4">
-                                <Esp32Svg status={status} />
-                              </div>
-                            ) : idx === 4 ? (
-                              <div className="h-80 bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-inner relative flex items-center justify-center">
-                                <PressureCalibrationViewer 
-                                  pressure={pressureForce} 
-                                />
-                              </div>
-                            ) : (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 h-64 items-center">
-                                <div className="flex items-center justify-center neu-panel h-full rounded-xl p-4">
-                                  {idx === 1 && <FlexGloveSvg status={status} />}
-                                </div>
-                                <div className="h-full bg-slate-800 rounded-xl overflow-hidden border border-slate-700">
-                                  <LiveVisualizer sensorIndex={idx} telemetry={lastTelemetry} />
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Expanded Right: Telemetry Charts, status, and manual controls */}
-                          <div className="flex flex-col space-y-4">
-                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Live Stream Waveforms</span>
-                            
-                            {idx === 0 && (
-                              <div className="space-y-3">
-                                <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1">
-                                  <span>Connection Status</span>
-                                  <span className={deviceConnected ? "text-emerald-500 font-bold" : "text-red-500 font-bold animate-pulse"}>
-                                    {deviceConnected ? "ACTIVE" : "INACTIVE"}
-                                  </span>
-                                </div>
-                                
-                                <div className="pt-2 border-t border-slate-200">
-                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">GPIO Pin Health Status</span>
-                                  <div className="grid grid-cols-2 gap-1.5 text-[10px] font-semibold">
-                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                      <span className="text-slate-500 font-medium">GPIO 32 (Thumb)</span>
-                                      <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
-                                        {lastTelemetry ? "● OK" : "○ OFFLINE"}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                      <span className="text-slate-500 font-medium">GPIO 33 (Index)</span>
-                                      <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
-                                        {lastTelemetry ? "● OK" : "○ OFFLINE"}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                      <span className="text-slate-500 font-medium">GPIO 34 (Middle)</span>
-                                      <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
-                                        {lastTelemetry ? "● OK" : "○ OFFLINE"}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                      <span className="text-slate-500 font-medium">GPIO 35 (Ring)</span>
-                                      <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
-                                        {lastTelemetry ? "● OK" : "○ OFFLINE"}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                      <span className="text-slate-500 font-medium">GPIO 36 (Little)</span>
-                                      <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
-                                        {lastTelemetry ? "● OK" : "○ OFFLINE"}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                      <span className="text-slate-500 font-medium">GPIO 39 (Elbow)</span>
-                                      <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
-                                        {lastTelemetry ? "● OK" : "○ OFFLINE"}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                      <span className="text-slate-500 font-medium">GPIO 25 (Pressure)</span>
-                                      <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
-                                        {lastTelemetry ? "● OK" : "○ OFFLINE"}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                      <span className="text-slate-500 font-medium">I2C SDA/SCL (MPU)</span>
-                                      <span className={lastTelemetry && lastTelemetry.mpu_working ? "text-emerald-500 font-bold" : lastTelemetry ? "text-rose-500 animate-pulse font-bold" : "text-slate-400"}>
-                                        {lastTelemetry && lastTelemetry.mpu_working ? "● OK" : lastTelemetry ? "▲ ERROR" : "○ OFFLINE"}
-                                      </span>
-                                    </div>
+                          {idx === 2 ? (
+                            <ElbowSensorDetail 
+                              lastTelemetry={lastTelemetry} 
+                              status={status} 
+                              deviceConnected={deviceConnected} 
+                            />
+                          ) : idx === 3 ? (
+                            <WristSensorDetail 
+                              lastTelemetry={lastTelemetry} 
+                              status={status} 
+                              deviceConnected={deviceConnected} 
+                            />
+                          ) : idx === 4 ? (
+                            <PressureSensorDetail 
+                              lastTelemetry={lastTelemetry} 
+                              status={status} 
+                              deviceConnected={deviceConnected} 
+                            />
+                          ) : (
+                            <>
+                              {/* Expanded Left: 3D or 2D Visualizer */}
+                              <div className="flex flex-col space-y-3">
+                                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Visual Diagnostics</span>
+                                {idx === 0 ? (
+                                  <div className="flex items-center justify-center neu-panel h-64 rounded-xl p-4">
+                                    <Esp32Svg status={status} />
                                   </div>
-                                </div>
-                              </div>
-                            )}
-
-                            {idx === 1 && (
-                              <div className="space-y-3">
-                                {lastTelemetry && (
-                                  <div className="grid grid-cols-5 gap-1.5 text-center">
-                                    {['thumb', 'index', 'middle', 'ring', 'little'].map((finger) => (
-                                      <div key={finger} className="neu-panel p-1.5 rounded-lg">
-                                        <span className="text-[9px] font-bold text-slate-400 uppercase block">{finger.slice(0, 3)}</span>
-                                        <span className="text-xs font-bold text-slate-700">{lastTelemetry[finger]}%</span>
-                                      </div>
-                                    ))}
+                                ) : (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 h-64 items-center">
+                                    <div className="flex items-center justify-center neu-panel h-full rounded-xl p-4">
+                                      {idx === 1 && <FlexGloveSvg status={status} />}
+                                    </div>
+                                    <div className="h-full bg-slate-800 rounded-xl overflow-hidden border border-slate-700">
+                                      <LiveVisualizer sensorIndex={idx} telemetry={lastTelemetry} />
+                                    </div>
                                   </div>
                                 )}
-                                <div>
-                                  <div className="flex justify-between text-[11px] font-bold text-slate-600 mb-1">
-                                    <span>Index Finger Flexion</span>
-                                    <span>{lastTelemetry?.index || 0}%</span>
-                                  </div>
-                                  <LiveChart value={lastTelemetry?.index || 0} minVal={0} maxVal={100} color="#3B82F6" />
-                                </div>
                               </div>
-                            )}
 
-                            {idx === 2 && (
-                              <div className="space-y-3">
-                                <div className="flex justify-between text-xs font-semibold text-slate-600">
-                                  <span>Elbow Bend Angle</span>
-                                  <span className="font-bold text-amber-500">{elbowAngle}°</span>
-                                </div>
-                                <LiveChart value={elbowAngle} minVal={90} maxVal={180} color="#F59E0B" />
+                              {/* Expanded Right: Telemetry Charts, status, and manual controls */}
+                              <div className="flex flex-col space-y-4">
+                                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Live Stream Waveforms</span>
                                 
-                                <div className="space-y-3 pt-2.5 border-t border-slate-200">
-                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">3D Arm Prototype Controls</span>
-                                  <div>
-                                    <div className="flex justify-between text-[10px] font-semibold text-slate-500 mb-0.5">
-                                      <span>Elbow Flexion ↔ Extension</span>
-                                      <span className="font-bold text-amber-500">{elbowAngle}°</span>
+                                {idx === 0 && (
+                                  <div className="space-y-3">
+                                    <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1">
+                                      <span>Connection Status</span>
+                                      <span className={deviceConnected ? "text-emerald-500 font-bold" : "text-red-500 font-bold animate-pulse"}>
+                                        {deviceConnected ? "ACTIVE" : "INACTIVE"}
+                                      </span>
                                     </div>
-                                    <input 
-                                      type="range" 
-                                      min="90" 
-                                      max="180" 
-                                      value={elbowAngle} 
-                                      onChange={(e) => setElbowAngle(Number(e.target.value))} 
-                                      className="w-full accent-amber-500 cursor-pointer h-1 bg-slate-200 rounded-lg appearance-none"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
-                            {idx === 3 && (
-                              <div className="space-y-3">
-                                {lastTelemetry && !lastTelemetry.mpu_working && (
-                                  <div className="p-2.5 rounded-lg bg-red-50 border border-red-100 text-[10px] font-semibold text-red-700 flex items-start gap-1.5 leading-relaxed">
-                                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                                    <div>
-                                      <span className="font-bold block">MPU6050 Disconnected</span>
-                                      The ESP32 reported that the MPU6050 chip is not detected on the I2C bus. Check your SDA/SCL wire connections!
+                                    
+                                    <div className="pt-2 border-t border-slate-200">
+                                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">GPIO Pin Health Status</span>
+                                      <div className="grid grid-cols-2 gap-1.5 text-[10px] font-semibold">
+                                        <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                          <span className="text-slate-500 font-medium">GPIO 32 (Thumb)</span>
+                                          <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
+                                            {lastTelemetry ? "● OK" : "○ OFFLINE"}
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                          <span className="text-slate-500 font-medium">GPIO 33 (Index)</span>
+                                          <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
+                                            {lastTelemetry ? "● OK" : "○ OFFLINE"}
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                          <span className="text-slate-500 font-medium">GPIO 34 (Middle)</span>
+                                          <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
+                                            {lastTelemetry ? "● OK" : "○ OFFLINE"}
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                          <span className="text-slate-500 font-medium">GPIO 35 (Ring)</span>
+                                          <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
+                                            {lastTelemetry ? "● OK" : "○ OFFLINE"}
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                          <span className="text-slate-500 font-medium">GPIO 36 (Little)</span>
+                                          <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
+                                            {lastTelemetry ? "● OK" : "○ OFFLINE"}
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                          <span className="text-slate-500 font-medium">GPIO 39 (Elbow)</span>
+                                          <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
+                                            {lastTelemetry ? "● OK" : "○ OFFLINE"}
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                          <span className="text-slate-500 font-medium">GPIO 25 (Pressure)</span>
+                                          <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
+                                            {lastTelemetry ? "● OK" : "○ OFFLINE"}
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                                          <span className="text-slate-500 font-medium">I2C SDA/SCL (MPU)</span>
+                                          <span className={lastTelemetry && lastTelemetry.mpu_working ? "text-emerald-500 font-bold" : lastTelemetry ? "text-rose-500 animate-pulse font-bold" : "text-slate-400"}>
+                                            {lastTelemetry && lastTelemetry.mpu_working ? "● OK" : lastTelemetry ? "▲ ERROR" : "○ OFFLINE"}
+                                          </span>
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
                                 )}
 
-                                <div className="neu-panel-inset p-2.5 rounded-lg grid grid-cols-2 gap-2 text-center">
-                                  <div>
-                                    <span className="text-[9px] font-bold text-slate-400 uppercase block">X-Axis (Pitch)</span>
-                                    <span className="text-xs font-bold text-slate-700">{lastTelemetry?.wrist_pitch || 0}°</span>
-                                    <span className="text-[8px] font-semibold text-slate-400 block mt-0.5">
-                                      {(lastTelemetry?.wrist_pitch || 0) > 5 ? 'Extension (Up)' : (lastTelemetry?.wrist_pitch || 0) < -5 ? 'Flexion (Down)' : 'Neutral'}
-                                    </span>
-                                  </div>
-                                  <div className="border-l border-slate-200">
-                                    <span className="text-[9px] font-bold text-slate-400 uppercase block">Y-Axis (Roll)</span>
-                                    <span className="text-xs font-bold text-slate-700">{lastTelemetry?.wrist_roll || 0}°</span>
-                                    <span className="text-[8px] font-semibold text-slate-400 block mt-0.5">
-                                      {(lastTelemetry?.wrist_roll || 0) > 5 ? 'Pronation (Right)' : (lastTelemetry?.wrist_roll || 0) < -5 ? 'Supination (Left)' : 'Neutral'}
-                                    </span>
-                                  </div>
-                                </div>
-                                
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div>
-                                    <div className="flex justify-between text-[10px] font-bold text-slate-600 mb-0.5">
-                                      <span>Pitch Range (Up/Down)</span>
-                                      <span>{lastTelemetry?.wrist_pitch || 0}°</span>
-                                    </div>
-                                    <LiveChart value={lastTelemetry?.wrist_pitch || 0} minVal={-90} maxVal={90} color="#3B82F6" />
-                                  </div>
-                                  <div>
-                                    <div className="flex justify-between text-[10px] font-bold text-slate-600 mb-0.5">
-                                      <span>Roll Range (Left/Right)</span>
-                                      <span>{lastTelemetry?.wrist_roll || 0}°</span>
-                                    </div>
-                                    <LiveChart value={lastTelemetry?.wrist_roll || 0} minVal={-90} maxVal={90} color="#10B981" />
-                                  </div>
-                                </div>
-
-                                <div className="space-y-3 pt-2.5 border-t border-slate-200">
-                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">3D Wrist Prototype Controls</span>
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                      <div className="flex justify-between text-[10px] font-semibold text-slate-500 mb-0.5">
-                                        <span>Left ↔ Right (Side-to-Side)</span>
-                                        <span className="font-bold text-emerald-500">{sideAngle}°</span>
+                                {idx === 1 && (
+                                  <div className="space-y-3">
+                                    {lastTelemetry && (
+                                      <div className="grid grid-cols-5 gap-1.5 text-center">
+                                        {['thumb', 'index', 'middle', 'ring', 'little'].map((finger) => (
+                                          <div key={finger} className="neu-panel p-1.5 rounded-lg">
+                                            <span className="text-[9px] font-bold text-slate-400 uppercase block">{finger.slice(0, 3)}</span>
+                                            <span className="text-xs font-bold text-slate-700">{lastTelemetry[finger]}%</span>
+                                          </div>
+                                        ))}
                                       </div>
-                                      <input 
-                                        type="range" 
-                                        min="-45" 
-                                        max="45" 
-                                        value={sideAngle} 
-                                        onChange={(e) => setSideAngle(Number(e.target.value))} 
-                                        className="w-full accent-emerald-500 cursor-pointer h-1 bg-slate-200 rounded-lg appearance-none"
-                                      />
-                                    </div>
+                                    )}
                                     <div>
-                                      <div className="flex justify-between text-[10px] font-semibold text-slate-500 mb-0.5">
-                                        <span>Up ↕ Down (Wrist Bend)</span>
-                                        <span className="font-bold text-blue-500">{bendAngle}°</span>
+                                      <div className="flex justify-between text-[11px] font-bold text-slate-600 mb-1">
+                                        <span>Index Finger Flexion</span>
+                                        <span>{lastTelemetry?.index || 0}%</span>
                                       </div>
-                                      <input 
-                                        type="range" 
-                                        min="-45" 
-                                        max="45" 
-                                        value={bendAngle} 
-                                        onChange={(e) => setBendAngle(Number(e.target.value))} 
-                                        className="w-full accent-blue-500 cursor-pointer h-1 bg-slate-200 rounded-lg appearance-none"
-                                      />
+                                      <LiveChart value={lastTelemetry?.index || 0} minVal={0} maxVal={100} color="#3B82F6" />
                                     </div>
                                   </div>
-                                </div>
+                                )}
                               </div>
-                            )}
-
-                            {idx === 4 && (
-                              <div className="space-y-3">
-                                <div className="flex justify-between text-xs font-semibold text-slate-600">
-                                  <span>Palmar Force (Pressure)</span>
-                                  <span className="font-bold text-emerald-500">{pressureForce} N</span>
-                                </div>
-                                <LiveChart value={pressureForce} minVal={0} maxVal={800} color="#10B981" />
-                                
-                                <div className="space-y-3 pt-2.5 border-t border-slate-200">
-                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">3D Palm Prototype Controls</span>
-                                  <div>
-                                    <div className="flex justify-between text-[10px] font-semibold text-slate-500 mb-0.5">
-                                      <span>Simulate Grip Force</span>
-                                      <span className="font-bold text-emerald-500">{pressureForce} N</span>
-                                    </div>
-                                    <input 
-                                      type="range" 
-                                      min="0" 
-                                      max="800" 
-                                      value={pressureForce} 
-                                      onChange={(e) => setPressureForce(Number(e.target.value))} 
-                                      className="w-full accent-emerald-500 cursor-pointer h-1 bg-slate-200 rounded-lg appearance-none"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
+                            </>
+                          )}
 
                           {/* Expanded Bottom: Status Banner & Row Actions */}
                           <div className="col-span-1 md:col-span-2 pt-4 border-t border-slate-300 flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -1357,5 +1205,225 @@ function CalibrationPage() {
     </div>
   );
 }
+
+// ==========================================
+// 3. OPTIMIZED ISOLATED DETAILED CONTROL SUBCOMPONENTS
+// ==========================================
+
+const ElbowSensorDetail = ({ lastTelemetry, status, deviceConnected }) => {
+  const [elbowAngle, setElbowAngle] = useState(180);
+
+  useEffect(() => {
+    if (deviceConnected && lastTelemetry) {
+      const elbow = Math.max(90, Math.min(180, lastTelemetry.elbow || 180));
+      setElbowAngle(elbow);
+    }
+  }, [lastTelemetry, deviceConnected]);
+
+  return (
+    <>
+      {/* Expanded Left: 3D Visualizer */}
+      <div className="flex flex-col space-y-3">
+        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Visual Diagnostics</span>
+        <div className="h-80 bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-inner relative flex items-center justify-center">
+          <ElbowCalibrationViewer elbowAngle={elbowAngle} />
+        </div>
+      </div>
+
+      {/* Expanded Right: Telemetry & Status details */}
+      <div className="flex flex-col space-y-4">
+        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Live Stream Waveforms</span>
+        <div className="space-y-3">
+          <div className="flex justify-between text-xs font-semibold text-slate-600">
+            <span>Elbow Bend Angle</span>
+            <span className="font-bold text-amber-500">{elbowAngle}°</span>
+          </div>
+          <LiveChart value={elbowAngle} minVal={90} maxVal={180} color="#F59E0B" />
+          
+          <div className="space-y-3 pt-2.5 border-t border-slate-200">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">3D Arm Prototype Controls</span>
+            <div>
+              <div className="flex justify-between text-[10px] font-semibold text-slate-500 mb-0.5">
+                <span>Elbow Flexion ↔ Extension</span>
+                <span className="font-bold text-amber-500">{elbowAngle}°</span>
+              </div>
+              <input 
+                type="range" 
+                min="90" 
+                max="180" 
+                value={elbowAngle} 
+                onChange={(e) => setElbowAngle(Number(e.target.value))} 
+                className="w-full accent-amber-500 cursor-pointer h-1 bg-slate-200 rounded-lg appearance-none"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+const WristSensorDetail = ({ lastTelemetry, status, deviceConnected }) => {
+  const [sideAngle, setSideAngle] = useState(0);
+  const [bendAngle, setBendAngle] = useState(0);
+
+  useEffect(() => {
+    if (deviceConnected && lastTelemetry) {
+      const roll = Math.max(-45, Math.min(45, lastTelemetry.wrist_roll || 0));
+      const pitch = Math.max(-45, Math.min(45, lastTelemetry.wrist_pitch || 0));
+      setSideAngle(roll);
+      setBendAngle(pitch);
+    }
+  }, [lastTelemetry, deviceConnected]);
+
+  return (
+    <>
+      {/* Expanded Left: 3D Visualizer */}
+      <div className="flex flex-col space-y-3">
+        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Visual Diagnostics</span>
+        <div className="h-80 bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-inner relative flex items-center justify-center">
+          <WristCalibrationViewer sideAngle={sideAngle} bendAngle={bendAngle} />
+        </div>
+      </div>
+
+      {/* Expanded Right: Telemetry Charts, status, and manual controls */}
+      <div className="flex flex-col space-y-4">
+        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Live Stream Waveforms</span>
+        <div className="space-y-3">
+          {lastTelemetry && !lastTelemetry.mpu_working && (
+            <div className="p-2.5 rounded-lg bg-red-50 border border-red-100 text-[10px] font-semibold text-red-700 flex items-start gap-1.5 leading-relaxed">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold block">MPU6050 Disconnected</span>
+                The ESP32 reported that the MPU6050 chip is not detected on the I2C bus. Check your SDA/SCL wire connections!
+              </div>
+            </div>
+          )}
+
+          <div className="neu-panel-inset p-2.5 rounded-lg grid grid-cols-2 gap-2 text-center">
+            <div>
+              <span className="text-[9px] font-bold text-slate-400 uppercase block">X-Axis (Pitch)</span>
+              <span className="text-xs font-bold text-slate-700">{bendAngle}°</span>
+              <span className="text-[8px] font-semibold text-slate-400 block mt-0.5">
+                {bendAngle > 5 ? 'Extension (Up)' : bendAngle < -5 ? 'Flexion (Down)' : 'Neutral'}
+              </span>
+            </div>
+            <div className="border-l border-slate-200">
+              <span className="text-[9px] font-bold text-slate-400 uppercase block">Y-Axis (Roll)</span>
+              <span className="text-xs font-bold text-slate-700">{sideAngle}°</span>
+              <span className="text-[8px] font-semibold text-slate-400 block mt-0.5">
+                {sideAngle > 5 ? 'Pronation (Right)' : sideAngle < -5 ? 'Supination (Left)' : 'Neutral'}
+              </span>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="flex justify-between text-[10px] font-bold text-slate-600 mb-0.5">
+                <span>Pitch Range (Up/Down)</span>
+                <span>{bendAngle}°</span>
+              </div>
+              <LiveChart value={bendAngle} minVal={-90} maxVal={90} color="#3B82F6" />
+            </div>
+            <div>
+              <div className="flex justify-between text-[10px] font-bold text-slate-600 mb-0.5">
+                <span>Roll Range (Left/Right)</span>
+                <span>{sideAngle}°</span>
+              </div>
+              <LiveChart value={sideAngle} minVal={-90} maxVal={90} color="#10B981" />
+            </div>
+          </div>
+
+          <div className="space-y-3 pt-2.5 border-t border-slate-200">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">3D Wrist Prototype Controls</span>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <div className="flex justify-between text-[10px] font-semibold text-slate-500 mb-0.5">
+                  <span>Left ↔ Right (Side-to-Side)</span>
+                  <span className="font-bold text-emerald-500">{sideAngle}°</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="-45" 
+                  max="45" 
+                  value={sideAngle} 
+                  onChange={(e) => setSideAngle(Number(e.target.value))} 
+                  className="w-full accent-emerald-500 cursor-pointer h-1 bg-slate-200 rounded-lg appearance-none"
+                />
+              </div>
+              <div>
+                <div className="flex justify-between text-[10px] font-semibold text-slate-500 mb-0.5">
+                  <span>Up ↕ Down (Wrist Bend)</span>
+                  <span className="font-bold text-blue-500">{bendAngle}°</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="-45" 
+                  max="45" 
+                  value={bendAngle} 
+                  onChange={(e) => setBendAngle(Number(e.target.value))} 
+                  className="w-full accent-blue-500 cursor-pointer h-1 bg-slate-200 rounded-lg appearance-none"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+const PressureSensorDetail = ({ lastTelemetry, status, deviceConnected }) => {
+  const [pressureForce, setPressureForce] = useState(0);
+
+  useEffect(() => {
+    if (deviceConnected && lastTelemetry) {
+      const press = Math.max(0, Math.min(800, lastTelemetry.pressure || 0));
+      setPressureForce(press);
+    }
+  }, [lastTelemetry, deviceConnected]);
+
+  return (
+    <>
+      {/* Expanded Left: 3D Visualizer */}
+      <div className="flex flex-col space-y-3">
+        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Visual Diagnostics</span>
+        <div className="h-80 bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-inner relative flex items-center justify-center">
+          <PressureCalibrationViewer pressure={pressureForce} />
+        </div>
+      </div>
+
+      {/* Expanded Right: Telemetry Charts, status, and manual controls */}
+      <div className="flex flex-col space-y-4">
+        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Live Stream Waveforms</span>
+        <div className="space-y-3">
+          <div className="flex justify-between text-xs font-semibold text-slate-600">
+            <span>Palmar Force (Pressure)</span>
+            <span className="font-bold text-emerald-500">{pressureForce} N</span>
+          </div>
+          <LiveChart value={pressureForce} minVal={0} maxVal={800} color="#10B981" />
+          
+          <div className="space-y-3 pt-2.5 border-t border-slate-200">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">3D Palm Prototype Controls</span>
+            <div>
+              <div className="flex justify-between text-[10px] font-semibold text-slate-500 mb-0.5">
+                <span>Simulate Grip Force</span>
+                <span className="font-bold text-emerald-500">{pressureForce} N</span>
+              </div>
+              <input 
+                type="range" 
+                min="0" 
+                max="800" 
+                value={pressureForce} 
+                onChange={(e) => setPressureForce(Number(e.target.value))} 
+                className="w-full accent-emerald-500 cursor-pointer h-1 bg-slate-200 rounded-lg appearance-none"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
 
 export default CalibrationPage;
