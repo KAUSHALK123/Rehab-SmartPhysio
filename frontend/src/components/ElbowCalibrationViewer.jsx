@@ -43,9 +43,8 @@ function ElbowModel({ elbowAngle }) {
   });
 
   return (
-    // Restoring original orientation which naturally shows the side profile, 
-    // keeping the zoom settings intact.
-    <group rotation={[0, 0, 0]} scale={[1.3, 1.3, 1.3]} position={[0, -0.2, 0]}>
+    // Rotate model Y-axis by 120 degrees to show the bicep clearly
+    <group rotation={[0, (120 * Math.PI) / 180, 0]} scale={[1.3, 1.3, 1.3]} position={[0, -0.2, 0]}>
       <primitive object={scene} />
     </group>
   );
