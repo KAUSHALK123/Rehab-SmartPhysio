@@ -31,7 +31,7 @@ function ElbowModel({ elbowAngle }) {
       // Map 180 -> 0 degrees, 90 -> 90 degrees bend
       const bendDeg = 180 - elbowAngle; 
       
-      // Bending rotation around local Y-axis (positive to bend forward in side view)
+      // Bending rotation around local Y-axis (positive to bend forward)
       const targetRotation = THREE.MathUtils.degToRad(bendDeg);
 
       forearmNode.rotation.y = THREE.MathUtils.lerp(
@@ -43,8 +43,9 @@ function ElbowModel({ elbowAngle }) {
   });
 
   return (
-    // Align to side profile to match the reference image (biceps facing side)
-    <group rotation={[0, -Math.PI / 2, 0]} scale={[1.3, 1.3, 1.3]} position={[0, -0.2, 0]}>
+    // Restoring original orientation which naturally shows the side profile, 
+    // keeping the zoom settings intact.
+    <group rotation={[0, 0, 0]} scale={[1.3, 1.3, 1.3]} position={[0, -0.2, 0]}>
       <primitive object={scene} />
     </group>
   );
