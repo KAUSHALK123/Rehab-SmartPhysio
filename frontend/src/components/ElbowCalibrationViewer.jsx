@@ -31,11 +31,14 @@ function ElbowModel({ elbowAngle }) {
       // Map 180 -> 0 degrees, 90 -> 90 degrees bend
       const bendDeg = 180 - elbowAngle;
 
-      // Bending rotation around local Y-axis (positive to bend forward)
+      // Bending rotation around local Z-axis (positive to bend forward/upward)
       const targetRotation = THREE.MathUtils.degToRad(bendDeg);
 
-      forearmNode.rotation.y = THREE.MathUtils.lerp(
-        forearmNode.rotation.y,
+      // Reset Y rotation to 0 to clear any twist
+      forearmNode.rotation.y = 0;
+
+      forearmNode.rotation.z = THREE.MathUtils.lerp(
+        forearmNode.rotation.z,
         targetRotation,
         0.15
       );
