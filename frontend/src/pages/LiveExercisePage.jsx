@@ -28,6 +28,73 @@ import { startSession, endSession } from '../services/session';
 import apiClient from '../services/auth';
 import Arm3DVisualizer from '../components/Arm3DVisualizer';
 
+// Speedometer-style circular gauge component with rotating needle
+const SVGGauge = ({ value, min = 0, max = 180, title, aimText, currentText, feedbackText }) => {
+  // Map value to angle from -90 to 90 degrees
+  const angle = ((value - min) / (max - min)) * 180 - 90;
+  // Ensure angle is bounded
+  const boundedAngle = Math.max(-90, Math.min(90, angle));
+  
+  return (
+    <div className="flex flex-col items-center text-center space-y-1 bg-slate-50 border border-slate-100 rounded-xl p-3 flex-1 min-w-0 shadow-sm transition hover:shadow duration-200">
+      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{title}</span>
+      
+      <div className="relative w-24 h-14 flex items-center justify-center mt-1">
+        <svg viewBox="0 0 100 60" className="w-20 h-12">
+          {/* Background gray arc */}
+          <path
+            d="M 15 50 A 35 35 0 0 1 85 50"
+            fill="none"
+            stroke="#e2e8f0"
+            strokeWidth="7"
+            strokeLinecap="round"
+          />
+          {/* Active progress arc */}
+          <path
+            d="M 15 50 A 35 35 0 0 1 85 50"
+            fill="none"
+            stroke="url(#gauge-grad)"
+            strokeWidth="7"
+            strokeLinecap="round"
+            strokeDasharray={110}
+            strokeDashoffset={110 - (110 * Math.max(0, Math.min(value - min, max - min))) / (max - min)}
+            className="transition-all duration-300 ease-out"
+          />
+          {/* Gradient definitions */}
+          <defs>
+            <linearGradient id="gauge-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#3b82f6" />
+              <stop offset="100%" stopColor="#10b981" />
+            </linearGradient>
+          </defs>
+          {/* Needle pin */}
+          <g transform={`translate(50, 50) rotate(${boundedAngle})`}>
+            <line x1="0" y1="0" x2="0" y2="-38" stroke="#1e293b" strokeWidth="2.5" strokeLinecap="round" />
+            <circle cx="0" cy="0" r="4.5" fill="#1e293b" />
+          </g>
+        </svg>
+      </div>
+
+      <div className="text-[10px] font-bold text-slate-500 mt-1">{aimText}</div>
+      <div className="text-[11px] font-extrabold text-slate-800">{currentText}</div>
+      <p className="text-[10px] text-slate-500 font-semibold leading-tight mt-1 h-7 flex items-center justify-center text-center">
+        {feedbackText}
+      </p>
+    </div>
+  );
+};
+
+// Forearm and wrist rotation illustration
+const WristIcon = () => (
+  <svg viewBox="0 0 64 64" className="w-12 h-12 text-slate-400 opacity-85 flex-shrink-0">
+    <path d="M12 40 L28 40 L32 30 L48 30 L52 35 L48 40 L32 40 L28 46 L12 46 Z" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinejoin="round" />
+    <path d="M46 16 A 14 14 0 0 1 54 36" fill="none" stroke="#3b82f6" strokeWidth="2" strokeDasharray="3 3" />
+    <path d="M52 36 L54 36 L54 34" fill="none" stroke="#3b82f6" strokeWidth="2" />
+    <path d="M38 34 A 14 14 0 0 1 42 18" fill="none" stroke="#3b82f6" strokeWidth="2" />
+    <path d="M40 18 L42 18 L42 20" fill="none" stroke="#3b82f6" strokeWidth="2" />
+  </svg>
+);
+
 function LiveExercisePage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -242,6 +309,8 @@ function LiveExercisePage() {
     let restValue = 0;
     let isAscending = true; // True if target > rest
 
+    const nameLower = ex.exercise_name.toLowerCase();
+
     if (isForceBased) {
       currentValue = data.pressure;
       targetValue = ex.target_pressure;
@@ -249,30 +318,43 @@ function LiveExercisePage() {
       isAscending = true;
     } else {
       // Angle-based exercises
-      const nameLower = ex.exercise_name.toLowerCase();
-      if (nameLower.includes('elbow')) {
-        currentValue = data.elbow;
+      if (nameLower.includes('elbow') || nameLower.includes('curl')) {
+        currentValue = 180 - data.elbow; // flexion coordinates: 0 straight, 180 bent
         targetValue = ex.target_angle; // e.g. 130
-        restValue = 165; // Straight arm
-        isAscending = false; // Elbow angle decreases as we flex
-      } else if (nameLower.includes('shoulder')) {
-        currentValue = data.wrist_pitch;
-        targetValue = ex.target_angle; // e.g. 90
-        restValue = 15; // Arm down
+        restValue = 15; // Straight arm flexion (180 - 165 = 15)
         isAscending = true;
-      } else if (nameLower.includes('finger closing')) {
-        // Flex sensors: higher flex value means bent fingers.
+      } else if (nameLower.includes('wrist flexion')) {
+        currentValue = data.wrist_pitch; // flexion is positive pitch
+        targetValue = ex.target_angle; // e.g. 60
+        restValue = 0; // neutral
+        isAscending = true;
+      } else if (nameLower.includes('wrist extension')) {
+        currentValue = -data.wrist_pitch; // extension is negative pitch
+        targetValue = ex.target_angle; // e.g. 50
+        restValue = 0;
+        isAscending = true;
+      } else if (nameLower.includes('wrist rotation') || nameLower.includes('rotation')) {
+        currentValue = Math.abs(data.wrist_roll); // roll rotation
+        targetValue = ex.target_angle; // e.g. 90
+        restValue = 0;
+        isAscending = true;
+      } else if (nameLower.includes('finger closing') || nameLower.includes('closing')) {
         currentValue = (data.thumb + data.index + data.middle + data.ring + data.little) / 5;
         targetValue = ex.target_angle; // e.g. 95
-        restValue = 30; // Hand open
+        restValue = 25; // Hand open
         isAscending = true;
-      } else if (nameLower.includes('finger opening')) {
+      } else if (nameLower.includes('finger opening') || nameLower.includes('opening')) {
         currentValue = (data.thumb + data.index + data.middle + data.ring + data.little) / 5;
         targetValue = ex.target_angle; // e.g. 10
         restValue = 75; // Hand closed
-        isAscending = false; // Flex sensor drops when straight/open
+        isAscending = false; // Flex drops as hand opens
+      } else if (nameLower.includes('shoulder') || nameLower.includes('raise')) {
+        currentValue = data.wrist_pitch; // arm raised changes pitch
+        targetValue = ex.target_angle; // e.g. 90
+        restValue = 10;
+        isAscending = true;
       } else {
-        // Default to MPU wrist pitch
+        // Default fallback to wrist pitch
         currentValue = data.wrist_pitch;
         targetValue = ex.target_angle;
         restValue = 10;
@@ -317,7 +399,7 @@ function LiveExercisePage() {
         if (isForceBased) {
           setGuidance(`Apply more force! Current: ${currentValue.toFixed(0)} N / Target: ${targetValue} N`);
         } else {
-          setGuidance(`Bending arm... Current: ${currentValue.toFixed(0)}° / Target: ${targetValue}°`);
+          setGuidance(`Moving... Current: ${currentValue.toFixed(0)}° / Target: ${targetValue}°`);
         }
         return 'moving';
       }
@@ -326,7 +408,7 @@ function LiveExercisePage() {
       if (current === 'target_hold') {
         const letGo = isAscending 
           ? currentValue < targetValue * 0.8
-          : currentValue > targetValue + (180 - targetValue) * 0.2; // slipped elbow flex
+          : currentValue > targetValue + (restValue - targetValue) * 0.2;
 
         if (letGo) {
           // User released hold early -> mark failed rep
@@ -402,7 +484,7 @@ function LiveExercisePage() {
       const ex = exerciseDetails;
       const isElbow = ex?.exercise_name?.toLowerCase()?.includes('elbow');
       
-      const angles = hist.map(h => isElbow ? h.elbow : h.wrist_pitch);
+      const angles = hist.map(h => isElbow ? (180 - h.elbow) : h.wrist_pitch);
       const pressures = hist.map(h => h.pressure);
       
       avgAngle = angles.reduce((a, b) => a + b, 0) / hist.length;
@@ -447,8 +529,293 @@ function LiveExercisePage() {
     wristAngle: sensors.wrist_roll
   };
 
+  // Build the dynamic gauge configurations for the selected exercise
+  const getExerciseFeedback = () => {
+    const ex = exerciseDetails;
+    if (!ex) return {
+      primary: { value: 0, min: 0, max: 100, title: 'Flexion', aimText: 'Aim: --', currentText: 'Current: --', feedbackText: 'Loading exercise details...' },
+      secondary: { value: 0, min: -45, max: 45, title: 'Form', aimText: 'Aim: --', currentText: 'Current: --', feedbackText: 'Loading form indicators...' }
+    };
+
+    const nameLower = ex.exercise_name.toLowerCase();
+    
+    // Default fallback
+    let primary = { value: 0, min: 0, max: 100, title: 'Flexion', aimText: 'Aim: 0°', currentText: 'Current: 0°', feedbackText: 'Perform movement.' };
+    let secondary = { value: 0, min: -45, max: 45, title: 'Wrist Rotation', aimText: 'Aim: 0° (Neutral)', currentText: 'Current: 0°', feedbackText: 'Keep wrist stable.' };
+
+    if (nameLower.includes('ball squeeze')) {
+      const target = ex.target_pressure || 400;
+      const currentVal = sensors.pressure;
+      let feedback = 'Squeeze soft therapy ball.';
+      if (currentVal >= target) {
+        feedback = 'Target force reached! Hold it.';
+      } else if (currentVal > 50) {
+        feedback = 'Squeeze harder to reach target!';
+      }
+      primary = {
+        value: currentVal,
+        min: 0,
+        max: 500,
+        title: 'Grip Force',
+        aimText: `Aim: ${target} N`,
+        currentText: `Current: ${currentVal.toFixed(0)} N`,
+        feedbackText: feedback
+      };
+
+      const pitchVal = sensors.wrist_pitch;
+      let secFeedback = 'Wrist position is optimal.';
+      if (pitchVal > 15) secFeedback = 'Slightly lower your wrist.';
+      else if (pitchVal < -15) secFeedback = 'Slightly raise your wrist.';
+      
+      secondary = {
+        value: pitchVal,
+        min: -45,
+        max: 45,
+        title: 'Wrist Stability',
+        aimText: 'Aim: 0° (Neutral)',
+        currentText: `Current: ${pitchVal.toFixed(0)}°`,
+        feedbackText: secFeedback
+      };
+    } else if (nameLower.includes('wrist flexion')) {
+      const target = ex.target_angle || 60;
+      const currentVal = sensors.wrist_pitch; // flexion is positive pitch
+      let feedback = 'Bend wrist downward.';
+      if (currentVal >= target) {
+        feedback = 'Target angle reached! Hold it.';
+      } else if (currentVal > 10) {
+        feedback = 'Continue flexing wrist downward.';
+      }
+      primary = {
+        value: Math.max(0, currentVal),
+        min: 0,
+        max: 90,
+        title: 'Wrist Pitch',
+        aimText: `Aim: ${target}° Flex`,
+        currentText: `Current: ${currentVal.toFixed(0)}°`,
+        feedbackText: feedback
+      };
+
+      const rollVal = sensors.wrist_roll;
+      let secFeedback = 'Wrist rotation is stable.';
+      if (rollVal > 10) secFeedback = 'Align wrist (tilt left).';
+      else if (rollVal < -10) secFeedback = 'Align wrist (tilt right).';
+
+      secondary = {
+        value: rollVal,
+        min: -45,
+        max: 45,
+        title: 'Wrist Rotation',
+        aimText: 'Aim: 0° (Aligned)',
+        currentText: `Current: ${rollVal.toFixed(0)}°`,
+        feedbackText: secFeedback
+      };
+    } else if (nameLower.includes('wrist extension')) {
+      const target = ex.target_angle || 50;
+      const currentVal = -sensors.wrist_pitch; // extension is negative pitch
+      let feedback = 'Bend wrist upward.';
+      if (currentVal >= target) {
+        feedback = 'Target angle reached! Hold it.';
+      } else if (currentVal > 10) {
+        feedback = 'Continue extending wrist upward.';
+      }
+      primary = {
+        value: Math.max(0, currentVal),
+        min: 0,
+        max: 90,
+        title: 'Wrist Extension',
+        aimText: `Aim: ${target}° Ext`,
+        currentText: `Current: ${Math.max(0, currentVal).toFixed(0)}°`,
+        feedbackText: feedback
+      };
+
+      const rollVal = sensors.wrist_roll;
+      let secFeedback = 'Wrist rotation is stable.';
+      if (rollVal > 10) secFeedback = 'Align wrist (tilt left).';
+      else if (rollVal < -10) secFeedback = 'Align wrist (tilt right).';
+
+      secondary = {
+        value: rollVal,
+        min: -45,
+        max: 45,
+        title: 'Wrist Rotation',
+        aimText: 'Aim: 0° (Aligned)',
+        currentText: `Current: ${rollVal.toFixed(0)}°`,
+        feedbackText: secFeedback
+      };
+    } else if (nameLower.includes('wrist rotation') || nameLower.includes('rotation')) {
+      const target = ex.target_angle || 90;
+      const currentVal = Math.abs(sensors.wrist_roll); // CCW/CW roll
+      let feedback = 'Rotate your wrist.';
+      if (currentVal >= target) {
+        feedback = 'Target rotation reached! Hold it.';
+      } else if (currentVal > 15) {
+        feedback = 'Continue rotating wrist.';
+      }
+      primary = {
+        value: currentVal,
+        min: 0,
+        max: 120,
+        title: 'Wrist Rotation',
+        aimText: `Aim: ${target}° CCW`,
+        currentText: `Current: ${sensors.wrist_roll.toFixed(0)}° ${sensors.wrist_roll >= 0 ? 'CCW' : 'CW'}`,
+        feedbackText: feedback
+      };
+
+      const elbowFlex = 180 - sensors.elbow;
+      let secFeedback = 'Elbow angle is stable.';
+      if (elbowFlex < 80) secFeedback = 'Bend elbow to 90°.';
+      else if (elbowFlex > 100) secFeedback = 'Slightly straighten elbow.';
+
+      secondary = {
+        value: elbowFlex,
+        min: 0,
+        max: 180,
+        title: 'Elbow Position',
+        aimText: 'Aim: 90° (Flexed)',
+        currentText: `Current: ${elbowFlex.toFixed(0)}°`,
+        feedbackText: secFeedback
+      };
+    } else if (nameLower.includes('finger closing') || nameLower.includes('closing')) {
+      const target = ex.target_angle || 95;
+      const currentVal = (sensors.thumb + sensors.index + sensors.middle + sensors.ring + sensors.little) / 5;
+      let feedback = 'Close fingers into fist.';
+      if (currentVal >= target) {
+        feedback = 'Fist fully closed! Hold it.';
+      } else if (currentVal > 30) {
+        feedback = 'Squeeze fist tighter.';
+      }
+      primary = {
+        value: currentVal,
+        min: 0,
+        max: 100,
+        title: 'Fist Flexion',
+        aimText: `Aim: ${target}% Fist`,
+        currentText: `Current: ${currentVal.toFixed(0)}%`,
+        feedbackText: feedback
+      };
+
+      const pitchVal = sensors.wrist_pitch;
+      let secFeedback = 'Wrist is straight.';
+      if (pitchVal > 15) secFeedback = 'Lower your wrist.';
+      else if (pitchVal < -15) secFeedback = 'Raise your wrist.';
+
+      secondary = {
+        value: pitchVal,
+        min: -45,
+        max: 45,
+        title: 'Wrist Pitch',
+        aimText: 'Aim: 0° (Neutral)',
+        currentText: `Current: ${pitchVal.toFixed(0)}°`,
+        feedbackText: secFeedback
+      };
+    } else if (nameLower.includes('finger opening') || nameLower.includes('opening')) {
+      const target = ex.target_angle || 10;
+      const currentVal = (sensors.thumb + sensors.index + sensors.middle + sensors.ring + sensors.little) / 5;
+      let feedback = 'Extend fingers outward.';
+      if (currentVal <= target) {
+        feedback = 'Hand fully open! Hold it.';
+      } else if (currentVal < 70) {
+        feedback = 'Open hand wider.';
+      }
+      primary = {
+        // Show opening percentage (where raw flex values drop to 0)
+        value: 100 - currentVal,
+        min: 0,
+        max: 100,
+        title: 'Fist Opening',
+        aimText: `Aim: < ${target}% Flex`,
+        currentText: `Current: ${currentVal.toFixed(0)}% Flex`,
+        feedbackText: feedback
+      };
+
+      const pitchVal = sensors.wrist_pitch;
+      let secFeedback = 'Wrist is straight.';
+      if (pitchVal > 15) secFeedback = 'Lower your wrist.';
+      else if (pitchVal < -15) secFeedback = 'Raise your wrist.';
+
+      secondary = {
+        value: pitchVal,
+        min: -45,
+        max: 45,
+        title: 'Wrist Pitch',
+        aimText: 'Aim: 0° (Neutral)',
+        currentText: `Current: ${pitchVal.toFixed(0)}°`,
+        feedbackText: secFeedback
+      };
+    } else if (nameLower.includes('elbow curl') || nameLower.includes('elbow') || nameLower.includes('curl')) {
+      const target = ex.target_angle || 130;
+      const currentVal = 180 - sensors.elbow;
+      let feedback = 'Bend elbow upward.';
+      if (currentVal >= target) {
+        feedback = 'Target angle reached! Hold it.';
+      } else if (currentVal > 20) {
+        feedback = 'Continue curling elbow.';
+      }
+      primary = {
+        value: currentVal,
+        min: 0,
+        max: 180,
+        title: 'Elbow Flex',
+        aimText: `Aim: ${target}° Flex`,
+        currentText: `Current: ${currentVal.toFixed(0)}°`,
+        feedbackText: feedback
+      };
+
+      const rollVal = sensors.wrist_roll;
+      let secFeedback = 'Wrist is stable.';
+      if (rollVal > 10) secFeedback = 'Align wrist (tilt left).';
+      else if (rollVal < -10) secFeedback = 'Align wrist (tilt right).';
+
+      secondary = {
+        value: rollVal,
+        min: -45,
+        max: 45,
+        title: 'Wrist Stability',
+        aimText: 'Aim: 0° (Aligned)',
+        currentText: `Current: ${rollVal.toFixed(0)}°`,
+        feedbackText: secFeedback
+      };
+    } else if (nameLower.includes('shoulder raise') || nameLower.includes('shoulder') || nameLower.includes('raise')) {
+      const target = ex.target_angle || 90;
+      const currentVal = sensors.wrist_pitch;
+      let feedback = 'Raise arm up sideways.';
+      if (currentVal >= target) {
+        feedback = 'Target angle reached! Hold it.';
+      } else if (currentVal > 15) {
+        feedback = 'Continue raising arm.';
+      }
+      primary = {
+        value: currentVal,
+        min: 0,
+        max: 120,
+        title: 'Shoulder Raise',
+        aimText: `Aim: ${target}° Raise`,
+        currentText: `Current: ${currentVal.toFixed(0)}°`,
+        feedbackText: feedback
+      };
+
+      const elbowFlex = 180 - sensors.elbow;
+      let secFeedback = 'Elbow is straight.';
+      if (elbowFlex > 15) secFeedback = 'Straighten your elbow.';
+
+      secondary = {
+        value: elbowFlex,
+        min: 0,
+        max: 180,
+        title: 'Elbow Straightness',
+        aimText: 'Aim: 0° (Straight)',
+        currentText: `Current: ${elbowFlex.toFixed(0)}°`,
+        feedbackText: secFeedback
+      };
+    }
+
+    return { primary, secondary };
+  };
+
+  const { primary, secondary } = getExerciseFeedback();
+
   return (
-    <div className="space-y-6 relative h-[calc(100vh-8.5rem)] overflow-hidden flex flex-col justify-between">
+    <div className="space-y-6 relative h-[calc(100vh-6.5rem)] overflow-hidden flex flex-col justify-between">
       {loading ? (
         <div className="flex-1 flex flex-col items-center justify-center space-y-4 bg-white rounded-2xl border border-slate-200 shadow-sm">
           <RefreshCw className="w-10 h-10 text-primary animate-spin" />
@@ -465,7 +832,7 @@ function LiveExercisePage() {
               {/* Header inside canvas overlay */}
               <div className="absolute top-4 left-4 z-10 flex flex-wrap gap-2 items-center">
                 {/* Live Stream Status Pill */}
-                <div className="flex items-center gap-2.5 bg-slate-950/80 backdrop-blur border border-slate-800 rounded-xl p-2 px-3">
+                <div className="flex items-center gap-2.5 bg-slate-950/80 backdrop-blur border border-slate-850 rounded-xl p-2 px-3">
                   <span className="flex h-2.5 w-2.5 relative">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
@@ -477,7 +844,7 @@ function LiveExercisePage() {
                 </div>
 
                 {/* Camera Angle Toggle Pill */}
-                <div className="flex items-center bg-slate-950/80 backdrop-blur border border-slate-800 rounded-xl p-1 gap-1">
+                <div className="flex items-center bg-slate-950/80 backdrop-blur border border-slate-850 rounded-xl p-1 gap-1">
                   <button
                     onClick={() => setCameraAngle('straight')}
                     className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
@@ -502,7 +869,7 @@ function LiveExercisePage() {
               </div>
 
               {deviceConnected ? (
-                <div className="absolute top-4 right-4 z-10 bg-slate-950/80 backdrop-blur border border-slate-800 rounded-xl p-2 px-3 flex items-center gap-2 text-xs font-semibold text-green-400">
+                <div className="absolute top-4 right-4 z-10 bg-slate-950/80 backdrop-blur border border-slate-855 rounded-xl p-2 px-3 flex items-center gap-2 text-xs font-semibold text-green-400">
                   <Activity className="w-4 h-4 text-green-400 animate-pulse" />
                   Battery: {battery}%
                 </div>
@@ -529,34 +896,34 @@ function LiveExercisePage() {
                     <Pause className="w-8 h-8 fill-current" />
                   </div>
                   <span className="text-sm font-bold tracking-wider text-slate-200 uppercase">Session Paused</span>
-                  <span className="text-xs text-slate-450 font-medium">Repetition and timer evaluations are frozen</span>
+                  <span className="text-xs text-slate-400 font-medium">Repetition and timer evaluations are frozen</span>
                 </div>
               )}
 
               {/* 3D Guide helper */}
-              <div className="absolute bottom-4 left-4 text-[10px] text-slate-450 bg-slate-950/60 p-2 px-3 border border-slate-850 rounded-lg font-medium">
+              <div className="absolute bottom-4 left-4 text-[10px] text-slate-400 bg-slate-950/60 p-2 px-3 border border-slate-850 rounded-lg font-medium">
                 Use the camera angle buttons to toggle viewpoints.
               </div>
             </div>
 
-            {/* Right Panel: Guidance and Statistics */}
+            {/* Right Panel: Guidance, Recommendations, & Counters */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between overflow-y-auto">
               
-              {/* Patient and session names */}
+              {/* Header Details */}
               <div className="space-y-1">
                 <span className="text-[10px] text-primary font-bold uppercase tracking-wider block">Rehab Assessment Session</span>
                 <h3 className="text-xl font-bold text-slate-800">{exerciseName}</h3>
                 <p className="text-xs text-slate-500 font-semibold">Patient: {patientName}</p>
               </div>
 
-              <hr className="border-slate-100" />
+              <hr className="border-slate-100 my-3" />
 
               {/* Counters Grid */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-center space-y-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase block tracking-wider">Repetitions</span>
                   <p className="text-3xl font-extrabold text-slate-800">
-                    {repsCompleted} <span className="text-sm text-slate-400 font-medium">/ {exerciseDetails?.repetitions}</span>
+                    {repsCompleted} <span className="text-sm text-slate-400 font-medium">/ {exerciseDetails?.repetitions || 10}</span>
                   </p>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-center space-y-1">
@@ -582,23 +949,39 @@ function LiveExercisePage() {
                 </div>
               </div>
 
-              {/* Live Guidance Hud */}
-              <div className="space-y-2">
+              {/* Real-time Exercise Recommendations Section */}
+              <div className="border border-slate-100 rounded-2xl p-4 space-y-3 mt-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block">Live Exercise Guidance</span>
+                    <h4 className="text-xs font-bold text-slate-700 mt-0.5">Adjust your movement to optimize form:</h4>
+                  </div>
+                  <WristIcon />
+                </div>
+                
+                <div className="flex gap-3">
+                  <SVGGauge {...primary} />
+                  <SVGGauge {...secondary} />
+                </div>
+              </div>
+
+              {/* Biofeedback HUD status */}
+              <div className="space-y-2 mt-4">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Biofeedback Guidance HUD</span>
-                <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex items-start gap-3">
-                  <Cpu className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-                  <p className="text-sm font-semibold text-slate-700 leading-normal">{guidance}</p>
+                <div className="bg-blue-50 border border-blue-150 p-3.5 rounded-xl flex items-center gap-3">
+                  <Cpu className="w-5 h-5 text-primary flex-shrink-0" />
+                  <span className="text-xs font-bold text-slate-700">{guidance}</span>
                 </div>
               </div>
 
               {/* Actions Footer */}
-              <div className="flex gap-3">
+              <div className="flex gap-3 mt-4">
                 <button 
                   onClick={togglePauseSession}
                   className={`flex-1 py-3.5 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-sm ${
                     isPaused 
-                      ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200' 
-                      : 'bg-amber-500 hover:bg-amber-600 shadow-amber-200'
+                      ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-250' 
+                      : 'bg-amber-500 hover:bg-amber-600 shadow-amber-250'
                   }`}
                 >
                   {isPaused ? <Play className="w-4 h-4 fill-current" /> : <Pause className="w-4 h-4" />}
@@ -606,7 +989,7 @@ function LiveExercisePage() {
                 </button>
                 <button 
                   onClick={handleStopSession}
-                  className="flex-1 py-3.5 bg-red-600 text-white font-semibold rounded-xl hover:bg-red-700 transition flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-red-200"
+                  className="flex-1 py-3.5 bg-red-600 text-white font-semibold rounded-xl hover:bg-red-700 transition flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-red-250"
                 >
                   <Square className="w-4 h-4 fill-current" />
                   End & Save
@@ -614,36 +997,6 @@ function LiveExercisePage() {
               </div>
             </div>
 
-          </div>
-
-          {/* Bottom Panel: Live Charts */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm h-48 flex flex-col justify-between">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Real-time Telemetry Graph (Last 50 ticks)</span>
-              <div className="flex gap-4 text-xs font-semibold">
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-indigo-600" />Pitch Angle (°)</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />Elbow Angle (°)</span>
-                {exerciseDetails?.target_pressure > 0 && (
-                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-pink-500" />Force (N)</span>
-                )}
-              </div>
-            </div>
-
-            <div className="flex-1 w-full min-h-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={telemetryStream} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="time" hide={true} />
-                  <YAxis domain={[0, 200]} stroke="#94a3b8" fontSize={10} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="pitch" stroke="#4f46e5" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-                  <Line type="monotone" dataKey="elbow" stroke="#10b981" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-                  {exerciseDetails?.target_pressure > 0 && (
-                    <Line type="monotone" dataKey="pressure" stroke="#ec4899" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-                  )}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
           </div>
         </>
       )}
