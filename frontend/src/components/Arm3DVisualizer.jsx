@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useGLTF, OrbitControls, Grid, Center } from '@react-three/drei';
 import * as THREE from 'three';
 
@@ -70,8 +70,31 @@ function FullBodyRig({ controls }) {
   );
 }
 
+// Helper component to smoothly transition camera views
+function CameraController({ cameraAngle, controlsRef }) {
+  const { camera } = useThree();
+
+  useFrame(() => {
+    // Front View: [0.2, 0.4, 3.2]
+    // Side View: [2.8, 0.6, 1.5] (side-on focusing on the right arm)
+    const targetPos = cameraAngle === 'side'
+      ? new THREE.Vector3(2.8, 0.6, 1.5)
+      : new THREE.Vector3(0.2, 0.4, 3.2);
+
+    camera.position.lerp(targetPos, 0.08);
+
+    if (controlsRef.current) {
+      controlsRef.current.update();
+    }
+  });
+
+  return null;
+}
+
 // Main Canvas container component for Dashboard Kinematics Overview
-export default function Arm3DVisualizer({ controls }) {
+export default function Arm3DVisualizer({ controls, cameraAngle = 'straight', disableOrbit = false }) {
+  const controlsRef = useRef();
+
   return (
     <div className="w-full h-full min-h-[380px] relative select-none">
       {/* 3D Canvas */}
@@ -88,10 +111,14 @@ export default function Arm3DVisualizer({ controls }) {
           <FullBodyRig controls={controls} />
         </Center>
         
+        {/* Dynamic camera transitions */}
+        <CameraController cameraAngle={cameraAngle} controlsRef={controlsRef} />
+        
         {/* OrbitControls: zoom & orbit enabled, pan disabled */}
         <OrbitControls 
-          enableZoom={true} 
-          enableRotate={true} 
+          ref={controlsRef}
+          enableZoom={!disableOrbit} 
+          enableRotate={!disableOrbit} 
           enablePan={false} 
           minDistance={1.5}
           maxDistance={5.5}

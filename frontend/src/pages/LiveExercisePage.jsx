@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
 import { 
   ResponsiveContainer, 
   LineChart, 
@@ -14,6 +12,7 @@ import {
 import { 
   Activity, 
   Play, 
+  Pause,
   Square, 
   Clock, 
   Award, 
@@ -27,136 +26,7 @@ import {
 } from 'lucide-react';
 import { startSession, endSession } from '../services/session';
 import apiClient from '../services/auth';
-
-// --- 3D KINEMATIC ARM MODEL ---
-function ArmModel({ shoulderPitch, elbowAngle, wristRoll, fingers }) {
-  const upperArmRef = useRef();
-  const forearmRef = useRef();
-  const handRef = useRef();
-
-  useFrame(() => {
-    // 1. Upper arm rotation (shoulder pitch)
-    // Map pitch degrees to radians. Pitch is typically 0 (rest) to 90 (raised).
-    if (upperArmRef.current) {
-      upperArmRef.current.rotation.z = (shoulderPitch * Math.PI) / 180;
-    }
-
-    // 2. Forearm rotation (elbow flex relative to upper arm)
-    // straight arm (180 deg) -> local angle 0. Bent elbow (90 deg) -> local angle -90 deg.
-    if (forearmRef.current) {
-      const elbowRad = ((180 - elbowAngle) * Math.PI) / 180;
-      forearmRef.current.rotation.z = -elbowRad;
-    }
-
-    // 3. Hand rotation (wrist roll)
-    if (handRef.current) {
-      handRef.current.rotation.y = (wristRoll * Math.PI) / 180;
-    }
-  });
-
-  // Convert finger flex (0 to 100) to rotation radians for joint bending
-  const getFingerBend = (flexVal) => {
-    const val = flexVal || 0;
-    // Map 0 -> 0 rad, 100 -> -Math.PI / 2 rad (closed)
-    return -(val / 100) * (Math.PI / 2);
-  };
-
-  return (
-    <group position={[0, -1, 0]}>
-      {/* Shoulder Joint Pivot */}
-      <mesh>
-        <sphereGeometry args={[0.25, 32, 32]} />
-        <meshStandardMaterial color="#4f46e5" roughness={0.3} metalness={0.8} />
-      </mesh>
-
-      {/* Upper Arm Group (rotates at shoulder) */}
-      <group ref={upperArmRef}>
-        {/* Upper Arm Segment */}
-        <mesh position={[0, 0.9, 0]}>
-          <cylinderGeometry args={[0.13, 0.11, 1.8, 16]} />
-          <meshStandardMaterial color="#64748b" roughness={0.4} metalness={0.2} />
-        </mesh>
-
-        {/* Elbow Joint (at y = 1.8) */}
-        <group position={[0, 1.8, 0]}>
-          <mesh>
-            <sphereGeometry args={[0.2, 32, 32]} />
-            <meshStandardMaterial color="#4f46e5" roughness={0.3} metalness={0.8} />
-          </mesh>
-
-          {/* Forearm Group (rotates at elbow) */}
-          <group ref={forearmRef}>
-            {/* Forearm Segment */}
-            <mesh position={[0, 0.8, 0]}>
-              <cylinderGeometry args={[0.1, 0.08, 1.6, 16]} />
-              <meshStandardMaterial color="#64748b" roughness={0.4} metalness={0.2} />
-            </mesh>
-
-            {/* Wrist Joint (at y = 1.6) */}
-            <group position={[0, 1.6, 0]}>
-              <mesh>
-                <sphereGeometry args={[0.14, 32, 32]} />
-                <meshStandardMaterial color="#4f46e5" roughness={0.3} metalness={0.8} />
-              </mesh>
-
-              {/* Hand Group (rotates at wrist) */}
-              <group ref={handRef}>
-                {/* Palm block */}
-                <mesh position={[0, 0.22, 0]}>
-                  <boxGeometry args={[0.26, 0.3, 0.08]} />
-                  <meshStandardMaterial color="#3b82f6" roughness={0.5} />
-                </mesh>
-
-                {/* Interactive Fingers */}
-                <group position={[0, 0.35, 0]}>
-                  {/* Thumb (flexes outward/inward) */}
-                  <group position={[-0.14, -0.1, 0]} rotation={[0, 0, getFingerBend(fingers?.thumb) * 0.7]}>
-                    <mesh position={[-0.05, 0.08, 0]}>
-                      <boxGeometry args={[0.05, 0.16, 0.05]} />
-                      <meshStandardMaterial color="#1e40af" />
-                    </mesh>
-                  </group>
-
-                  {/* Index Finger */}
-                  <group position={[-0.08, 0, 0]} rotation={[getFingerBend(fingers?.index), 0, 0]}>
-                    <mesh position={[0, 0.1, 0]}>
-                      <boxGeometry args={[0.05, 0.22, 0.05]} />
-                      <meshStandardMaterial color="#1d4ed8" />
-                    </mesh>
-                  </group>
-
-                  {/* Middle Finger */}
-                  <group position={[0.0, 0, 0]} rotation={[getFingerBend(fingers?.middle), 0, 0]}>
-                    <mesh position={[0, 0.11, 0]}>
-                      <boxGeometry args={[0.05, 0.24, 0.05]} />
-                      <meshStandardMaterial color="#1d4ed8" />
-                    </mesh>
-                  </group>
-
-                  {/* Ring Finger */}
-                  <group position={[0.08, 0, 0]} rotation={[getFingerBend(fingers?.ring), 0, 0]}>
-                    <mesh position={[0, 0.1, 0]}>
-                      <boxGeometry args={[0.05, 0.22, 0.05]} />
-                      <meshStandardMaterial color="#1d4ed8" />
-                    </mesh>
-                  </group>
-
-                  {/* Little Finger */}
-                  <group position={[0.14, 0, 0]} rotation={[getFingerBend(fingers?.little), 0, 0]}>
-                    <mesh position={[0, 0.08, 0]}>
-                      <boxGeometry args={[0.05, 0.16, 0.05]} />
-                      <meshStandardMaterial color="#1d4ed8" />
-                    </mesh>
-                  </group>
-                </group>
-              </group>
-            </group>
-          </group>
-        </group>
-      </group>
-    </group>
-  );
-}
+import Arm3DVisualizer from '../components/Arm3DVisualizer';
 
 function LiveExercisePage() {
   const navigate = useNavigate();
@@ -173,6 +43,10 @@ function LiveExercisePage() {
   const [sessionActive, setSessionActive] = useState(false);
   const [exerciseDetails, setExerciseDetails] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Camera & Pause states
+  const [cameraAngle, setCameraAngle] = useState('straight');
+  const [isPaused, setIsPaused] = useState(false);
 
   // Time & Rep tracking
   const [secondsElapsed, setSecondsElapsed] = useState(0);
@@ -209,6 +83,40 @@ function LiveExercisePage() {
   const timerIntervalRef = useRef(null);
   const holdTimerIntervalRef = useRef(null);
   const activeExerciseRef = useRef(null);
+  const evaluateRepetitionStateRef = useRef();
+
+  // Keep repetition state machine callback updated to prevent stale closures
+  useEffect(() => {
+    evaluateRepetitionStateRef.current = evaluateRepetitionState;
+  });
+
+  const togglePauseSession = () => {
+    setIsPaused(prev => {
+      const nextPaused = !prev;
+      if (nextPaused) {
+        // Pause duration timer
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        // Pause hold timer if it's running
+        if (holdTimerIntervalRef.current) clearInterval(holdTimerIntervalRef.current);
+        setGuidance('Session paused. Movement evaluation is frozen.');
+      } else {
+        // Resume duration timer
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = setInterval(() => {
+          setSecondsElapsed(p => p + 1);
+        }, 1000);
+        
+        // Resume hold timer if we were in target_hold
+        if (repState === 'target_hold' && holdCountdown > 0) {
+          startHoldTimer(holdCountdown);
+          setGuidance(`Session resumed. Continue holding position for ${holdCountdown}s.`);
+        } else {
+          setGuidance('Session resumed. Continue your movement.');
+        }
+      }
+      return nextPaused;
+    });
+  };
 
   // Load exercise targets from database
   useEffect(() => {
@@ -308,7 +216,7 @@ function LiveExercisePage() {
         });
 
         // Process movement state machine
-        evaluateRepetitionState(data);
+        evaluateRepetitionStateRef.current?.(data);
       }
     };
 
@@ -320,6 +228,8 @@ function LiveExercisePage() {
 
   // State Machine Rep Count & Posture Guidance Logic
   const evaluateRepetitionState = (data) => {
+    if (isPaused) return;
+
     const ex = activeExerciseRef.current;
     if (!ex) return;
 
@@ -530,6 +440,13 @@ function LiveExercisePage() {
     return `${m}:${s}`;
   };
 
+  const activeControls = {
+    shoulderAngle: sensors.wrist_pitch,
+    shoulderAngleX: 0,
+    elbowAngle: 180 - sensors.elbow,
+    wristAngle: sensors.wrist_roll
+  };
+
   return (
     <div className="space-y-6 relative h-[calc(100vh-8.5rem)] overflow-hidden flex flex-col justify-between">
       {loading ? (
@@ -543,17 +460,44 @@ function LiveExercisePage() {
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 overflow-hidden min-h-0">
             
             {/* Left Panel: 3D Visualization */}
-            <div className="lg:col-span-2 bg-slate-900 rounded-2xl border border-slate-800 flex flex-col items-center justify-center p-4 text-white relative shadow-inner overflow-hidden min-h-[300px]">
+            <div className="lg:col-span-2 bg-slate-900 rounded-2xl border border-slate-800 flex flex-col items-center justify-center text-white relative shadow-inner overflow-hidden min-h-[300px]">
               
               {/* Header inside canvas overlay */}
-              <div className="absolute top-4 left-4 z-10 bg-slate-950/80 backdrop-blur border border-slate-800 rounded-xl p-3 px-4 flex items-center gap-3">
-                <span className="flex h-2.5 w-2.5 relative">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
-                </span>
-                <div>
-                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Live Stream</span>
-                  <span className="text-xs font-semibold text-slate-200">{exerciseName}</span>
+              <div className="absolute top-4 left-4 z-10 flex flex-wrap gap-2 items-center">
+                {/* Live Stream Status Pill */}
+                <div className="flex items-center gap-2.5 bg-slate-950/80 backdrop-blur border border-slate-800 rounded-xl p-2 px-3">
+                  <span className="flex h-2.5 w-2.5 relative">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+                  </span>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Live Stream</span>
+                    <span className="text-xs font-semibold text-slate-200">{exerciseName}</span>
+                  </div>
+                </div>
+
+                {/* Camera Angle Toggle Pill */}
+                <div className="flex items-center bg-slate-950/80 backdrop-blur border border-slate-800 rounded-xl p-1 gap-1">
+                  <button
+                    onClick={() => setCameraAngle('straight')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      cameraAngle === 'straight'
+                        ? 'bg-blue-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Straight View
+                  </button>
+                  <button
+                    onClick={() => setCameraAngle('side')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      cameraAngle === 'side'
+                        ? 'bg-blue-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Side View
+                  </button>
                 </div>
               </div>
 
@@ -569,26 +513,29 @@ function LiveExercisePage() {
                 </div>
               )}
 
-              {/* R3F Canvas */}
+              {/* R3F Canvas container with premium model */}
               <div className="w-full h-full">
-                <Canvas camera={{ position: [3, 1, 0], fov: 50 }}>
-                  <ambientLight intensity={0.7} />
-                  <directionalLight position={[10, 10, 5]} intensity={1.5} />
-                  <pointLight position={[-10, -10, -5]} intensity={0.5} />
-                  <ArmModel 
-                    shoulderPitch={sensors.wrist_pitch} 
-                    elbowAngle={sensors.elbow} 
-                    wristRoll={sensors.wrist_roll} 
-                    fingers={sensors}
-                  />
-                  <OrbitControls enableZoom={true} enablePan={true} maxPolarAngle={Math.PI / 2} />
-                  <gridHelper args={[10, 10, '#334155', '#1e293b']} position={[0, -2.5, 0]} />
-                </Canvas>
+                <Arm3DVisualizer 
+                  controls={activeControls} 
+                  cameraAngle={cameraAngle} 
+                  disableOrbit={true} 
+                />
               </div>
 
+              {/* Pause Overlay */}
+              {isPaused && (
+                <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm z-20 flex flex-col items-center justify-center space-y-2 animate-in fade-in duration-200">
+                  <div className="p-3 bg-amber-500/20 border border-amber-500/30 rounded-2xl text-amber-500 animate-pulse">
+                    <Pause className="w-8 h-8 fill-current" />
+                  </div>
+                  <span className="text-sm font-bold tracking-wider text-slate-200 uppercase">Session Paused</span>
+                  <span className="text-xs text-slate-450 font-medium">Repetition and timer evaluations are frozen</span>
+                </div>
+              )}
+
               {/* 3D Guide helper */}
-              <div className="absolute bottom-4 left-4 text-[10px] text-slate-500 bg-slate-950/40 p-2 rounded-lg font-medium">
-                Hold left click and drag to rotate view. Scroll to zoom.
+              <div className="absolute bottom-4 left-4 text-[10px] text-slate-450 bg-slate-950/60 p-2 px-3 border border-slate-850 rounded-lg font-medium">
+                Use the camera angle buttons to toggle viewpoints.
               </div>
             </div>
 
@@ -645,13 +592,26 @@ function LiveExercisePage() {
               </div>
 
               {/* Actions Footer */}
-              <button 
-                onClick={handleStopSession}
-                className="w-full py-3.5 bg-red-600 text-white font-semibold rounded-xl hover:bg-red-700 transition flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-red-200"
-              >
-                <Square className="w-4 h-4 fill-current" />
-                End & Save Session
-              </button>
+              <div className="flex gap-3">
+                <button 
+                  onClick={togglePauseSession}
+                  className={`flex-1 py-3.5 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-sm ${
+                    isPaused 
+                      ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200' 
+                      : 'bg-amber-500 hover:bg-amber-600 shadow-amber-200'
+                  }`}
+                >
+                  {isPaused ? <Play className="w-4 h-4 fill-current" /> : <Pause className="w-4 h-4" />}
+                  {isPaused ? 'Resume' : 'Pause'}
+                </button>
+                <button 
+                  onClick={handleStopSession}
+                  className="flex-1 py-3.5 bg-red-600 text-white font-semibold rounded-xl hover:bg-red-700 transition flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-red-200"
+                >
+                  <Square className="w-4 h-4 fill-current" />
+                  End & Save
+                </button>
+              </div>
             </div>
 
           </div>

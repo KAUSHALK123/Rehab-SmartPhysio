@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import CalibrationPage from '../pages/CalibrationPage';
@@ -49,8 +49,7 @@ describe('CalibrationPage Component', () => {
     );
 
     expect(screen.getByText('Calibration Wizard')).toBeInTheDocument();
-    expect(screen.getByText('Connect Wearable Sleeve')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Establish Device Link' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Establish Link/i })).toBeInTheDocument();
   });
 
   it('starts connection flow on button click', async () => {
@@ -60,18 +59,31 @@ describe('CalibrationPage Component', () => {
       </MemoryRouter>
     );
 
-    const connectBtn = screen.getByRole('button', { name: 'Establish Device Link' });
+    const connectBtn = screen.getByRole('button', { name: /Establish Link/i });
     fireEvent.click(connectBtn);
 
-    expect(screen.getByText('Connecting to Device Link...')).toBeInTheDocument();
+    expect(screen.getByText('Connecting...')).toBeInTheDocument();
 
     // Trigger onopen on mock websocket
     const wsInstance = MockWebSocket.instance;
-    wsInstance.onopen();
+    act(() => {
+      wsInstance.onopen();
+    });
 
-    // Should transition to Step 2: Diagnostics
+    // Simulate connection message from ESP32
+    act(() => {
+      wsInstance.onmessage({
+        data: JSON.stringify({
+          type: 'status_update',
+          status: 'hardware_status_changed',
+          hardware_connected: true
+        })
+      });
+    });
+
+    // Should transition to showing Component Diagnostics controls
     await waitFor(() => {
-      expect(screen.getByText('Sensor Diagnostic Checks')).toBeInTheDocument();
+      expect(screen.getAllByText('Component Diagnostics')[0]).toBeInTheDocument();
     });
 
     expect(apiClient.post).toHaveBeenCalledWith('/device/connect');
@@ -84,24 +96,138 @@ describe('CalibrationPage Component', () => {
       </MemoryRouter>
     );
 
-    const connectBtn = screen.getByRole('button', { name: 'Establish Device Link' });
+    const connectBtn = screen.getByRole('button', { name: /Establish Link/i });
     fireEvent.click(connectBtn);
 
     const wsInstance = MockWebSocket.instance;
-    wsInstance.onopen();
+    act(() => {
+      wsInstance.onopen();
+    });
     
-    // Wait for Step 2 to load using waitFor
-    await waitFor(() => {
-      expect(screen.getByText('Sensor Diagnostic Checks')).toBeInTheDocument();
+    // Simulate connection message from ESP32
+    act(() => {
+      wsInstance.onmessage({
+        data: JSON.stringify({
+          type: 'status_update',
+          status: 'hardware_status_changed',
+          hardware_connected: true
+        })
+      });
     });
 
-    const continueBtn = screen.getByRole('button', { name: /Continue to Motion Test/i });
+    // Wait for Component Diagnostics to load
+    await waitFor(() => {
+      expect(screen.getAllByText('Component Diagnostics')[0]).toBeInTheDocument();
+    });
+
+    // 1. Calibrate Flex Sensors (variance >= 25% on 3 fingers)
+    act(() => {
+      wsInstance.onmessage({
+        data: JSON.stringify({
+          type: 'sensor_data',
+          thumb: 0, index: 0, middle: 0, ring: 0, little: 0,
+          elbow: 180, wrist_pitch: 0, wrist_roll: 0, pressure: 0, battery: 90
+        })
+      });
+    });
+    act(() => {
+      wsInstance.onmessage({
+        data: JSON.stringify({
+          type: 'sensor_data',
+          thumb: 50, index: 50, middle: 50, ring: 50, little: 50,
+          elbow: 180, wrist_pitch: 0, wrist_roll: 0, pressure: 0, battery: 90
+        })
+      });
+    });
+    
+    // Click "Next Sensor Diagnostics"
+    await waitFor(() => {
+      const nextBtn = screen.getByRole('button', { name: /Next Sensor Diagnostics/i });
+      expect(nextBtn).not.toBeDisabled();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Next Sensor Diagnostics/i }));
+
+    // 2. Calibrate Elbow (variance >= 20)
+    act(() => {
+      wsInstance.onmessage({
+        data: JSON.stringify({
+          type: 'sensor_data',
+          thumb: 50, index: 50, middle: 50, ring: 50, little: 50,
+          elbow: 180, wrist_pitch: 0, wrist_roll: 0, pressure: 0, battery: 90
+        })
+      });
+    });
+    act(() => {
+      wsInstance.onmessage({
+        data: JSON.stringify({
+          type: 'sensor_data',
+          thumb: 50, index: 50, middle: 50, ring: 50, little: 50,
+          elbow: 150, wrist_pitch: 0, wrist_roll: 0, pressure: 0, battery: 90
+        })
+      });
+    });
+    
+    // Click "Next Sensor Diagnostics"
+    await waitFor(() => {
+      const nextBtn = screen.getByRole('button', { name: /Next Sensor Diagnostics/i });
+      expect(nextBtn).not.toBeDisabled();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Next Sensor Diagnostics/i }));
+
+    // 3. Calibrate MPU (variance >= 15)
+    act(() => {
+      wsInstance.onmessage({
+        data: JSON.stringify({
+          type: 'sensor_data',
+          thumb: 50, index: 50, middle: 50, ring: 50, little: 50,
+          elbow: 150, wrist_pitch: 0, wrist_roll: 0, pressure: 0, battery: 90
+        })
+      });
+    });
+    act(() => {
+      wsInstance.onmessage({
+        data: JSON.stringify({
+          type: 'sensor_data',
+          thumb: 50, index: 50, middle: 50, ring: 50, little: 50,
+          elbow: 150, wrist_pitch: 20, wrist_roll: 0, pressure: 0, battery: 90
+        })
+      });
+    });
+    
+    // Click "Next Sensor Diagnostics"
+    await waitFor(() => {
+      const nextBtn = screen.getByRole('button', { name: /Next Sensor Diagnostics/i });
+      expect(nextBtn).not.toBeDisabled();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Next Sensor Diagnostics/i }));
+
+    // 4. Calibrate Pressure (variance >= 150)
+    act(() => {
+      wsInstance.onmessage({
+        data: JSON.stringify({
+          type: 'sensor_data',
+          thumb: 50, index: 50, middle: 50, ring: 50, little: 50,
+          elbow: 150, wrist_pitch: 20, wrist_roll: 0, pressure: 0, battery: 90
+        })
+      });
+    });
+    act(() => {
+      wsInstance.onmessage({
+        data: JSON.stringify({
+          type: 'sensor_data',
+          thumb: 50, index: 50, middle: 50, ring: 50, little: 50,
+          elbow: 150, wrist_pitch: 20, wrist_roll: 0, pressure: 200, battery: 90
+        })
+      });
+    });
+
+    const continueBtn = screen.getByRole('button', { name: /Continue to Motion Verification/i });
     await waitFor(() => {
       expect(continueBtn).not.toBeDisabled();
     }, { timeout: 5000 });
     fireEvent.click(continueBtn);
 
-    // Verify transition to Step 3
-    expect(screen.getByText('Step 3: Motion Verification')).toBeInTheDocument();
+    // Verify transition to Step 2
+    expect(screen.getByText('Step 2: Motion Verification')).toBeInTheDocument();
   });
 });
