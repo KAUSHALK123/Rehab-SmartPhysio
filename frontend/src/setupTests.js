@@ -19,6 +19,7 @@ window.HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
   clip: vi.fn(),
   quadraticCurveTo: vi.fn(),
   arc: vi.fn(),
+  ellipse: vi.fn(),
   fill: vi.fn(),
   stroke: vi.fn(),
   createLinearGradient: vi.fn(),
@@ -43,8 +44,19 @@ vi.mock('@react-three/fiber', () => {
 });
 
 vi.mock('@react-three/drei', () => {
+  const useGLTFMock = vi.fn().mockReturnValue({
+    scene: {
+      traverse: vi.fn(),
+    },
+    nodes: {},
+    materials: {},
+  });
+  useGLTFMock.preload = vi.fn();
   return {
     OrbitControls: () => React.createElement('div', { 'data-testid': 'mock-orbit-controls' }),
+    Grid: () => null,
+    Center: ({ children }) => children,
+    useGLTF: useGLTFMock,
   };
 });
 

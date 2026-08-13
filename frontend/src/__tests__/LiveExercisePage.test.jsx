@@ -111,7 +111,7 @@ describe('LiveExercisePage Component', () => {
     });
 
     // Find and click End Session button
-    const endBtn = screen.getByRole('button', { name: /End & Save Session/i });
+    const endBtn = screen.getByRole('button', { name: /End & Save/i });
     fireEvent.click(endBtn);
 
     await waitFor(() => {
@@ -136,5 +136,41 @@ describe('LiveExercisePage Component', () => {
     fireEvent.click(returnBtn);
 
     expect(mockNavigate).toHaveBeenCalledWith('/exercises');
+  });
+
+  it('pauses and resumes the session correctly', async () => {
+    apiClient.get.mockResolvedValue({
+      data: { id: 'ex-1', exercise_name: 'Ball Squeeze' },
+    });
+    startSession.mockResolvedValue({ session_id: 'sess-abc-123' });
+
+    render(
+      <MemoryRouter>
+        <LiveExercisePage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(startSession).toHaveBeenCalled();
+    });
+
+    // Verify initial state is active (not showing paused overlay)
+    expect(screen.queryByText('Session Paused')).not.toBeInTheDocument();
+
+    // Find and click Pause button
+    const pauseBtn = screen.getByRole('button', { name: /Pause/i });
+    fireEvent.click(pauseBtn);
+
+    // Verify paused overlay appears and button changes to Resume
+    expect(screen.getByText('Session Paused')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Resume/i })).toBeInTheDocument();
+
+    // Click Resume button
+    const resumeBtn = screen.getByRole('button', { name: /Resume/i });
+    fireEvent.click(resumeBtn);
+
+    // Verify paused overlay disappears and button reverts to Pause
+    expect(screen.queryByText('Session Paused')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Pause/i })).toBeInTheDocument();
   });
 });

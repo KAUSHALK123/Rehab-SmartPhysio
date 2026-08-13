@@ -69,7 +69,7 @@ function DashboardPage() {
     ? {
         shoulderAngle: controls.shoulderAngle,
         shoulderAngleX: controls.shoulderAngleX,
-        elbowAngle: liveTelemetry.elbow,
+        elbowAngle: 180 - liveTelemetry.elbow,
         wristAngle: liveTelemetry.wrist_roll
       }
     : controls;
