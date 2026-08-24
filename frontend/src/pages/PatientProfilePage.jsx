@@ -3,7 +3,10 @@ import {
   getPatients, 
   createPatient, 
   updatePatient, 
-  deletePatient 
+  deletePatient,
+  getBodyParts,
+  getConditions,
+  getRehabilitationGoals
 } from '../services/patient';
 import { 
   Plus, 
@@ -36,6 +39,31 @@ function PatientProfilePage() {
     localStorage.getItem('activePatientName') || ''
   );
 
+  // Injury-centric dropdown metadata states
+  const [bodyParts, setBodyParts] = useState([]);
+  const [conditions, setConditions] = useState([]);
+  const [rehabGoals, setRehabGoals] = useState([]);
+  const [filteredConditions, setFilteredConditions] = useState([]);
+
+  // Fetch dropdown list metadata on component mount
+  useEffect(() => {
+    const loadMetadata = async () => {
+      try {
+        const [parts, conds, goals] = await Promise.all([
+          getBodyParts(),
+          getConditions(),
+          getRehabilitationGoals()
+        ]);
+        setBodyParts(parts);
+        setConditions(conds);
+        setRehabGoals(goals);
+      } catch (err) {
+        console.error("Failed to load clinical metadata dropdowns:", err);
+      }
+    };
+    loadMetadata();
+  }, []);
+
   // Form State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formMode, setFormMode] = useState('create'); // 'create' | 'edit'
@@ -49,7 +77,10 @@ function PatientProfilePage() {
     weight_kg: '',
     dominant_hand: 'Right',
     injured_arm: 'Left',
-    injury_type: ''
+    injury_type: '',
+    body_part_id: '',
+    condition_id: '',
+    rehabilitation_goal_id: ''
   });
 
   const fetchPatients = async () => {
@@ -112,17 +143,32 @@ function PatientProfilePage() {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: name === 'age' || name === 'height_cm' || name === 'weight_kg' 
-        ? (value === '' ? '' : Number(value)) 
-        : value
-    }));
+    setFormData(prev => {
+      const updated = {
+        ...prev,
+        [name]: name === 'age' || name === 'height_cm' || name === 'weight_kg' 
+          ? (value === '' ? '' : Number(value)) 
+          : value
+      };
+      
+      // Filter conditions based on selected body part and auto-select the first matching condition
+      if (name === 'body_part_id') {
+        const matching = conditions.filter(c => c.body_part_id === value);
+        setFilteredConditions(matching);
+        updated.condition_id = matching[0]?.id || '';
+      }
+      return updated;
+    });
   };
 
   const openCreateModal = () => {
     setFormMode('create');
     setSelectedPatientId(null);
+    
+    const initialPartId = bodyParts[0]?.id || '';
+    const initialConds = conditions.filter(c => c.body_part_id === initialPartId);
+    setFilteredConditions(initialConds);
+
     setFormData({
       full_name: '',
       age: '',
@@ -131,7 +177,10 @@ function PatientProfilePage() {
       weight_kg: '',
       dominant_hand: 'Right',
       injured_arm: 'Left',
-      injury_type: ''
+      injury_type: '',
+      body_part_id: initialPartId,
+      condition_id: initialConds[0]?.id || '',
+      rehabilitation_goal_id: rehabGoals[0]?.id || ''
     });
     setIsModalOpen(true);
   };
@@ -139,6 +188,11 @@ function PatientProfilePage() {
   const openEditModal = (patient) => {
     setFormMode('edit');
     setSelectedPatientId(patient.id);
+    
+    const patientPartId = patient.body_part_id || bodyParts[0]?.id || '';
+    const matching = conditions.filter(c => c.body_part_id === patientPartId);
+    setFilteredConditions(matching);
+
     setFormData({
       full_name: patient.full_name,
       age: patient.age,
@@ -147,7 +201,10 @@ function PatientProfilePage() {
       weight_kg: patient.weight_kg,
       dominant_hand: patient.dominant_hand,
       injured_arm: patient.injured_arm,
-      injury_type: patient.injury_type
+      injury_type: patient.injury_type || '',
+      body_part_id: patient.body_part_id || '',
+      condition_id: patient.condition_id || '',
+      rehabilitation_goal_id: patient.rehabilitation_goal_id || ''
     });
     setIsModalOpen(true);
   };
@@ -161,11 +218,19 @@ function PatientProfilePage() {
     if (!formData.age || formData.age <= 0) return showNotification('Age must be greater than zero.', 'error');
     if (!formData.height_cm || formData.height_cm <= 0) return showNotification('Height must be greater than zero.', 'error');
     if (!formData.weight_kg || formData.weight_kg <= 0) return showNotification('Weight must be greater than zero.', 'error');
-    if (!formData.injury_type.trim()) return showNotification('Please enter an injury type.', 'error');
+    if (!formData.condition_id) return showNotification('Please select a diagnosed condition.', 'error');
+    if (!formData.rehabilitation_goal_id) return showNotification('Please select a rehabilitation goal.', 'error');
+
+    // Sync condition name to injury_type for safety/backwards compatibility
+    const activeCond = conditions.find(c => c.id === formData.condition_id);
+    const payload = {
+      ...formData,
+      injury_type: activeCond ? activeCond.name : formData.injury_type
+    };
 
     try {
       if (formMode === 'create') {
-        const res = await createPatient(formData);
+        const res = await createPatient(payload);
         showNotification('Patient profile created successfully.');
         
         // If it is the first patient, automatically set them as active
@@ -176,7 +241,7 @@ function PatientProfilePage() {
           setActivePatientName(formData.full_name);
         }
       } else {
-        await updatePatient(selectedPatientId, formData);
+        await updatePatient(selectedPatientId, payload);
         showNotification('Patient profile updated successfully.');
         
         // Update local active state if edited patient is active
@@ -357,8 +422,18 @@ function PatientProfilePage() {
                       {patient.gender}, {patient.age} yrs
                     </span>
                     <span className="px-2.5 py-1 bg-blue-50 text-primary rounded-lg text-xs font-semibold border border-blue-100">
-                      Injury: {patient.injury_type}
+                      Condition: {patient.condition_name || patient.injury_type || "None"}
                     </span>
+                    {patient.body_part_name && (
+                      <span className="px-2.5 py-1 bg-violet-50 text-violet-600 rounded-lg text-xs font-semibold border border-violet-100">
+                        Area: {patient.body_part_name}
+                      </span>
+                    )}
+                    {patient.rehabilitation_goal_name && (
+                      <span className="px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-semibold border border-emerald-100 w-full text-ellipsis overflow-hidden whitespace-nowrap">
+                        Goal: {patient.rehabilitation_goal_name}
+                      </span>
+                    )}
                   </div>
 
                   <hr className="border-slate-100" />
@@ -525,33 +600,75 @@ function PatientProfilePage() {
                   </select>
                 </div>
 
-                {/* Injured Arm */}
+                {/* Injured Side */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Injured Arm</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Injured Side</label>
                   <select 
                     name="injured_arm"
                     value={formData.injured_arm}
                     onChange={handleInputChange}
                     className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800"
                   >
-                    <option value="Left">Left Arm</option>
-                    <option value="Right">Right Arm</option>
-                    <option value="Both">Both Arms</option>
+                    <option value="Left">Left Side</option>
+                    <option value="Right">Right Side</option>
+                    <option value="Both">Both Sides</option>
                   </select>
                 </div>
 
-                {/* Injury Type */}
+                {/* Affected Body Part */}
                 <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Injury / Diagnosis Type</label>
-                  <input 
-                    type="text" 
-                    name="injury_type"
-                    value={formData.injury_type}
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Affected Body Part</label>
+                  <select 
+                    name="body_part_id"
+                    value={formData.body_part_id}
                     onChange={handleInputChange}
-                    placeholder="e.g. Radial Nerve Palsy, Wrist Tendonitis" 
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800" 
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800"
                     required
-                  />
+                  >
+                    <option value="">Select affected area...</option>
+                    {bodyParts.map(bp => (
+                      <option key={bp.id} value={bp.id}>{bp.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Diagnosed Injury / Condition */}
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    Diagnosed Injury / Condition 
+                    <span className="text-[10px] text-slate-400 normal-case font-normal ml-2">
+                      (Select the condition diagnosed by your healthcare professional)
+                    </span>
+                  </label>
+                  <select 
+                    name="condition_id"
+                    value={formData.condition_id}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800"
+                    required
+                  >
+                    <option value="">Select condition...</option>
+                    {filteredConditions.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Rehabilitation Goal */}
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Rehabilitation Goal</label>
+                  <select 
+                    name="rehabilitation_goal_id"
+                    value={formData.rehabilitation_goal_id}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800"
+                    required
+                  >
+                    <option value="">Select rehabilitation goal...</option>
+                    {rehabGoals.map(rg => (
+                      <option key={rg.id} value={rg.id}>{rg.goal_name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -570,6 +687,12 @@ function PatientProfilePage() {
                 >
                   {formMode === 'create' ? 'Create Profile' : 'Save Changes'}
                 </button>
+              </div>
+
+              {/* Medical Disclaimer */}
+              <div className="mt-4 p-3 bg-slate-50 border border-slate-200 rounded-xl text-[10px] text-slate-500 leading-normal">
+                <span className="font-bold text-slate-700 block mb-0.5">Medical Disclaimer</span>
+                SmartPhysio is an assistive monitoring tool for tracking physical therapy progress and range of motion. It does not provide medical diagnoses, treatment plans, or clinical validation. Please consult a qualified healthcare professional before beginning any routine.
               </div>
             </form>
           </div>

@@ -189,7 +189,97 @@ DELETE
 
 ---
 
-# 5. Exercise APIs
+# 5. Injury-Centric & Metadata APIs
+
+## Get Body Parts
+
+GET
+
+/body-parts
+
+Response
+
+```json
+[
+  {
+    "id": "UUID",
+    "name": "Wrist"
+  }
+]
+```
+
+---
+
+## Get Diagnosed Conditions
+
+GET
+
+/conditions
+
+Response
+
+```json
+[
+  {
+    "id": "UUID",
+    "body_part_id": "UUID",
+    "name": "Wrist Sprain",
+    "safety_disclaimer": "Assistive monitoring tool only. Consult clinician."
+  }
+]
+```
+
+---
+
+## Get Rehabilitation Goals
+
+GET
+
+/rehabilitation-goals
+
+Response
+
+```json
+[
+  {
+    "id": "UUID",
+    "goal_name": "Increase Flexion Range of Motion"
+  }
+]
+```
+
+---
+
+## Get Patient Recommendations
+
+GET
+
+/patients/{id}/recommendations
+
+Response
+
+```json
+[
+  {
+    "id": "UUID",
+    "exercise_name": "Wrist Rotation",
+    "description": "Slowly rotate wrist joint...",
+    "body_part": "Wrist",
+    "target_joint": "Wrist Joint",
+    "target_angle": 90.0,
+    "target_pressure": 0.0,
+    "required_sensors": "MPU6050 Gyroscope",
+    "repetitions": 10,
+    "hold_seconds": 3,
+    "rest_seconds": 2,
+    "difficulty": "Easy"
+  }
+]
+```
+
+---
+
+# 6. Exercise APIs
 
 ## Get Exercise Library
 
@@ -214,7 +304,7 @@ Response
 
 GET
 
-/ exercises/{id}
+/exercises/{id}
 
 Returns
 
@@ -230,9 +320,13 @@ Hold Time
 
 Rest Time
 
+Required Sensors
+
+Target Joint
+
 ---
 
-# 6. Calibration APIs
+# 7. Calibration APIs
 
 ## Start Calibration
 

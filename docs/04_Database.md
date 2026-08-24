@@ -86,8 +86,8 @@ Stores patient information.
 
 | Column | Type |
 |----------|------|
-| id | UUID |
-| user_id | UUID FK |
+| id | UUID (PK) |
+| user_id | UUID (FK Users) |
 | full_name | VARCHAR |
 | age | INTEGER |
 | gender | VARCHAR |
@@ -96,7 +96,11 @@ Stores patient information.
 | dominant_hand | VARCHAR |
 | injured_arm | VARCHAR |
 | injury_type | VARCHAR |
+| body_part_id | UUID (FK Body Parts, Nullable) |
+| condition_id | UUID (FK Conditions, Nullable) |
+| rehabilitation_goal_id | UUID (FK Goals, Nullable) |
 | created_at | TIMESTAMP |
+| updated_at | TIMESTAMP |
 
 Future
 
@@ -107,22 +111,75 @@ Future
 
 ---
 
+# Body Parts
+
+Master list of target body parts.
+
+| Column | Type |
+|----------|------|
+| id | UUID (PK) |
+| name | VARCHAR (Unique, e.g. "Wrist", "Elbow") |
+
+---
+
+# Conditions
+
+Master list of Diagnosed Injuries/Conditions.
+
+| Column | Type |
+|----------|------|
+| id | UUID (PK) |
+| body_part_id | UUID (FK Body Parts) |
+| name | VARCHAR (e.g. "Wrist Sprain", "Rotator Cuff Rehab") |
+| safety_disclaimer | TEXT (Clinical guidance note) |
+
+---
+
+# Rehabilitation Goals
+
+Master list of patient goals.
+
+| Column | Type |
+|----------|------|
+| id | UUID (PK) |
+| goal_name | VARCHAR (e.g. "Increase Flexion ROM") |
+
+---
+
+# Exercise-Condition Mapping
+
+Associates exercises with compatible rehabilitation conditions (Many-to-Many).
+
+| Column | Type |
+|----------|------|
+| id | UUID (PK) |
+| exercise_id | UUID (FK Exercises) |
+| condition_id | UUID (FK Conditions) |
+| rehabilitation_goal_id | UUID (FK Goals, Nullable) |
+
+---
+
 # Exercises
 
 Master table containing exercise definitions.
 
 | Column | Type |
 |----------|------|
-| id | UUID |
+| id | UUID (PK) |
 | exercise_name | VARCHAR |
 | description | TEXT |
 | body_part | VARCHAR |
+| target_joint | VARCHAR (e.g. "Wrist", "Elbow Joint") |
 | target_angle | FLOAT |
 | target_pressure | FLOAT |
+| required_sensors | VARCHAR (Comma separated sensors list) |
 | repetitions | INTEGER |
 | hold_seconds | INTEGER |
 | rest_seconds | INTEGER |
 | difficulty | VARCHAR |
+| body_part_id | UUID (FK Body Parts, Nullable) |
+| condition_id | UUID (FK Conditions, Nullable) |
+| rehabilitation_goal_id | UUID (FK Goals, Nullable) |
 
 Example
 

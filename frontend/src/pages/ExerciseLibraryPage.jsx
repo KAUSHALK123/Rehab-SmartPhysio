@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { getExercises } from '../services/exercise';
+import { getRecommendedExercises, getPatient } from '../services/patient';
 import { 
   BookOpen, 
   Play, 
@@ -19,6 +20,8 @@ import {
 function ExerciseLibraryPage() {
   const navigate = useNavigate();
   const [exercises, setExercises] = useState([]);
+  const [recommendedExercises, setRecommendedExercises] = useState([]);
+  const [patientDetails, setPatientDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -33,8 +36,23 @@ function ExerciseLibraryPage() {
     setLoading(true);
     setErrorMsg('');
     try {
-      const data = await getExercises();
-      setExercises(data);
+      const allEx = await getExercises();
+      setExercises(allEx);
+
+      if (activePatientId) {
+        const recEx = await getRecommendedExercises(activePatientId);
+        setRecommendedExercises(recEx);
+        
+        try {
+          const pDetails = await getPatient(activePatientId);
+          setPatientDetails(pDetails);
+        } catch (pErr) {
+          console.error("Failed to load patient details:", pErr);
+        }
+      } else {
+        setRecommendedExercises([]);
+        setPatientDetails(null);
+      }
     } catch (err) {
       console.error(err);
       setErrorMsg('Failed to load rehabilitation exercises. Please verify the backend connection.');
@@ -46,6 +64,7 @@ function ExerciseLibraryPage() {
   useEffect(() => {
     fetchExercisesList();
   }, []);
+
 
   const handleStartExercise = (exercise) => {
     if (!activePatientId) {
@@ -115,12 +134,22 @@ function ExerciseLibraryPage() {
           </Link>
         </div>
       ) : (
-        <div className="bg-green-50/50 border border-green-200 p-4 px-6 rounded-2xl shadow-sm flex items-center gap-3 text-sm">
-          <CheckCircle2 className="w-5 h-5 text-green-600" />
-          <span className="text-slate-700 font-semibold">
-            Rehabilitation session active for patient:{' '}
-            <span className="text-green-700 font-bold">{activePatientName}</span>
-          </span>
+        <div className="bg-green-50/50 border border-green-200 p-5 px-6 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 text-sm">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="w-5 h-5 text-green-600" />
+            <span className="text-slate-700 font-semibold">
+              Rehabilitation session active for patient:{' '}
+              <span className="text-green-700 font-bold">{activePatientName}</span>
+              {patientDetails?.condition_name && (
+                <span className="ml-2 px-2.5 py-0.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-bold border border-blue-200">
+                  Condition: {patientDetails.condition_name}
+                </span>
+              )}
+            </span>
+          </div>
+          <div className="text-xs text-slate-500 italic font-medium">
+            Exercises are based on the rehabilitation condition selected during setup.
+          </div>
         </div>
       )}
 
@@ -152,82 +181,168 @@ function ExerciseLibraryPage() {
           <p className="text-sm text-slate-500">The exercise database is currently empty.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {exercises.map((ex) => (
-            <div 
-              key={ex.id} 
-              className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col justify-between overflow-hidden group hover:border-slate-300"
-            >
-              <div className="p-6 space-y-4.5">
-                {/* Badges */}
-                <div className="flex justify-between items-center">
-                  <span className="px-2.5 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs font-semibold">
-                    {ex.body_part}
-                  </span>
-                  
-                  <span className={`px-2.5 py-0.5 text-[10px] font-extrabold rounded-full uppercase tracking-wider ${
-                    ex.difficulty === 'Easy' ? 'bg-green-50 text-green-600 border border-green-200' :
-                    ex.difficulty === 'Medium' ? 'bg-orange-50 text-orange-600 border border-orange-200' :
-                    'bg-red-50 text-red-600 border border-red-200'
-                  }`}>
-                    {ex.difficulty}
-                  </span>
-                </div>
-
-                <div className="space-y-1">
-                  <h4 className="text-lg font-bold text-slate-800 group-hover:text-primary transition">
-                    {ex.exercise_name}
-                  </h4>
-                  <p className="text-slate-500 text-xs md:text-sm line-clamp-2 h-10">
-                    {ex.description}
-                  </p>
-                </div>
-
-                <hr className="border-slate-100" />
-
-                {/* Specs overview */}
-                <div className="grid grid-cols-2 gap-4 text-xs font-semibold text-slate-600">
-                  <div className="flex items-center gap-2">
-                    <Award className="w-4 h-4 text-slate-400" />
-                    <span>Reps: {ex.repetitions}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-slate-400" />
-                    <span>Hold: {ex.hold_seconds}s / Rest: {ex.rest_seconds}s</span>
-                  </div>
-                </div>
+        <div className="space-y-10">
+          {/* Recommended Exercises (First section) */}
+          {recommendedExercises.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-4 bg-green-500 rounded-full"></div>
+                <h4 className="text-sm font-extrabold text-slate-500 uppercase tracking-widest">
+                  Recommended for your rehabilitation
+                </h4>
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {recommendedExercises.map((ex) => (
+                  <div 
+                    key={`rec-${ex.id}`} 
+                    className="bg-white rounded-2xl border-2 border-green-500/25 hover:border-green-500/60 shadow-md hover:shadow-lg transition-all duration-200 flex flex-col justify-between overflow-hidden group hover:scale-[1.01] relative"
+                  >
+                    <div className="absolute top-0 right-0 bg-green-500 text-white text-[9px] font-extrabold px-3 py-1.5 rounded-bl-xl tracking-wider uppercase shadow-sm">
+                      Recommended
+                    </div>
+                    
+                    <div className="p-6 space-y-4.5">
+                      <div className="flex justify-between items-center">
+                        <span className="px-2.5 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs font-semibold">
+                          {ex.body_part}
+                        </span>
+                        <span className={`px-2.5 py-0.5 text-[10px] font-extrabold rounded-full uppercase tracking-wider ${
+                          ex.difficulty === 'Easy' ? 'bg-green-50 text-green-600 border border-green-200' :
+                          ex.difficulty === 'Medium' ? 'bg-orange-50 text-orange-600 border border-orange-200' :
+                          'bg-red-50 text-red-600 border border-red-200'
+                        }`}>
+                          {ex.difficulty}
+                        </span>
+                      </div>
 
-              {/* Action Footer */}
-              <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex items-center justify-between">
-                <button 
-                  onClick={() => setSelectedExercise(ex)}
-                  className="px-3.5 py-2 border border-slate-200 hover:border-slate-300 text-xs font-bold text-slate-700 bg-white rounded-lg hover:bg-slate-100 transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Info className="w-3.5 h-3.5 text-slate-500" />
-                  View Details
-                </button>
+                      <div className="space-y-1">
+                        <h4 className="text-lg font-bold text-slate-800 group-hover:text-primary transition pr-16">
+                          {ex.exercise_name}
+                        </h4>
+                        <p className="text-slate-500 text-xs md:text-sm line-clamp-2 h-10">
+                          {ex.description}
+                        </p>
+                      </div>
 
-                <button 
-                  onClick={() => {
-                    if (activePatientId) {
-                      handleStartExercise(ex);
-                    } else {
-                      setSelectedExercise(ex); // open modal showing patient alert
-                    }
-                  }}
-                  className={`px-4 py-2 text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
-                    activePatientId 
-                      ? 'bg-primary text-white hover:bg-blue-600 shadow-sm shadow-blue-100' 
-                      : 'bg-slate-200 text-slate-400 hover:bg-slate-300'
-                  }`}
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  Start Exercise
-                </button>
+                      <hr className="border-slate-100" />
+
+                      <div className="grid grid-cols-2 gap-4 text-xs font-semibold text-slate-600">
+                        <div className="flex items-center gap-2">
+                          <Award className="w-4 h-4 text-slate-400" />
+                          <span>Reps: {ex.repetitions}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-slate-400" />
+                          <span>Hold: {ex.hold_seconds}s / Rest: {ex.rest_seconds}s</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex items-center justify-between">
+                      <button 
+                        onClick={() => setSelectedExercise(ex)}
+                        className="px-3.5 py-2 border border-slate-200 hover:border-slate-300 text-xs font-bold text-slate-700 bg-white rounded-lg hover:bg-slate-100 transition flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Info className="w-3.5 h-3.5 text-slate-500" />
+                        View Details
+                      </button>
+
+                      <button 
+                        onClick={() => handleStartExercise(ex)}
+                        className="px-4 py-2 text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer bg-primary text-white hover:bg-blue-600 shadow-sm shadow-blue-100"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        Start Exercise
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-          ))}
+          )}
+
+          {/* General Exercises (Second section) */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-4 bg-slate-400 rounded-full"></div>
+              <h4 className="text-sm font-extrabold text-slate-500 uppercase tracking-widest">
+                All Rehabilitation Routines
+              </h4>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {exercises.map((ex) => (
+                <div 
+                  key={ex.id} 
+                  className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col justify-between overflow-hidden group hover:border-slate-300"
+                >
+                  <div className="p-6 space-y-4.5">
+                    <div className="flex justify-between items-center">
+                      <span className="px-2.5 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs font-semibold">
+                        {ex.body_part}
+                      </span>
+                      <span className={`px-2.5 py-0.5 text-[10px] font-extrabold rounded-full uppercase tracking-wider ${
+                        ex.difficulty === 'Easy' ? 'bg-green-50 text-green-600 border border-green-200' :
+                        ex.difficulty === 'Medium' ? 'bg-orange-50 text-orange-600 border border-orange-200' :
+                        'bg-red-50 text-red-600 border border-red-200'
+                      }`}>
+                        {ex.difficulty}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1">
+                      <h4 className="text-lg font-bold text-slate-800 group-hover:text-primary transition">
+                        {ex.exercise_name}
+                      </h4>
+                      <p className="text-slate-500 text-xs md:text-sm line-clamp-2 h-10">
+                        {ex.description}
+                      </p>
+                    </div>
+
+                    <hr className="border-slate-100" />
+
+                    <div className="grid grid-cols-2 gap-4 text-xs font-semibold text-slate-600">
+                      <div className="flex items-center gap-2">
+                        <Award className="w-4 h-4 text-slate-400" />
+                        <span>Reps: {ex.repetitions}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-slate-400" />
+                        <span>Hold: {ex.hold_seconds}s / Rest: {ex.rest_seconds}s</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex items-center justify-between">
+                    <button 
+                      onClick={() => setSelectedExercise(ex)}
+                      className="px-3.5 py-2 border border-slate-200 hover:border-slate-300 text-xs font-bold text-slate-700 bg-white rounded-lg hover:bg-slate-100 transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Info className="w-3.5 h-3.5 text-slate-500" />
+                      View Details
+                    </button>
+
+                    <button 
+                      onClick={() => {
+                        if (activePatientId) {
+                          handleStartExercise(ex);
+                        } else {
+                          setSelectedExercise(ex);
+                        }
+                      }}
+                      className={`px-4 py-2 text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
+                        activePatientId 
+                          ? 'bg-primary text-white hover:bg-blue-600 shadow-sm shadow-blue-100' 
+                          : 'bg-slate-200 text-slate-400 hover:bg-slate-300'
+                      }`}
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      Start Exercise
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -273,6 +388,18 @@ function ExerciseLibraryPage() {
                   <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5">Target Area</span>
                   <span>{selectedExercise.body_part}</span>
                 </div>
+                {selectedExercise.target_joint && (
+                  <div>
+                    <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5">Target Joint</span>
+                    <span>{selectedExercise.target_joint}</span>
+                  </div>
+                )}
+                {selectedExercise.rehabilitation_goal && (
+                  <div>
+                    <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5">Rehabilitation Goal</span>
+                    <span>{selectedExercise.rehabilitation_goal}</span>
+                  </div>
+                )}
                 <div>
                   <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5">Repetitions</span>
                   <span>{selectedExercise.repetitions} reps</span>
@@ -305,7 +432,10 @@ function ExerciseLibraryPage() {
               <div className="space-y-2.5">
                 <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider">Required Wearable Sleeve Sensors</span>
                 <div className="flex flex-wrap gap-2">
-                  {getRequiredSensors(selectedExercise.body_part, selectedExercise.exercise_name).map((sensor, idx) => (
+                  {(selectedExercise.required_sensors 
+                    ? selectedExercise.required_sensors.split(',').map(s => s.trim()) 
+                    : getRequiredSensors(selectedExercise.body_part, selectedExercise.exercise_name)
+                  ).map((sensor, idx) => (
                     <span key={idx} className="px-3 py-1.5 bg-blue-50/50 border border-blue-100 rounded-xl text-xs font-semibold text-primary flex items-center gap-1.5">
                       <Activity className="w-3.5 h-3.5" />
                       {sensor}

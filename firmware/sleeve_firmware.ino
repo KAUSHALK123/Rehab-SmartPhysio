@@ -260,7 +260,7 @@ void loop() {
 
   // Stream data at 10Hz interval
   unsigned long currentTime = millis();
-  if (wsConnected && (currentTime - lastStreamTime >= streamInterval)) {
+  if (currentTime - lastStreamTime >= streamInterval) {
     lastStreamTime = currentTime;
 
     // A. Read raw ADC values from flex and pressure sensors (12-bit, range 0 - 4095)
@@ -276,15 +276,11 @@ void loop() {
     int thumbFlex = mapFlexSensor(rawThumb, thumbMin, thumbMax);
     int indexFlex = mapFlexSensor(rawIndex, indexMin, indexMax);
     int middleFlex = mapFlexSensor(rawMiddle, middleMin, middleMax);
-    int ringFlex = mapFlexSensor(rawRing, ringMin, ringMax);
+    int ringFlex = mapFlexSensor(rawRing, ringMin, ringMax);                       
     int littleFlex = mapFlexSensor(rawLittle, littleMin, littleMax);
     
     // Elbow straight (180°) down to flexed (90°)
-    // Directly map raw ADC value to angle range for clearer behavior
-    // Ensure elbowMin corresponds to fully extended (180°) and elbowMax to full flex (90°)
     int elbowAngle = map(rawElbow, elbowMin, elbowMax, 180, 90);
-    // Debug output for calibration (remove for production)
-    Serial.printf("[ELBOW] raw=%d angle=%d\n", rawElbow, elbowAngle);
 
     // Grip pressure resistance force (arbitrary Newton approximation)
     int gripForce = map(constrain(rawPressure, 0, 3000), 0, 3000, 0, 800);
@@ -299,23 +295,40 @@ void loop() {
       wristRoll = mpu.getAngleY();
     }
 
-    // D. Build JSON Telemetry payload
-    StaticJsonDocument<512> doc;
-    doc["battery"] = 94; // Simulating battery status level
-    doc["thumb"] = thumbFlex;
-    doc["index"] = indexFlex;
-    doc["middle"] = middleFlex;
-    doc["ring"] = ringFlex;
-    doc["little"] = littleFlex;
-    doc["elbow"] = elbowAngle;
-    doc["pressure"] = gripForce;
-    doc["wrist_pitch"] = round(wristPitch * 10.0) / 10.0;
-    doc["wrist_roll"] = round(wristRoll * 10.0) / 10.0;
-    doc["mpu_working"] = mpuFound;
+    // D. Always print readings to serial for user debugging/wiring tests
+    Serial.printf("[TELEMETRY] status=%s | raw_thumb=%d raw_index=%d raw_middle=%d raw_ring=%d raw_little=%d raw_elbow=%d raw_pressure=%d | thumb=%d%% index=%d%% middle=%d%% ring=%d%% little=%d%% elbow=%d pressure=%d N | wrist_pitch=%.1f wrist_roll=%.1f\n",
+                  wsConnected ? "CONNECTED" : "OFFLINE",
+                  rawThumb, rawIndex, rawMiddle, rawRing, rawLittle, rawElbow, rawPressure,
+                  thumbFlex, indexFlex, middleFlex, ringFlex, littleFlex, elbowAngle, gripForce,
+                  wristPitch, wristRoll);
 
-    // E. Serialize and send JSON string over WebSocket
-    String jsonString;
-    serializeJson(doc, jsonString);
-    webSocket.sendTXT(jsonString);
+    // E. Serialize and send JSON string over WebSocket only if connected
+    if (wsConnected) {
+      StaticJsonDocument<512> doc;
+      doc["battery"] = 94; // Simulating battery status level
+      doc["thumb"] = thumbFlex;
+      doc["index"] = indexFlex;
+      doc["middle"] = middleFlex;
+      doc["ring"] = ringFlex;
+      doc["little"] = littleFlex;
+      doc["elbow"] = elbowAngle;
+      doc["pressure"] = gripForce;
+      doc["wrist_pitch"] = round(wristPitch * 10.0) / 10.0;
+      doc["wrist_roll"] = round(wristRoll * 10.0) / 10.0;
+      doc["mpu_working"] = mpuFound;
+
+      // Add raw ADC telemetry fields for advanced dashboard diagnostics
+      doc["raw_thumb"] = rawThumb;
+      doc["raw_index"] = rawIndex;
+      doc["raw_middle"] = rawMiddle;
+      doc["raw_ring"] = rawRing;
+      doc["raw_little"] = rawLittle;
+      doc["raw_elbow"] = rawElbow;
+      doc["raw_pressure"] = rawPressure;
+
+      String jsonString;
+      serializeJson(doc, jsonString);
+      webSocket.sendTXT(jsonString);
+    }
   }
 }

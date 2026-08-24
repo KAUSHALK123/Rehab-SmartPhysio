@@ -5,10 +5,11 @@ from fastapi.testclient import TestClient
 # Set environment variable to redirect to test database BEFORE importing app modules
 os.environ["DATABASE_URL"] = "sqlite:///./test_smartphysio.db"
 
-from app.main import app
+# Import app after env is set
 from app.database.database import Base, engine, get_db, SessionLocal
 from app.models.user import User
 from app.models.patient import Patient
+from app.main import app, seed_injuries, seed_exercises
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database():
@@ -19,7 +20,14 @@ def setup_test_database():
         except Exception:
             pass
             
-    # Tables are created and seeded when importing app.main
+    # Explicitly create all tables in the test database
+    from app.models import user, calibration, patient, exercise, session, injury
+    Base.metadata.create_all(bind=engine)
+    
+    # Seed master tables for test context
+    seed_injuries()
+    seed_exercises()
+    
     yield
     
     # Session teardown: clean up the database file
@@ -28,6 +36,7 @@ def setup_test_database():
             os.remove("./test_smartphysio.db")
         except Exception:
             pass
+
 
 @pytest.fixture
 def db():

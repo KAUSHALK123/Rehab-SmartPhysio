@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import { getSessionHistory, getSessionDetails } from '../services/session';
 import { getDashboardAnalytics } from '../services/analytics';
-import { getPatients, createPatient } from '../services/patient';
+import { getPatients, createPatient, getBodyParts, getConditions, getRehabilitationGoals, getRecommendedExercises } from '../services/patient';
 import apiClient from '../services/auth';
 import Arm3DVisualizer from '../components/Arm3DVisualizer';
 
@@ -49,6 +49,15 @@ function DashboardPage() {
   const [activePatientName, setActivePatientName] = useState(localStorage.getItem('activePatientName') || '');
   const [patients, setPatients] = useState([]);
   const [patientsExpanded, setPatientsExpanded] = useState(false);
+
+  // Injury-centric dropdown metadata states
+  const [bodyParts, setBodyParts] = useState([]);
+  const [conditions, setConditions] = useState([]);
+  const [rehabGoals, setRehabGoals] = useState([]);
+  const [filteredConditions, setFilteredConditions] = useState([]);
+  
+  // Recommended exercises list
+  const [recommendedExercises, setRecommendedExercises] = useState([]);
   
   // Dashboard details loaders
   const [loading, setLoading] = useState(true);
@@ -70,7 +79,12 @@ function DashboardPage() {
         shoulderAngle: controls.shoulderAngle,
         shoulderAngleX: controls.shoulderAngleX,
         elbowAngle: 180 - liveTelemetry.elbow,
-        wristAngle: liveTelemetry.wrist_roll
+        wristAngle: liveTelemetry.wrist_roll,
+        thumb: liveTelemetry.thumb,
+        index: liveTelemetry.index,
+        middle: liveTelemetry.middle,
+        ring: liveTelemetry.ring,
+        little: liveTelemetry.little
       }
     : controls;
 
@@ -97,6 +111,16 @@ function DashboardPage() {
   // Fetch initial therapist data
   const initTherapistDashboard = async () => {
     try {
+      // Fetch metadata dropdowns
+      const [parts, conds, goals] = await Promise.all([
+        getBodyParts(),
+        getConditions(),
+        getRehabilitationGoals()
+      ]);
+      setBodyParts(parts);
+      setConditions(conds);
+      setRehabGoals(goals);
+
       // 1. Fetch patient list
       const patientList = await getPatients();
       setPatients(patientList);
@@ -125,6 +149,10 @@ function DashboardPage() {
       const historyData = await getSessionHistory();
       const filtered = historyData.filter(s => s.patient_id === patientId);
       setSessions(filtered);
+
+      // Fetch recommended exercises
+      const recs = await getRecommendedExercises(patientId);
+      setRecommendedExercises(recs);
     } catch (err) {
       console.error("Failed to fetch patient logs", err);
     } finally {
@@ -186,25 +214,68 @@ function DashboardPage() {
     window.print();
   };
 
+  const handleOpenRegisterModal = () => {
+    const initialPartId = bodyParts[0]?.id || '';
+    const initialConds = conditions.filter(c => c.body_part_id === initialPartId);
+    setFilteredConditions(initialConds);
+    setRegForm({
+      full_name: '',
+      age: '',
+      gender: 'Male',
+      height_cm: '',
+      weight_kg: '',
+      dominant_hand: 'Right',
+      injured_arm: 'Left',
+      injury_type: '',
+      body_part_id: initialPartId,
+      condition_id: initialConds[0]?.id || '',
+      rehabilitation_goal_id: rehabGoals[0]?.id || ''
+    });
+    setRegError('');
+    setShowRegisterModal(true);
+  };
+
+  const handleRegisterInputChange = (e) => {
+    const { name, value } = e.target;
+    setRegForm(prev => {
+      const updated = {
+        ...prev,
+        [name]: value
+      };
+      if (name === 'body_part_id') {
+        const matching = conditions.filter(c => c.body_part_id === value);
+        setFilteredConditions(matching);
+        updated.condition_id = matching[0]?.id || '';
+      }
+      return updated;
+    });
+  };
+
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     setRegError('');
-    if (!regForm.full_name || !regForm.age || !regForm.height_cm || !regForm.weight_kg || !regForm.injury_type) {
+    if (!regForm.full_name || !regForm.age || !regForm.height_cm || !regForm.weight_kg || !regForm.condition_id) {
       setRegError('All fields are required');
       return;
     }
     
+    const activeCond = conditions.find(c => c.id === regForm.condition_id);
+    const payload = {
+      full_name: regForm.full_name,
+      age: parseInt(regForm.age),
+      gender: regForm.gender,
+      height_cm: parseFloat(regForm.height_cm),
+      weight_kg: parseFloat(regForm.weight_kg),
+      dominant_hand: regForm.dominant_hand,
+      injured_arm: regForm.injured_arm,
+      injury_type: activeCond ? activeCond.name : regForm.injury_type,
+      body_part_id: regForm.body_part_id,
+      condition_id: regForm.condition_id,
+      rehabilitation_goal_id: regForm.rehabilitation_goal_id
+    };
+    
     try {
-      const res = await createPatient({
-        full_name: regForm.full_name,
-        age: parseInt(regForm.age),
-        gender: regForm.gender,
-        height_cm: parseFloat(regForm.height_cm),
-        weight_kg: parseFloat(regForm.weight_kg),
-        dominant_hand: regForm.dominant_hand,
-        injured_arm: regForm.injured_arm,
-        injury_type: regForm.injury_type
-      });
+      const res = await createPatient(payload);
 
       // Reload patients
       const patientList = await getPatients();
@@ -218,17 +289,6 @@ function DashboardPage() {
 
       // Close modal
       setShowRegisterModal(false);
-      // Reset form
-      setRegForm({
-        full_name: '',
-        age: '',
-        gender: 'Male',
-        height_cm: '',
-        weight_kg: '',
-        dominant_hand: 'Right',
-        injured_arm: 'Left',
-        injury_type: 'Fracture'
-      });
     } catch (err) {
       setRegError(err.response?.data?.detail || 'Failed to create patient profile');
     }
@@ -307,7 +367,7 @@ function DashboardPage() {
             </div>
             
             <button 
-              onClick={() => setShowRegisterModal(true)}
+              onClick={handleOpenRegisterModal}
               className={`w-7 h-7 rounded-full flex items-center justify-center text-blue-500 border transition cursor-pointer ${
                 isDark ? 'bg-[#09090C] border-slate-800 hover:bg-slate-800' : 'bg-[#FFFFFF] border-slate-200 hover:bg-slate-200'
               }`}
@@ -345,6 +405,31 @@ function DashboardPage() {
                   </div>
                 </button>
               ))}
+            </div>
+          )}
+
+          {selectedPatient && (
+            <div className="mt-3 pt-3 border-t border-slate-800/10 space-y-1.5 text-[10px] font-semibold">
+              <div className="flex justify-between items-center gap-2">
+                <span className="text-slate-500">Condition:</span>
+                <span className="text-blue-500 truncate max-w-[130px] text-right" title={selectedPatient.condition_name || selectedPatient.injury_type}>
+                  {selectedPatient.condition_name || selectedPatient.injury_type || "Not Specified"}
+                </span>
+              </div>
+              {selectedPatient.body_part_name && (
+                <div className="flex justify-between items-center gap-2">
+                  <span className="text-slate-500">Body Part:</span>
+                  <span className="text-slate-400 text-right">{selectedPatient.body_part_name}</span>
+                </div>
+              )}
+              {selectedPatient.rehabilitation_goal_name && (
+                <div className="flex justify-between items-center gap-2">
+                  <span className="text-slate-500">Goal:</span>
+                  <span className="text-emerald-500 truncate max-w-[150px] text-right" title={selectedPatient.rehabilitation_goal_name}>
+                    {selectedPatient.rehabilitation_goal_name}
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -793,12 +878,14 @@ function DashboardPage() {
                 <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Full Name</label>
                 <input
                   type="text"
+                  name="full_name"
                   value={regForm.full_name}
-                  onChange={e => setRegForm({...regForm, full_name: e.target.value})}
+                  onChange={handleRegisterInputChange}
                   placeholder="Leslie Alexander"
                   className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
                     isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200 text-slate-800'
                   }`}
+                  required
                 />
               </div>
 
@@ -807,26 +894,29 @@ function DashboardPage() {
                   <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Age</label>
                   <input
                     type="number"
+                    name="age"
                     value={regForm.age}
-                    onChange={e => setRegForm({...regForm, age: e.target.value})}
+                    onChange={handleRegisterInputChange}
                     placeholder="22"
                     className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
                       isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200 text-slate-800'
                     }`}
+                    required
                   />
                 </div>
                 <div>
                   <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Gender</label>
                   <select
+                    name="gender"
                     value={regForm.gender}
-                    onChange={e => setRegForm({...regForm, gender: e.target.value})}
+                    onChange={handleRegisterInputChange}
                     className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
                       isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200 text-slate-800'
                     }`}
                   >
-                    <option>Male</option>
-                    <option>Female</option>
-                    <option>Other</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
                   </select>
                 </div>
               </div>
@@ -836,24 +926,28 @@ function DashboardPage() {
                   <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Height (cm)</label>
                   <input
                     type="number"
+                    name="height_cm"
                     value={regForm.height_cm}
-                    onChange={e => setRegForm({...regForm, height_cm: e.target.value})}
+                    onChange={handleRegisterInputChange}
                     placeholder="175"
                     className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
                       isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200 text-slate-800'
                     }`}
+                    required
                   />
                 </div>
                 <div>
                   <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Weight (kg)</label>
                   <input
                     type="number"
+                    name="weight_kg"
                     value={regForm.weight_kg}
-                    onChange={e => setRegForm({...regForm, weight_kg: e.target.value})}
+                    onChange={handleRegisterInputChange}
                     placeholder="70"
                     className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
                       isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200 text-slate-800'
                     }`}
+                    required
                   />
                 </div>
               </div>
@@ -862,44 +956,90 @@ function DashboardPage() {
                 <div>
                   <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Dominant Hand</label>
                   <select
+                    name="dominant_hand"
                     value={regForm.dominant_hand}
-                    onChange={e => setRegForm({...regForm, dominant_hand: e.target.value})}
+                    onChange={handleRegisterInputChange}
                     className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
                       isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200'
                     }`}
                   >
-                    <option>Right</option>
-                    <option>Left</option>
+                    <option value="Right">Right</option>
+                    <option value="Left">Left</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Injured Arm</label>
+                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Injured Side</label>
                   <select
+                    name="injured_arm"
                     value={regForm.injured_arm}
-                    onChange={e => setRegForm({...regForm, injured_arm: e.target.value})}
+                    onChange={handleRegisterInputChange}
                     className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
                       isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200'
                     }`}
                   >
-                    <option>Left</option>
-                    <option>Right</option>
+                    <option value="Left">Left Side</option>
+                    <option value="Right">Right Side</option>
+                    <option value="Both">Both Sides</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Injury Type</label>
+                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Affected Body Part</label>
                 <select
-                  value={regForm.injury_type}
-                  onChange={e => setRegForm({...regForm, injury_type: e.target.value})}
+                  name="body_part_id"
+                  value={regForm.body_part_id}
+                  onChange={handleRegisterInputChange}
                   className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
                     isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200'
                   }`}
+                  required
                 >
-                  <option>Fracture</option>
-                  <option>Arthritis</option>
-                  <option>Ligament Tear</option>
-                  <option>Nerve Damage</option>
+                  <option value="">Select affected area...</option>
+                  {bodyParts.map(bp => (
+                    <option key={bp.id} value={bp.id}>{bp.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">
+                  Diagnosed Injury / Condition 
+                  <span className="text-[8px] text-slate-400 normal-case font-normal ml-2">
+                    (Select diagnosed by healthcare professional)
+                  </span>
+                </label>
+                <select
+                  name="condition_id"
+                  value={regForm.condition_id}
+                  onChange={handleRegisterInputChange}
+                  className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                    isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200'
+                  }`}
+                  required
+                >
+                  <option value="">Select condition...</option>
+                  {filteredConditions.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Rehabilitation Goal</label>
+                <select
+                  name="rehabilitation_goal_id"
+                  value={regForm.rehabilitation_goal_id}
+                  onChange={handleRegisterInputChange}
+                  className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                    isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200'
+                  }`}
+                  required
+                >
+                  <option value="">Select goal...</option>
+                  {rehabGoals.map(g => (
+                    <option key={g.id} value={g.id}>{g.goal_name}</option>
+                  ))}
                 </select>
               </div>
 
@@ -917,6 +1057,12 @@ function DashboardPage() {
                 >
                   Save Profile
                 </button>
+              </div>
+
+              {/* Medical Disclaimer */}
+              <div className="mt-4 p-3 bg-slate-900/30 border border-slate-800/40 rounded-xl text-[9px] text-slate-455 leading-normal">
+                <span className="font-bold text-slate-400 block mb-0.5">Medical Disclaimer</span>
+                SmartPhysio is an assistive monitoring tool for tracking physical therapy progress and range of motion. It does not provide medical diagnoses, treatment plans, or clinical validation. Please consult a qualified healthcare professional before beginning any routine.
               </div>
             </form>
           </div>

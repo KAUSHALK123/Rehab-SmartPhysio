@@ -108,3 +108,57 @@ def test_delete_patient_success(client, auth_headers, test_patient):
     )
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == {"message": "Patient Deleted"}
+
+def test_patient_recommendations_and_injury_centric_fields(client, auth_headers, db):
+    from app.models.injury import BodyPart, Condition, RehabilitationGoal
+    # Fetch seeded entries
+    bp = db.query(BodyPart).first()
+    cond = db.query(Condition).filter(Condition.body_part_id == bp.id).first()
+    goal = db.query(RehabilitationGoal).first()
+    
+    payload = {
+        "full_name": "Injury Centric Patient",
+        "age": 35,
+        "gender": "Other",
+        "height_cm": 170.0,
+        "weight_kg": 65.0,
+        "dominant_hand": "Left",
+        "injured_arm": "Both",
+        "body_part_id": bp.id,
+        "condition_id": cond.id,
+        "rehabilitation_goal_id": goal.id
+    }
+    
+    # Create patient
+    response = client.post(
+        f"{settings.API_V1_STR}/patients",
+        json=payload,
+        headers=auth_headers
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    patient_id = response.json()["patient_id"]
+    
+    # Get details
+    get_resp = client.get(
+        f"{settings.API_V1_STR}/patients/{patient_id}",
+        headers=auth_headers
+    )
+    assert get_resp.status_code == status.HTTP_200_OK
+    p_data = get_resp.json()
+    assert p_data["body_part_name"] == bp.name
+    assert p_data["condition_name"] == cond.name
+    assert p_data["rehabilitation_goal_name"] == goal.goal_name
+    assert p_data["injury_type"] == cond.name
+    
+    # Get recommendations
+    rec_resp = client.get(
+        f"{settings.API_V1_STR}/patients/{patient_id}/recommendations",
+        headers=auth_headers
+    )
+    assert rec_resp.status_code == status.HTTP_200_OK
+    recs = rec_resp.json()
+    assert len(recs) > 0
+    # Every recommended exercise must support this condition
+    for r in recs:
+        assert cond.name in r["supported_conditions"]
+

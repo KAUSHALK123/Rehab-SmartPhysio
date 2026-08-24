@@ -11,6 +11,15 @@ class ExerciseResponse(BaseModel):
     exercise_name: str
     description: str
     body_part: str
+    target_joint: str | None = None
+    rehabilitation_goal: str | None = None
+    minimum_angle: float | None = None
+    maximum_angle: float | None = None
+    hold_duration: int
+    rest_duration: int
+    required_sensors: str | None = None
+    supported_conditions: list[str] | None = None
+    
     target_angle: float
     target_pressure: float
     repetitions: int
@@ -19,3 +28,4 @@ class ExerciseResponse(BaseModel):
     difficulty: str
 
     model_config = ConfigDict(from_attributes=True)
+

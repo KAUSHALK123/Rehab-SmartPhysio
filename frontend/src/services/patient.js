@@ -24,3 +24,24 @@ export const deletePatient = async (id) => {
   const response = await apiClient.delete(`/patients/${id}`);
   return response.data;
 };
+
+export const getRecommendedExercises = async (id) => {
+  const response = await apiClient.get(`/patients/${id}/recommendations`);
+  return response.data;
+};
+
+export const getBodyParts = async () => {
+  const response = await apiClient.get('/body-parts');
+  return response.data;
+};
+
+export const getConditions = async () => {
+  const response = await apiClient.get('/conditions');
+  return response.data;
+};
+
+export const getRehabilitationGoals = async () => {
+  const response = await apiClient.get('/rehabilitation-goals');
+  return response.data;
+};
+

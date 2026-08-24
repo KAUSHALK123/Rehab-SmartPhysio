@@ -22,6 +22,7 @@ import {
   CheckCircle,
   Cpu,
   ChevronLeft,
+  ChevronDown,
   RefreshCw
 } from 'lucide-react';
 import { startSession, endSession } from '../services/session';
@@ -114,6 +115,8 @@ function LiveExercisePage() {
   // Camera & Pause states
   const [cameraAngle, setCameraAngle] = useState('straight');
   const [isPaused, setIsPaused] = useState(false);
+  const [frozenSensors, setFrozenSensors] = useState(null);
+  const [showCamDropdown, setShowCamDropdown] = useState(false);
 
   // Time & Rep tracking
   const [secondsElapsed, setSecondsElapsed] = useState(0);
@@ -143,6 +146,13 @@ function LiveExercisePage() {
   // States: 'rest' | 'moving' | 'target_hold' | 'returning'
   const [repState, setRepState] = useState('rest');
   const [guidance, setGuidance] = useState('Ensure wearable sleeve is connected. Get ready to begin.');
+  const [patientDetails, setPatientDetails] = useState(null);
+  const [aiFeedback, setAiFeedback] = useState({
+    progress: 0,
+    suggestion: 'Place your arm in the starting position to begin.',
+    warning: null,
+    status: 'info'
+  });
 
   // Refs for tracking telemetry metrics to calculate averages
   const telemetryHistoryRef = useRef([]);
@@ -161,6 +171,8 @@ function LiveExercisePage() {
     setIsPaused(prev => {
       const nextPaused = !prev;
       if (nextPaused) {
+        // Freeze active sensors posture
+        setFrozenSensors({...sensors});
         // Pause duration timer
         if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
         // Pause hold timer if it's running
@@ -186,7 +198,10 @@ function LiveExercisePage() {
   };
 
   // Load exercise targets from database
+  const isMounted = useRef(true);
+  
   useEffect(() => {
+    isMounted.current = true;
     if (!patientId || !exerciseId) {
       navigate('/exercises');
       return;
@@ -194,33 +209,44 @@ function LiveExercisePage() {
 
     const loadExercise = async () => {
       try {
-        const response = await apiClient.get(`/exercises/${exerciseId}`);
-        setExerciseDetails(response.data);
-        activeExerciseRef.current = response.data;
+        const [exerciseRes, patientRes] = await Promise.all([
+          apiClient.get(`/exercises/${exerciseId}`),
+          apiClient.get(`/patients/${patientId}`)
+        ]);
+        if (!isMounted.current) return;
+        setExerciseDetails(exerciseRes.data);
+        activeExerciseRef.current = exerciseRes.data;
+        setPatientDetails(patientRes.data);
         
         // Start session in DB
         const sessionRes = await startSession(patientId, exerciseId);
+        if (!isMounted.current) return;
         setSessionId(sessionRes.session_id);
         setSessionActive(true);
-        
-        // Start duration timer
-        timerIntervalRef.current = setInterval(() => {
-          setSecondsElapsed(prev => prev + 1);
-        }, 1000);
-        
-        // Open WebSocket
-        connectWebSocket();
       } catch (err) {
         console.error("Failed to initialize exercise session", err);
         navigate('/exercises');
       } finally {
-        setLoading(false);
+        if (isMounted.current) {
+          // Clear any potentially lingering interval before setting a new one
+          if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+          
+          // Start duration timer
+          timerIntervalRef.current = setInterval(() => {
+            setSecondsElapsed(prev => prev + 1);
+          }, 1000);
+          
+          // Open WebSocket
+          connectWebSocket();
+          setLoading(false);
+        }
       }
     };
 
     loadExercise();
 
     return () => {
+      isMounted.current = false;
       cleanupSession();
     };
   }, []);
@@ -311,10 +337,21 @@ function LiveExercisePage() {
 
     const nameLower = ex.exercise_name.toLowerCase();
 
-    if (isForceBased) {
+    // Custom clinical evaluations per exercise type
+    if (nameLower.includes('squeeze') || nameLower.includes('ball')) {
+      currentValue = data.pressure;
+      targetValue = ex.target_pressure || 200;
+      restValue = 30;
+      isAscending = true;
+    } else if (nameLower.includes('wrist rotation') || nameLower.includes('rotation')) {
+      currentValue = Math.abs(data.wrist_roll);
+      targetValue = ex.target_angle || 90;
+      restValue = 10;
+      isAscending = true;
+    } else if (isForceBased) {
       currentValue = data.pressure;
       targetValue = ex.target_pressure;
-      restValue = 30; // Grip pressure near zero
+      restValue = 30; 
       isAscending = true;
     } else {
       // Angle-based exercises
@@ -331,11 +368,6 @@ function LiveExercisePage() {
       } else if (nameLower.includes('wrist extension')) {
         currentValue = -data.wrist_pitch; // extension is negative pitch
         targetValue = ex.target_angle; // e.g. 50
-        restValue = 0;
-        isAscending = true;
-      } else if (nameLower.includes('wrist rotation') || nameLower.includes('rotation')) {
-        currentValue = Math.abs(data.wrist_roll); // roll rotation
-        targetValue = ex.target_angle; // e.g. 90
         restValue = 0;
         isAscending = true;
       } else if (nameLower.includes('finger closing') || nameLower.includes('closing')) {
@@ -363,84 +395,153 @@ function LiveExercisePage() {
     }
 
     // STATE MACHINE TRANSITIONS
-    setRepState(current => {
-      // 1. REST STATE
-      if (current === 'rest') {
-        const hasInitiated = isAscending 
-          ? currentValue > restValue + (targetValue - restValue) * 0.25 
-          : currentValue < restValue - (restValue - targetValue) * 0.25;
+    let nextState = repState;
+    if (repState === 'rest') {
+      const hasInitiated = isAscending 
+        ? currentValue > restValue + (targetValue - restValue) * 0.25 
+        : currentValue < restValue - (restValue - targetValue) * 0.25;
 
-        if (hasInitiated) {
-          setGuidance(isForceBased ? 'Grip force detected. Squeeze harder!' : 'Movement detected. Bend toward target!');
-          return 'moving';
-        }
-        return 'rest';
+      if (hasInitiated) {
+        setGuidance(isForceBased ? 'Grip force detected. Squeeze harder!' : 'Movement detected. Bend toward target!');
+        nextState = 'moving';
       }
+    } else if (repState === 'moving') {
+      const targetReached = isAscending 
+        ? currentValue >= targetValue 
+        : currentValue <= targetValue;
 
-      // 2. MOVING STATE
-      if (current === 'moving') {
-        const targetReached = isAscending 
-          ? currentValue >= targetValue 
-          : currentValue <= targetValue;
-
-        if (targetReached) {
-          if (holdSecs > 0) {
-            setHoldCountdown(holdSecs);
-            startHoldTimer(holdSecs);
-            setGuidance(`Target reached! HOLD position for ${holdSecs} seconds.`);
-            return 'target_hold';
-          } else {
-            setGuidance('Target reached! Return to starting rest position.');
-            return 'returning';
-          }
+      if (targetReached) {
+        if (holdSecs > 0) {
+          setHoldCountdown(holdSecs);
+          startHoldTimer(holdSecs);
+          setGuidance(`Target reached! HOLD position for ${holdSecs} seconds.`);
+          nextState = 'target_hold';
+        } else {
+          setGuidance('Target reached! Return to starting rest position.');
+          nextState = 'returning';
         }
-        
-        // Posture guidance recommendations
+      } else {
         if (isForceBased) {
           setGuidance(`Apply more force! Current: ${currentValue.toFixed(0)} N / Target: ${targetValue} N`);
         } else {
           setGuidance(`Moving... Current: ${currentValue.toFixed(0)}° / Target: ${targetValue}°`);
         }
-        return 'moving';
       }
+    } else if (repState === 'target_hold') {
+      const letGo = isAscending 
+        ? currentValue < targetValue * 0.8
+        : currentValue > targetValue + (restValue - targetValue) * 0.2;
 
-      // 3. TARGET HOLD STATE
-      if (current === 'target_hold') {
-        const letGo = isAscending 
-          ? currentValue < targetValue * 0.8
-          : currentValue > targetValue + (restValue - targetValue) * 0.2;
-
-        if (letGo) {
-          // User released hold early -> mark failed rep
-          clearInterval(holdTimerIntervalRef.current);
-          setHoldCountdown(0);
-          setRepsFailed(f => f + 1);
-          updateAccuracyScore(repsCompleted, repsFailed + 1);
-          setGuidance('Target released too early! Return to starting rest position.');
-          return 'returning';
-        }
-        return 'target_hold';
+      if (letGo) {
+        // User released hold early -> mark failed rep
+        clearInterval(holdTimerIntervalRef.current);
+        setHoldCountdown(0);
+        setRepsFailed(f => {
+          const nextFailed = f + 1;
+          updateAccuracyScore(repsCompleted, nextFailed);
+          return nextFailed;
+        });
+        setGuidance('Target released too early! Return to starting rest position.');
+        nextState = 'returning';
       }
+    } else if (repState === 'returning') {
+      const returnedToRest = isAscending 
+        ? currentValue <= restValue + (targetValue - restValue) * 0.15
+        : currentValue >= restValue - (restValue - targetValue) * 0.15;
 
-      // 4. RETURNING STATE
-      if (current === 'returning') {
-        const returnedToRest = isAscending 
-          ? currentValue <= restValue + (targetValue - restValue) * 0.15
-          : currentValue >= restValue - (restValue - targetValue) * 0.15;
-
-        if (returnedToRest) {
-          setRepsCompleted(c => {
-            const updated = c + 1;
-            updateAccuracyScore(updated, repsFailed);
-            return updated;
-          });
-          setGuidance('Repetition complete! Relax and prepare for next.');
-          return 'rest';
-        }
-        return 'returning';
+      if (returnedToRest) {
+        setRepsCompleted(c => {
+          const updated = c + 1;
+          updateAccuracyScore(updated, repsFailed);
+          return updated;
+        });
+        setGuidance('Repetition complete! Relax and prepare for next.');
+        nextState = 'rest';
       }
+    }
 
-      return current;
+    if (nextState !== repState) {
+      setRepState(nextState);
+    }
+
+    // AI CLINICAL TARGET TRACKER & DEVIATION CALCULATION
+    let progressPct = 0;
+    if (isAscending) {
+      const range = targetValue - restValue;
+      progressPct = range > 0 ? Math.max(0, Math.min(100, Math.round(((currentValue - restValue) / range) * 100))) : 0;
+    } else {
+      const range = restValue - targetValue;
+      progressPct = range > 0 ? Math.max(0, Math.min(100, Math.round(((restValue - currentValue) / range) * 100))) : 0;
+    }
+
+    const injuredArm = patientDetails?.injured_arm || 'Right';
+    let warningText = null;
+    let suggestionText = '';
+    let statusVal = 'info';
+
+    // 1. Posture checks & stabilizers
+    if (nameLower.includes('squeeze') || nameLower.includes('ball')) {
+      const pitchVal = data.wrist_pitch;
+      const fingerFlexAvg = (data.index + data.middle + data.ring + data.little) / 4;
+      if (pitchVal > 15) {
+        warningText = `Lower your wrist! Tilted down by ${Math.round(pitchVal - 15)}°`;
+      } else if (pitchVal < -15) {
+        warningText = `Raise your wrist! Tilted up by ${Math.round(-15 - pitchVal)}°`;
+      } else if (fingerFlexAvg < 40 && currentValue > restValue + 15) {
+        warningText = `Finger Form: Bend fingers more while squeezing!`;
+      }
+    } else if (nameLower.includes('wrist flexion') || nameLower.includes('wrist extension')) {
+      const rollVal = data.wrist_roll;
+      if (Math.abs(rollVal) > 10) {
+        warningText = `Keep wrist stable! Twisting by ${Math.round(Math.abs(rollVal))}°`;
+      }
+    } else if (nameLower.includes('wrist rotation') || nameLower.includes('rotation')) {
+      const elbowFlex = 180 - data.elbow;
+      if (elbowFlex < 75) {
+        warningText = `Bend elbow more to 90°! Currently: ${Math.round(elbowFlex)}°`;
+      } else if (elbowFlex > 105) {
+        warningText = `Straighten elbow slightly to 90°! Currently: ${Math.round(elbowFlex)}°`;
+      }
+    } else if (nameLower.includes('elbow curl') || nameLower.includes('elbow') || nameLower.includes('curl')) {
+      const rollVal = data.wrist_roll;
+      if (Math.abs(rollVal) > 15) {
+        warningText = `Keep wrist aligned! Twisting by ${Math.round(Math.abs(rollVal))}°`;
+      }
+    } else if (nameLower.includes('shoulder raise') || nameLower.includes('shoulder') || nameLower.includes('raise')) {
+      const elbowFlex = 180 - data.elbow;
+      if (elbowFlex > 20) {
+        warningText = `Straighten your elbow! Flexed by ${Math.round(elbowFlex)}°`;
+      }
+    }
+
+    // 2. Compute dynamic action guidance text based on nextState
+    if (nextState === 'rest') {
+      suggestionText = isAscending 
+        ? `Ready to begin. Move your injured ${injuredArm} Arm to initiate the repetition.`
+        : `Ready to begin. Release your injured ${injuredArm} Arm to initiate.`;
+      statusVal = 'info';
+    } else if (nextState === 'moving') {
+      statusVal = warningText ? 'warning' : 'info';
+      if (isForceBased) {
+        const remaining = Math.max(0, Math.round(targetValue - currentValue));
+        suggestionText = `Squeezing... reached ${progressPct}% of target force. Apply ${remaining} N more force.`;
+      } else {
+        const remaining = Math.max(0, Math.round(isAscending ? (targetValue - currentValue) : (currentValue - targetValue)));
+        suggestionText = `Moving... reached ${progressPct}% of target angle. Move ${remaining}° more.`;
+      }
+    } else if (nextState === 'target_hold') {
+      suggestionText = `Target reached! Keep holding for ${holdCountdown > 0 ? holdCountdown : holdSecs}s.`;
+      statusVal = 'success';
+    } else if (nextState === 'returning') {
+      suggestionText = `Rep completed successfully! Slowly return your arm to the rest position.`;
+      statusVal = 'info';
+    }
+
+    setAiFeedback({
+      progress: progressPct,
+      suggestion: suggestionText,
+      warning: warningText,
+      status: statusVal
     });
   };
 
@@ -522,11 +623,18 @@ function LiveExercisePage() {
     return `${m}:${s}`;
   };
 
+  const activeSensors = isPaused && frozenSensors ? frozenSensors : sensors;
+
   const activeControls = {
-    shoulderAngle: sensors.wrist_pitch,
+    shoulderAngle: activeSensors.wrist_pitch,
     shoulderAngleX: 0,
-    elbowAngle: 180 - sensors.elbow,
-    wristAngle: sensors.wrist_roll
+    elbowAngle: 180 - activeSensors.elbow,
+    wristAngle: activeSensors.wrist_roll,
+    thumb: activeSensors.thumb,
+    index: activeSensors.index,
+    middle: activeSensors.middle,
+    ring: activeSensors.ring,
+    little: activeSensors.little
   };
 
   // Build the dynamic gauge configurations for the selected exercise
@@ -843,28 +951,41 @@ function LiveExercisePage() {
                   </div>
                 </div>
 
-                {/* Camera Angle Toggle Pill */}
-                <div className="flex items-center bg-slate-950/80 backdrop-blur border border-slate-850 rounded-xl p-1 gap-1">
+                {/* Camera Angle Selector Dropdown */}
+                <div className="relative">
                   <button
-                    onClick={() => setCameraAngle('straight')}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                      cameraAngle === 'straight'
-                        ? 'bg-blue-600 text-white shadow'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
+                    onClick={() => setShowCamDropdown(prev => !prev)}
+                    className="flex items-center gap-1.5 bg-slate-950/85 backdrop-blur border border-slate-800 hover:border-slate-700 text-slate-200 text-xs font-bold rounded-xl p-2.5 px-3 transition-all cursor-pointer shadow-sm"
                   >
-                    Straight View
+                    <span>Camera View:</span>
+                    <span className="text-blue-450 capitalize">
+                      {cameraAngle === 'split' ? 'Split View' : `${cameraAngle} View`}
+                    </span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
                   </button>
-                  <button
-                    onClick={() => setCameraAngle('side')}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                      cameraAngle === 'side'
-                        ? 'bg-blue-600 text-white shadow'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Side View
-                  </button>
+
+                  {showCamDropdown && (
+                    <div className="absolute top-full left-0 mt-1.5 w-40 bg-slate-950/95 backdrop-blur border border-slate-800 rounded-xl overflow-hidden z-30 shadow-xl animate-in fade-in slide-in-from-top-1 duration-100">
+                      {[
+                        { key: 'straight', label: 'Straight View' },
+                        { key: 'side', label: 'Side View' },
+                        { key: 'split', label: 'Split View' }
+                      ].map((item) => (
+                        <button
+                          key={item.key}
+                          onClick={() => {
+                            setCameraAngle(item.key);
+                            setShowCamDropdown(false);
+                          }}
+                          className={`w-full text-left px-4 py-2.5 text-xs font-semibold transition hover:bg-slate-900 cursor-pointer ${
+                            cameraAngle === item.key ? 'text-blue-405 bg-slate-900/50' : 'text-slate-350'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -882,11 +1003,39 @@ function LiveExercisePage() {
 
               {/* R3F Canvas container with premium model */}
               <div className="w-full h-full">
-                <Arm3DVisualizer 
-                  controls={activeControls} 
-                  cameraAngle={cameraAngle} 
-                  disableOrbit={true} 
-                />
+                {cameraAngle === 'split' ? (
+                  <div className="w-full h-full grid grid-cols-2 gap-3 p-3">
+                    <div className="relative w-full h-full rounded-2xl overflow-hidden bg-slate-950 border border-slate-850 shadow-inner">
+                      <div className="absolute top-2 left-2 z-10 bg-slate-900/80 backdrop-blur text-[9px] font-extrabold px-2.5 py-1 rounded-lg border border-slate-800 uppercase tracking-widest text-slate-400">
+                        Straight View
+                      </div>
+                      <Arm3DVisualizer 
+                        controls={activeControls} 
+                        cameraAngle="straight" 
+                        disableOrbit={true} 
+                        injuredArm={patientDetails?.injured_arm || 'Right'}
+                      />
+                    </div>
+                    <div className="relative w-full h-full rounded-2xl overflow-hidden bg-slate-950 border border-slate-850 shadow-inner">
+                      <div className="absolute top-2 left-2 z-10 bg-slate-900/80 backdrop-blur text-[9px] font-extrabold px-2.5 py-1 rounded-lg border border-slate-800 uppercase tracking-widest text-slate-400">
+                        Side View
+                      </div>
+                      <Arm3DVisualizer 
+                        controls={activeControls} 
+                        cameraAngle="side" 
+                        disableOrbit={true} 
+                        injuredArm={patientDetails?.injured_arm || 'Right'}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <Arm3DVisualizer 
+                    controls={activeControls} 
+                    cameraAngle={cameraAngle} 
+                    disableOrbit={true} 
+                    injuredArm={patientDetails?.injured_arm || 'Right'}
+                  />
+                )}
               </div>
 
               {/* Pause Overlay */}
@@ -914,6 +1063,80 @@ function LiveExercisePage() {
                 <span className="text-[10px] text-primary font-bold uppercase tracking-wider block">Rehab Assessment Session</span>
                 <h3 className="text-xl font-bold text-slate-800">{exerciseName}</h3>
                 <p className="text-xs text-slate-500 font-semibold">Patient: {patientName}</p>
+              </div>
+
+              {/* AI Real-time Clinical Feedback Companion Card */}
+              <div className={`p-4 rounded-xl border transition-all duration-200 mt-2 ${
+                aiFeedback.status === 'success' 
+                  ? 'bg-emerald-50 border-emerald-250 text-emerald-900' 
+                  : aiFeedback.status === 'warning'
+                    ? 'bg-amber-50 border-amber-250 text-amber-900'
+                    : 'bg-blue-50 border-blue-150 text-blue-900'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-3 w-3 relative">
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                        aiFeedback.status === 'success' 
+                          ? 'bg-emerald-400' 
+                          : aiFeedback.status === 'warning'
+                            ? 'bg-amber-400'
+                            : 'bg-blue-400'
+                      }`}></span>
+                      <span className={`relative inline-flex rounded-full h-3 w-3 ${
+                        aiFeedback.status === 'success' 
+                          ? 'bg-emerald-500' 
+                          : aiFeedback.status === 'warning'
+                            ? 'bg-amber-500'
+                            : 'bg-blue-500'
+                      }`}></span>
+                    </span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest flex items-center gap-1">
+                      <Cpu className="w-3.5 h-3.5 animate-pulse" />
+                      AI Therapy Companion
+                    </span>
+                  </div>
+                  {patientDetails && (
+                    <span className="text-[10px] font-bold bg-slate-100 px-2 py-0.5 rounded text-slate-600">
+                      Injured Arm: {patientDetails.injured_arm}
+                    </span>
+                  )}
+                </div>
+
+                {/* Progress Bar */}
+                <div className="mt-3">
+                  <div className="flex justify-between text-[10px] font-bold mb-1">
+                    <span>Repetition Progress</span>
+                    <span>{aiFeedback.progress}%</span>
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-300 ${
+                        aiFeedback.status === 'success' 
+                          ? 'bg-emerald-500' 
+                          : aiFeedback.status === 'warning'
+                            ? 'bg-amber-500'
+                            : 'bg-blue-500'
+                      }`}
+                      style={{ width: `${aiFeedback.progress}%` }}
+                    ></div>
+                  </div>
+                </div>
+
+                {/* Guidance Text */}
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs font-semibold leading-relaxed">
+                    {aiFeedback.suggestion}
+                  </p>
+                  
+                  {/* Active Posture Warnings */}
+                  {aiFeedback.warning && (
+                    <div className="flex items-start gap-1.5 p-2 bg-red-100/70 border border-red-200 text-red-700 rounded-lg text-[11px] font-bold animate-pulse">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      <span>{aiFeedback.warning}</span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <hr className="border-slate-100 my-3" />
@@ -965,13 +1188,12 @@ function LiveExercisePage() {
                 </div>
               </div>
 
-              {/* Biofeedback HUD status */}
-              <div className="space-y-2 mt-4">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Biofeedback Guidance HUD</span>
-                <div className="bg-blue-50 border border-blue-150 p-3.5 rounded-xl flex items-center gap-3">
-                  <Cpu className="w-5 h-5 text-primary flex-shrink-0" />
-                  <span className="text-xs font-bold text-slate-700">{guidance}</span>
-                </div>
+
+
+              {/* Medical Disclaimer Note */}
+              <div className="mt-3 p-3 bg-amber-50/40 border border-amber-200/50 rounded-xl text-[9px] text-slate-500 leading-tight">
+                <span className="font-bold text-slate-700 block mb-0.5">Clinical Disclaimer</span>
+                SmartPhysio is an assistive wearable biofeedback tracking tool. It does not provide medical diagnoses or replace professional therapeutic intervention.
               </div>
 
               {/* Actions Footer */}

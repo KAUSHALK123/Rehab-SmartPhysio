@@ -223,7 +223,11 @@ const LiveVisualizer = ({ sensorIndex, telemetry }) => {
     }
     else if (sensorIndex === 1) {
       // Fingers visual (hand skeleton)
-      const { thumb = 0, index = 0, middle = 0, ring = 0, little = 0 } = telemetry;
+      const thumb = (getFingerRawValue(telemetry, 'thumb') / 4095) * 100;
+      const index = (getFingerRawValue(telemetry, 'index') / 4095) * 100;
+      const middle = (getFingerRawValue(telemetry, 'middle') / 4095) * 100;
+      const ring = (getFingerRawValue(telemetry, 'ring') / 4095) * 100;
+      const little = (getFingerRawValue(telemetry, 'little') / 4095) * 100;
       const fingers = [thumb, index, middle, ring, little];
       const startX = 35;
       const spacing = 14;
@@ -412,6 +416,19 @@ const LiveVisualizer = ({ sensorIndex, telemetry }) => {
 // 4. MAIN PAGE COMPONENT
 // ==========================================
 
+const getFingerRawValue = (data, fingerName) => {
+  if (!data) return 0;
+  const rawKey = 'raw_' + fingerName;
+  if (data[rawKey] !== undefined) return data[rawKey];
+  const val = data[fingerName];
+  if (val === undefined || val === null) return 0;
+  if (typeof val === 'object') {
+    return val.raw !== undefined ? val.raw : 0;
+  }
+  if (val > 100) return val;
+  return Math.round(val * 40.95);
+};
+
 function CalibrationPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1); // 1: Diagnostics Layout, 2: Motion Verification, 3: Complete
@@ -459,6 +476,59 @@ function CalibrationPage() {
   // Live states are handled locally inside individual sensor subcomponents to prevent lag
 
   const wsRef = useRef(null);
+
+  const sendDeviceCommand = (command, payload = {}) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ command, ...payload }));
+    }
+  };
+
+  // Auto-advance mock calibration steps if no physical device is connected
+  useEffect(() => {
+    if (!linkEstablished) return;
+
+    if (step === 1) {
+      if (activeSensorIndex === 1 && sensorStatuses.flex === 'calibrating') {
+        // Cycle flex sensors between close_hand and idle
+        sendDeviceCommand('set_step', { step: 'close_hand' });
+        const timer = setTimeout(() => {
+          sendDeviceCommand('set_step', { step: 'idle' });
+        }, 1500);
+        return () => clearTimeout(timer);
+      }
+      if (activeSensorIndex === 2 && sensorStatuses.elbow === 'calibrating') {
+        sendDeviceCommand('set_step', { step: 'bend_elbow' });
+        const timer = setTimeout(() => {
+          sendDeviceCommand('set_step', { step: 'idle' });
+        }, 1500);
+        return () => clearTimeout(timer);
+      }
+      if (activeSensorIndex === 3 && sensorStatuses.mpu === 'calibrating') {
+        sendDeviceCommand('set_step', { step: 'raise_arm' });
+        const timer = setTimeout(() => {
+          sendDeviceCommand('set_step', { step: 'idle' });
+        }, 1500);
+        return () => clearTimeout(timer);
+      }
+      if (activeSensorIndex === 4 && sensorStatuses.pressure === 'calibrating') {
+        sendDeviceCommand('set_step', { step: 'close_hand' });
+        const timer = setTimeout(() => {
+          sendDeviceCommand('set_step', { step: 'idle' });
+        }, 1500);
+        return () => clearTimeout(timer);
+      }
+    } else if (step === 2) {
+      if (!motionSteps.raiseArm) {
+        sendDeviceCommand('set_step', { step: 'raise_arm' });
+      } else if (!motionSteps.bendElbow) {
+        sendDeviceCommand('set_step', { step: 'bend_elbow' });
+      } else if (!motionSteps.closeHand) {
+        sendDeviceCommand('set_step', { step: 'close_hand' });
+      } else {
+        sendDeviceCommand('set_step', { step: 'idle' });
+      }
+    }
+  }, [activeSensorIndex, sensorStatuses, step, motionSteps, linkEstablished]);
 
   // Components mapping for the layout rows
   const componentRows = [
@@ -597,12 +667,16 @@ function CalibrationPage() {
   useEffect(() => {
     if (!lastTelemetry) return;
 
-    // Finger Calibration check (Variance > 12 on at least 2 finger channels)
+    // Finger Calibration check (Variance > 1024 on at least 2 finger channels)
     if (activeSensorIndex === 1 && sensorStatuses.flex === 'calibrating') {
-      const { thumb, index, middle, ring, little } = lastTelemetry;
+      const thumb = getFingerRawValue(lastTelemetry, 'thumb');
+      const index = getFingerRawValue(lastTelemetry, 'index');
+      const middle = getFingerRawValue(lastTelemetry, 'middle');
+      const ring = getFingerRawValue(lastTelemetry, 'ring');
+      const little = getFingerRawValue(lastTelemetry, 'little');
       
       setMinSeen(prev => {
-        const c = prev.flex || { thumb: 100, index: 100, middle: 100, ring: 100, little: 100 };
+        const c = prev.flex || { thumb: 4095, index: 4095, middle: 4095, ring: 4095, little: 4095 };
         return { ...prev, flex: { thumb: Math.min(c.thumb, thumb), index: Math.min(c.index, index), middle: Math.min(c.middle, middle), ring: Math.min(c.ring, ring), little: Math.min(c.little, little) } };
       });
       setMaxSeen(prev => {
@@ -642,11 +716,11 @@ function CalibrationPage() {
 
   // Evaluate Threshold Criteria for Calibration
   useEffect(() => {
-    // Finger sensors logic - requires at least 3 fingers to register variance >= 25%
+    // Finger sensors logic - requires at least 3 fingers to register variance >= 1024 (25%)
     if (activeSensorIndex === 1 && sensorStatuses.flex === 'calibrating' && minSeen.flex && maxSeen.flex) {
       const fMin = minSeen.flex;
       const fMax = maxSeen.flex;
-      const count = [fMax.thumb - fMin.thumb, fMax.index - fMin.index, fMax.middle - fMin.middle, fMax.ring - fMin.ring, fMax.little - fMin.little].filter(v => v >= 25).length;
+      const count = [fMax.thumb - fMin.thumb, fMax.index - fMin.index, fMax.middle - fMin.middle, fMax.ring - fMin.ring, fMax.little - fMin.little].filter(v => v >= 1024).length;
       if (count >= 3) {
         setSensorStatuses(prev => ({ ...prev, flex: 'ready' }));
       }
@@ -868,18 +942,21 @@ function CalibrationPage() {
                               lastTelemetry={lastTelemetry} 
                               status={status} 
                               deviceConnected={deviceConnected} 
+                              onChange={(mockData) => setLastTelemetry(prev => ({ ...prev, ...mockData }))}
                             />
                           ) : idx === 3 ? (
                             <WristSensorDetail 
                               lastTelemetry={lastTelemetry} 
                               status={status} 
                               deviceConnected={deviceConnected} 
+                              onChange={(mockData) => setLastTelemetry(prev => ({ ...prev, ...mockData }))}
                             />
                           ) : idx === 4 ? (
                             <PressureSensorDetail 
                               lastTelemetry={lastTelemetry} 
                               status={status} 
                               deviceConnected={deviceConnected} 
+                              onChange={(mockData) => setLastTelemetry(prev => ({ ...prev, ...mockData }))}
                             />
                           ) : (
                             <>
@@ -978,7 +1055,7 @@ function CalibrationPage() {
                                         {['thumb', 'index', 'middle', 'ring', 'little'].map((finger) => (
                                           <div key={finger} className="neu-panel p-1.5 rounded-lg">
                                             <span className="text-[9px] font-bold text-slate-400 uppercase block">{finger.slice(0, 3)}</span>
-                                            <span className="text-xs font-bold text-slate-700">{lastTelemetry[finger]}%</span>
+                                            <span className="text-xs font-bold text-slate-700">{getFingerRawValue(lastTelemetry, finger)}</span>
                                           </div>
                                         ))}
                                       </div>
@@ -986,9 +1063,9 @@ function CalibrationPage() {
                                     <div>
                                       <div className="flex justify-between text-[11px] font-bold text-slate-600 mb-1">
                                         <span>Index Finger Flexion</span>
-                                        <span>{lastTelemetry?.index || 0}%</span>
+                                        <span>{getFingerRawValue(lastTelemetry, 'index')}</span>
                                       </div>
-                                      <LiveChart value={lastTelemetry?.index || 0} minVal={0} maxVal={100} color="#3B82F6" />
+                                      <LiveChart value={getFingerRawValue(lastTelemetry, 'index')} minVal={0} maxVal={4095} color="#3B82F6" />
                                     </div>
                                   </div>
                                 )}
@@ -1210,15 +1287,20 @@ function CalibrationPage() {
 // 3. OPTIMIZED ISOLATED DETAILED CONTROL SUBCOMPONENTS
 // ==========================================
 
-const ElbowSensorDetail = ({ lastTelemetry, status, deviceConnected }) => {
+const ElbowSensorDetail = ({ lastTelemetry, status, deviceConnected, onChange }) => {
   const [elbowAngle, setElbowAngle] = useState(180);
 
   useEffect(() => {
-    if (deviceConnected && lastTelemetry) {
+    if (lastTelemetry) {
       const elbow = Math.max(90, Math.min(180, lastTelemetry.elbow || 180));
       setElbowAngle(elbow);
     }
-  }, [lastTelemetry, deviceConnected]);
+  }, [lastTelemetry]);
+
+  const handleSliderChange = (val) => {
+    setElbowAngle(val);
+    if (onChange) onChange({ elbow: val });
+  };
 
   return (
     <>
@@ -1252,7 +1334,7 @@ const ElbowSensorDetail = ({ lastTelemetry, status, deviceConnected }) => {
                 min="90" 
                 max="180" 
                 value={elbowAngle} 
-                onChange={(e) => setElbowAngle(Number(e.target.value))} 
+                onChange={(e) => handleSliderChange(Number(e.target.value))} 
                 className="w-full accent-amber-500 cursor-pointer h-1 bg-slate-200 rounded-lg appearance-none"
               />
             </div>
@@ -1263,18 +1345,28 @@ const ElbowSensorDetail = ({ lastTelemetry, status, deviceConnected }) => {
   );
 };
 
-const WristSensorDetail = ({ lastTelemetry, status, deviceConnected }) => {
+const WristSensorDetail = ({ lastTelemetry, status, deviceConnected, onChange }) => {
   const [sideAngle, setSideAngle] = useState(0);
   const [bendAngle, setBendAngle] = useState(0);
 
   useEffect(() => {
-    if (deviceConnected && lastTelemetry) {
+    if (lastTelemetry) {
       const roll = Math.max(-45, Math.min(45, lastTelemetry.wrist_roll || 0));
       const pitch = Math.max(-45, Math.min(45, lastTelemetry.wrist_pitch || 0));
       setSideAngle(roll);
       setBendAngle(pitch);
     }
-  }, [lastTelemetry, deviceConnected]);
+  }, [lastTelemetry]);
+
+  const handleSideChange = (val) => {
+    setSideAngle(val);
+    if (onChange) onChange({ wrist_roll: val });
+  };
+
+  const handleBendChange = (val) => {
+    setBendAngle(val);
+    if (onChange) onChange({ wrist_pitch: val });
+  };
 
   return (
     <>
@@ -1347,7 +1439,7 @@ const WristSensorDetail = ({ lastTelemetry, status, deviceConnected }) => {
                   min="-45" 
                   max="45" 
                   value={sideAngle} 
-                  onChange={(e) => setSideAngle(Number(e.target.value))} 
+                  onChange={(e) => handleSideChange(Number(e.target.value))} 
                   className="w-full accent-emerald-500 cursor-pointer h-1 bg-slate-200 rounded-lg appearance-none"
                 />
               </div>
@@ -1361,7 +1453,7 @@ const WristSensorDetail = ({ lastTelemetry, status, deviceConnected }) => {
                   min="-45" 
                   max="45" 
                   value={bendAngle} 
-                  onChange={(e) => setBendAngle(Number(e.target.value))} 
+                  onChange={(e) => handleBendChange(Number(e.target.value))} 
                   className="w-full accent-blue-500 cursor-pointer h-1 bg-slate-200 rounded-lg appearance-none"
                 />
               </div>
@@ -1373,15 +1465,20 @@ const WristSensorDetail = ({ lastTelemetry, status, deviceConnected }) => {
   );
 };
 
-const PressureSensorDetail = ({ lastTelemetry, status, deviceConnected }) => {
+const PressureSensorDetail = ({ lastTelemetry, status, deviceConnected, onChange }) => {
   const [pressureForce, setPressureForce] = useState(0);
 
   useEffect(() => {
-    if (deviceConnected && lastTelemetry) {
+    if (lastTelemetry) {
       const press = Math.max(0, Math.min(800, lastTelemetry.pressure || 0));
       setPressureForce(press);
     }
-  }, [lastTelemetry, deviceConnected]);
+  }, [lastTelemetry]);
+
+  const handlePressureChange = (val) => {
+    setPressureForce(val);
+    if (onChange) onChange({ pressure: val });
+  };
 
   return (
     <>
@@ -1415,7 +1512,7 @@ const PressureSensorDetail = ({ lastTelemetry, status, deviceConnected }) => {
                 min="0" 
                 max="800" 
                 value={pressureForce} 
-                onChange={(e) => setPressureForce(Number(e.target.value))} 
+                onChange={(e) => handlePressureChange(Number(e.target.value))} 
                 className="w-full accent-emerald-500 cursor-pointer h-1 bg-slate-200 rounded-lg appearance-none"
               />
             </div>

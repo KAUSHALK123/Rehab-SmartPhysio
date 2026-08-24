@@ -2,42 +2,69 @@ import React, { useRef, useEffect } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useGLTF, OrbitControls, Grid, Center } from '@react-three/drei';
 import * as THREE from 'three';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 // Degree to radian conversion helper
 const degToRad = (degrees) => ((degrees || 0) * Math.PI) / 180;
 
 // 3D Human Rig Component for Kinematics Overview
-function FullBodyRig({ controls }) {
+function FullBodyRig({ controls, injuredArm = 'Right' }) {
   // Load full_rig GLB from public/models directory
-  const { scene, nodes } = useGLTF('/models/full_rig.glb');
+  const { scene } = useGLTF('/models/full_rig.glb');
+  
+  // Clone the scene for this specific instance to support multiple canvases (split view)
+  const clonedScene = React.useMemo(() => {
+    return scene.clone ? SkeletonUtils.clone(scene) : scene;
+  }, [scene]);
+
   const groupRef = useRef();
   const baseRotationsRef = useRef({});
 
   // Capture initial/base GLB joint rotations once to prevent snapping
   useEffect(() => {
-    if (nodes && !baseRotationsRef.current.initialized) {
-      const bicepRight = nodes['bicep_right'];
-      const rightForearm = nodes['right_forearm'];
-      const circleWrist = nodes['Circle'];
+    if (clonedScene && !baseRotationsRef.current.initialized) {
+      const getBone = (name) => typeof clonedScene.getObjectByName === 'function' ? clonedScene.getObjectByName(name) : null;
+      
+      const bicepRight = getBone('bicep_right');
+      const rightForearm = getBone('right_forearm');
+      const circleWrist = getBone('Circle');
 
-      baseRotationsRef.current = {
+      const fingerNames = [
+        'thumb1', 'thumb2',
+        'index1', 'index2', 'index3',
+        'middle1', 'middle2', 'middle3',
+        'ring1', 'ring2', 'ring3',
+        'little1', 'little2', 'little3'
+      ];
+
+      const initialBases = {
         initialized: true,
         bicep_right: bicepRight ? { x: bicepRight.rotation.x, y: bicepRight.rotation.y, z: bicepRight.rotation.z } : { x: 0, y: 0, z: 0 },
         right_forearm: rightForearm ? { x: rightForearm.rotation.x, y: rightForearm.rotation.y, z: rightForearm.rotation.z } : { x: 0, y: 0, z: 0 },
         Circle: circleWrist ? { x: circleWrist.rotation.x, y: circleWrist.rotation.y, z: circleWrist.rotation.z } : { x: 0, y: 0, z: 0 },
       };
 
+      fingerNames.forEach(name => {
+        const bone = getBone(name);
+        if (bone) {
+          initialBases[name] = { x: bone.rotation.x, y: bone.rotation.y, z: bone.rotation.z };
+        }
+      });
+
+      baseRotationsRef.current = initialBases;
       console.log('[FullBodyRig] Captured base rotations:', baseRotationsRef.current);
     }
-  }, [nodes]);
+  }, [clonedScene]);
 
   // Frame loop for smooth real-time joint rotations
   useFrame(() => {
-    if (!nodes || !baseRotationsRef.current.initialized) return;
+    if (!clonedScene || !baseRotationsRef.current.initialized) return;
 
-    const bicepRight = nodes['bicep_right'];
-    const rightForearm = nodes['right_forearm'];
-    const circleWrist = nodes['Circle'];
+    const getBone = (name) => typeof clonedScene.getObjectByName === 'function' ? clonedScene.getObjectByName(name) : null;
+
+    const bicepRight = getBone('bicep_right');
+    const rightForearm = getBone('right_forearm');
+    const circleWrist = getBone('Circle');
     const bases = baseRotationsRef.current;
 
     // 1. Shoulder Forward/Back & Side/Twist (bicep_right)
@@ -60,12 +87,39 @@ function FullBodyRig({ controls }) {
       const targetWristZ = bases.Circle.z + degToRad(controls?.wristAngle || 0);
       circleWrist.rotation.z = THREE.MathUtils.lerp(circleWrist.rotation.z, targetWristZ, 0.15);
     }
+
+    // 4. Fingers Flexion (thumb, index, middle, ring, little)
+    const fingers = [
+      { name: 'thumb', joints: ['thumb1', 'thumb2'], val: controls?.thumb !== undefined ? controls.thumb : 30 },
+      { name: 'index', joints: ['index1', 'index2', 'index3'], val: controls?.index !== undefined ? controls.index : 30 },
+      { name: 'middle', joints: ['middle1', 'middle2', 'middle3'], val: controls?.middle !== undefined ? controls.middle : 30 },
+      { name: 'ring', joints: ['ring1', 'ring2', 'ring3'], val: controls?.ring !== undefined ? controls.ring : 30 },
+      { name: 'little', joints: ['little1', 'little2', 'little3'], val: controls?.little !== undefined ? controls.little : 30 },
+    ];
+
+    fingers.forEach(f => {
+      // Map flex sensor value (e.g. 0 to 100) to bending angle in radians (e.g. 0 to 75 degrees)
+      const flexAngle = degToRad((f.val / 100) * 75);
+      
+      f.joints.forEach(j => {
+        const bone = getBone(j);
+        const base = bases[j];
+        if (bone && base) {
+          // Bending around Z axis for fingers in this rig coordinate frame
+          const targetZ = base.z - flexAngle;
+          bone.rotation.z = THREE.MathUtils.lerp(bone.rotation.z, targetZ, 0.15);
+        }
+      });
+    });
   });
 
   // Initial model position, scale, and side-turned orientation
+  // Mirror model along X-axis if Left arm is injured
+  const scaleX = injuredArm === 'Left' ? -1.1 : 1.1;
+
   return (
-    <group ref={groupRef} rotation={[0, -Math.PI / 4, 0]} scale={[1.1, 1.1, 1.1]} position={[0, -0.6, 0]}>
-      <primitive object={scene} />
+    <group ref={groupRef} rotation={[0, -Math.PI / 4, 0]} scale={[scaleX, 1.1, 1.1]} position={[0, -0.6, 0]}>
+      <primitive object={clonedScene} />
     </group>
   );
 }
@@ -92,7 +146,7 @@ function CameraController({ cameraAngle, controlsRef }) {
 }
 
 // Main Canvas container component for Dashboard Kinematics Overview
-export default function Arm3DVisualizer({ controls, cameraAngle = 'straight', disableOrbit = false }) {
+export default function Arm3DVisualizer({ controls, cameraAngle = 'straight', disableOrbit = false, injuredArm = 'Right' }) {
   const controlsRef = useRef();
 
   return (
@@ -108,7 +162,7 @@ export default function Arm3DVisualizer({ controls, cameraAngle = 'straight', di
         <pointLight position={[0, 2, 3]} intensity={0.5} />
         
         <Center position={[0, 0, 0]}>
-          <FullBodyRig controls={controls} />
+          <FullBodyRig controls={controls} injuredArm={injuredArm} />
         </Center>
         
         {/* Dynamic camera transitions */}
