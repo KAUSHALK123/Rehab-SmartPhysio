@@ -564,7 +564,7 @@ function DashboardPage() {
 
           {/* Sliders Control Panel Overlay */}
           <div className={`absolute top-4 left-4 z-20 border p-4 rounded-2xl w-48 text-left shadow-2xl backdrop-blur-md ${
-            isDark ? 'bg-[#121620]/85 border-slate-900/10 text-white' : 'bg-white/85 border-slate-200 text-slate-800'
+            isDark ? 'card-neumorphic-dark-nested text-white' : 'bg-white/85 border-slate-200 text-slate-800'
           }`}>
             <span className="text-[11px] font-bold text-blue-500 uppercase tracking-wider block mb-3">Joint Calibration</span>
             
@@ -648,7 +648,7 @@ function DashboardPage() {
           
           {/* Card Overlay 1: Elbow Flex Cluster */}
           <div className={`absolute top-4 right-4 border p-3 rounded-xl text-left shadow-2xl backdrop-blur-md max-w-[125px] transition hover:scale-105 z-10 ${
-            isDark ? 'bg-[#121620]/95 border-slate-900/10 text-white' : 'bg-white/95 border-slate-200 text-slate-800'
+            isDark ? 'card-neumorphic-dark-nested text-white' : 'bg-white/95 border-slate-200 text-slate-800'
           }`}>
             <span className="text-[12px] font-bold block">Flex Joint</span>
             <span className="text-[8px] text-slate-500 mt-0.5 block">Elbow Flexion</span>
@@ -656,7 +656,7 @@ function DashboardPage() {
 
           {/* Card Overlay 2: ROM Active Degrees */}
           <div className={`absolute bottom-4 left-4 border p-3 rounded-xl text-left shadow-2xl backdrop-blur-md min-w-[110px] transition hover:scale-105 z-10 ${
-            isDark ? 'bg-[#121620]/95 border-slate-900/10 text-white' : 'bg-white/95 border-slate-200 text-slate-800'
+            isDark ? 'card-neumorphic-dark-nested text-white' : 'bg-white/95 border-slate-200 text-slate-800'
           }`}>
             <span className="text-xl font-extrabold block">
               {deviceConnected && liveTelemetry ? `${Math.round(180 - liveTelemetry.elbow)}°` : '18°'}
@@ -666,7 +666,7 @@ function DashboardPage() {
 
           {/* Card Overlay 3: Peak Grip Compression Force */}
           <div className={`absolute bottom-4 right-4 border p-3 rounded-xl text-left shadow-2xl backdrop-blur-md min-w-[110px] transition hover:scale-105 z-10 ${
-            isDark ? 'bg-[#121620]/95 border-slate-900/10 text-white' : 'bg-white/95 border-slate-200 text-slate-800'
+            isDark ? 'card-neumorphic-dark-nested text-white' : 'bg-white/95 border-slate-200 text-slate-800'
           }`}>
             <span className="text-xl font-extrabold block">
               {deviceConnected && liveTelemetry ? `${(liveTelemetry.pressure / 10).toFixed(1)}` : '23.3'}
@@ -688,20 +688,19 @@ function DashboardPage() {
         <div className={`flex justify-between items-center pb-2 border-b ${
           isDark ? 'border-slate-900/10' : 'border-slate-100'
         }`}>
-          {/* Slider toggler representation */}
-          <div className="switch-button scale-[0.6] origin-left">
-            <div className="switch-outer">
+          {/* Custom Theme Toggle Switch */}
+          <div className="theme-toggle-wrapper">
+            <label className="switch">
               <input 
                 type="checkbox" 
-                id="theme-switch" 
+                className="togglesw" 
                 checked={isDark} 
                 onChange={() => toggleTheme()} 
               />
-              <label className="button" htmlFor="theme-switch">
-                <span className="button-toggle"></span>
-                <span className="button-indicator"></span>
-              </label>
-            </div>
+              <div className="indicator left"></div>
+              <div className="indicator right"></div>
+              <div className="btn"></div>
+            </label>
           </div>
         </div>
 
@@ -722,7 +721,7 @@ function DashboardPage() {
           <div className="space-y-3">
             {supplements.map((supp) => (
               <div key={supp.count} className={`border rounded-2xl p-3 flex justify-between items-center transition hover:border-slate-800 ${
-                isDark ? 'bg-[#121620]/90 border-slate-900/10 text-white' : 'bg-[#F1F5F9]/90 border-slate-200 text-slate-800'
+                isDark ? 'card-neumorphic-dark-nested text-white' : 'bg-[#F1F5F9]/90 border-slate-200 text-slate-800'
               }`}>
                 <div className="flex items-center gap-3">
                   <div className={`w-9 h-9 rounded-xl border flex items-center justify-center font-bold text-xs shrink-0 shadow-inner ${
