@@ -162,6 +162,10 @@ function LiveExercisePage() {
   const activeExerciseRef = useRef(null);
   const evaluateRepetitionStateRef = useRef();
 
+  // AI Feedback specific refs
+  const lastProgressRef = useRef({ pct: 0, time: Date.now() });
+  const stallWarningGivenRef = useRef(false);
+
   // Keep repetition state machine callback updated to prevent stale closures
   useEffect(() => {
     evaluateRepetitionStateRef.current = evaluateRepetitionState;
@@ -474,6 +478,27 @@ function LiveExercisePage() {
       progressPct = range > 0 ? Math.max(0, Math.min(100, Math.round(((restValue - currentValue) / range) * 100))) : 0;
     }
 
+    // Velocity & Anti-Stall Tracking
+    const now = Date.now();
+    const last = lastProgressRef.current;
+    let isStalling = false;
+
+    if (nextState === 'moving') {
+      if (Math.abs(progressPct - last.pct) < 2) {
+        if (now - last.time > 2000) {
+          isStalling = true; // Stalled for 2 seconds
+        }
+      } else {
+        // Made progress, reset timer
+        lastProgressRef.current = { pct: progressPct, time: now };
+        stallWarningGivenRef.current = false;
+      }
+    } else {
+      // Not moving, reset timer
+      lastProgressRef.current = { pct: progressPct, time: now };
+      stallWarningGivenRef.current = false;
+    }
+
     const injuredArm = patientDetails?.injured_arm || 'Right';
     let warningText = null;
     let suggestionText = '';
@@ -498,9 +523,9 @@ function LiveExercisePage() {
     } else if (nameLower.includes('wrist rotation') || nameLower.includes('rotation')) {
       const elbowFlex = 180 - data.elbow;
       if (elbowFlex < 75) {
-        warningText = `Bend elbow more to 90°! Currently: ${Math.round(elbowFlex)}°`;
+        warningText = `Keep your elbow still! Bend more to 90°! Currently: ${Math.round(elbowFlex)}°`;
       } else if (elbowFlex > 105) {
-        warningText = `Straighten elbow slightly to 90°! Currently: ${Math.round(elbowFlex)}°`;
+        warningText = `Keep your elbow still! Straighten slightly to 90°! Currently: ${Math.round(elbowFlex)}°`;
       }
     } else if (nameLower.includes('elbow curl') || nameLower.includes('elbow') || nameLower.includes('curl')) {
       const rollVal = data.wrist_roll;
@@ -512,6 +537,12 @@ function LiveExercisePage() {
       if (elbowFlex > 20) {
         warningText = `Straighten your elbow! Flexed by ${Math.round(elbowFlex)}°`;
       }
+    }
+
+    // Override warning if stalling
+    if (isStalling && !warningText) {
+      warningText = `You've stopped moving! Keep pushing toward the target!`;
+      stallWarningGivenRef.current = true;
     }
 
     // 2. Compute dynamic action guidance text based on nextState
@@ -526,12 +557,28 @@ function LiveExercisePage() {
         const remaining = Math.max(0, Math.round(targetValue - currentValue));
         suggestionText = `Squeezing... reached ${progressPct}% of target force. Apply ${remaining} N more force.`;
       } else {
-        const remaining = Math.max(0, Math.round(isAscending ? (targetValue - currentValue) : (currentValue - targetValue)));
-        suggestionText = `Moving... reached ${progressPct}% of target angle. Move ${remaining}° more.`;
+        const remaining = Math.max(0, Math.round(Math.abs(targetValue - currentValue)));
+        
+        if (nameLower.includes('rotation')) {
+          suggestionText = `Rotate your wrist further outwards. You are at ${Math.round(currentValue)}°, target is ${Math.round(targetValue)}°.`;
+        } else if (nameLower.includes('elbow')) {
+          suggestionText = `Bend your elbow more towards your shoulder. Move ${remaining}° more.`;
+        } else {
+          suggestionText = `Moving... reached ${progressPct}% of target angle. Move ${remaining}° more.`;
+        }
       }
     } else if (nextState === 'target_hold') {
+      const isSlipping = isAscending 
+        ? (currentValue < targetValue - (targetValue - restValue) * 0.1) 
+        : (currentValue > targetValue + (restValue - targetValue) * 0.1);
+        
+      if (isSlipping && !warningText) {
+        warningText = `Hold steady! Don't let your arm drop yet.`;
+        statusVal = 'warning';
+      } else {
+        statusVal = 'success';
+      }
       suggestionText = `Target reached! Keep holding for ${holdCountdown > 0 ? holdCountdown : holdSecs}s.`;
-      statusVal = 'success';
     } else if (nextState === 'returning') {
       suggestionText = `Rep completed successfully! Slowly return your arm to the rest position.`;
       statusVal = 'info';

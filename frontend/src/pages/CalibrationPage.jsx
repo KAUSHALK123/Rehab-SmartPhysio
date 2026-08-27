@@ -475,12 +475,67 @@ function CalibrationPage() {
   });
   // Live states are handled locally inside individual sensor subcomponents to prevent lag
 
+  // Sequential Wizard State
+  const wizardOrder = ['thumb', 'index', 'middle', 'ring', 'little', 'elbow'];
+  const [wizardIndex, setWizardIndex] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTimeLeft, setRecordingTimeLeft] = useState(0);
+  const [tempMin, setTempMin] = useState(4095);
+  const [tempMax, setTempMax] = useState(0);
+
   const wsRef = useRef(null);
 
   const sendDeviceCommand = (command, payload = {}) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ command, ...payload }));
     }
+  };
+
+  // Wizard Recording Logic
+  useEffect(() => {
+    if (!isRecording || !lastTelemetry) return;
+    const sensorName = wizardOrder[wizardIndex];
+    const rawVal = getFingerRawValue(lastTelemetry, sensorName);
+    setTempMin(prev => Math.min(prev, rawVal));
+    setTempMax(prev => Math.max(prev, rawVal));
+  }, [lastTelemetry, isRecording, wizardIndex]);
+
+  useEffect(() => {
+    let timer;
+    if (isRecording && recordingTimeLeft > 0) {
+      timer = setTimeout(() => {
+        setRecordingTimeLeft(prev => prev - 1);
+      }, 1000);
+    } else if (isRecording && recordingTimeLeft === 0) {
+      setIsRecording(false);
+      const sensorName = wizardOrder[wizardIndex];
+      sendDeviceCommand('set_sensor_bounds', {
+        sensor: sensorName,
+        straight: tempMin,
+        bent: tempMax
+      });
+      
+      if (wizardIndex < 4) { // Finished a finger (0-3), move to next finger
+        setWizardIndex(prev => prev + 1);
+      } else if (wizardIndex === 4) { // Finished last finger
+        setSensorStatuses(prev => ({ ...prev, flex: 'ready' }));
+        setWizardIndex(5);
+        setActiveSensorIndex(2); // Focus Elbow
+        setSensorStatuses(prev => ({ ...prev, elbow: 'calibrating' }));
+      } else if (wizardIndex === 5) { // Finished elbow
+        setSensorStatuses(prev => ({ ...prev, elbow: 'ready' }));
+        setActiveSensorIndex(3); // Next is MPU
+        setSensorStatuses(prev => ({ ...prev, mpu: 'calibrating' }));
+      }
+    }
+    return () => clearTimeout(timer);
+  }, [isRecording, recordingTimeLeft, wizardIndex, tempMin, tempMax]);
+
+  const startWizardRecording = () => {
+    setTempMin(4095);
+    setTempMax(0);
+    setRecordingTimeLeft(5);
+    setIsRecording(true);
   };
 
   // Auto-advance mock calibration steps if no physical device is connected
@@ -716,22 +771,8 @@ function CalibrationPage() {
 
   // Evaluate Threshold Criteria for Calibration
   useEffect(() => {
-    // Finger sensors logic - requires at least 3 fingers to register variance >= 1024 (25%)
-    if (activeSensorIndex === 1 && sensorStatuses.flex === 'calibrating' && minSeen.flex && maxSeen.flex) {
-      const fMin = minSeen.flex;
-      const fMax = maxSeen.flex;
-      const count = [fMax.thumb - fMin.thumb, fMax.index - fMin.index, fMax.middle - fMin.middle, fMax.ring - fMin.ring, fMax.little - fMin.little].filter(v => v >= 1024).length;
-      if (count >= 3) {
-        setSensorStatuses(prev => ({ ...prev, flex: 'ready' }));
-      }
-    }
-
-    // Elbow joint logic - requires elbow angle change >= 20 degrees
-    if (activeSensorIndex === 2 && sensorStatuses.elbow === 'calibrating' && minSeen.elbow !== undefined && maxSeen.elbow !== undefined) {
-      if (maxSeen.elbow - minSeen.elbow >= 20) {
-        setSensorStatuses(prev => ({ ...prev, elbow: 'ready' }));
-      }
-    }
+    // Finger and Elbow automatic logic is REMOVED.
+    // They are now calibrated manually using the Capture Buttons.
 
     // Wrist MPU logic - requires pitch/roll rotation variance >= 15 degrees
     if (activeSensorIndex === 3 && sensorStatuses.mpu === 'calibrating' && minSeen.mpu && maxSeen.mpu) {
@@ -838,7 +879,15 @@ function CalibrationPage() {
           {/* MAIN CARD: Component list */}
           <div className="neu-panel p-6 space-y-6">
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 pb-4 border-b border-slate-300">
-              <h4 className="font-bold text-slate-800 text-lg">Component Diagnostics</h4>
+              <div className="flex items-center gap-3">
+                <h4 className="font-bold text-slate-800 text-lg">Component Diagnostics</h4>
+                {deviceConnected && (
+                  <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${battery > 20 ? 'bg-green-50 text-green-600 border-green-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
+                    <Battery className="w-3.5 h-3.5" />
+                    {battery}%
+                  </div>
+                )}
+              </div>
               {!linkEstablished ? (
                 <button
                   onClick={connectDevice}
@@ -1049,15 +1098,48 @@ function CalibrationPage() {
                                 )}
 
                                 {idx === 1 && (
-                                  <div className="space-y-3">
+                                  <div className="space-y-4">
                                     {lastTelemetry && (
-                                      <div className="grid grid-cols-5 gap-1.5 text-center">
-                                        {['thumb', 'index', 'middle', 'ring', 'little'].map((finger) => (
-                                          <div key={finger} className="neu-panel p-1.5 rounded-lg">
-                                            <span className="text-[9px] font-bold text-slate-400 uppercase block">{finger.slice(0, 3)}</span>
-                                            <span className="text-xs font-bold text-slate-700">{getFingerRawValue(lastTelemetry, finger)}</span>
-                                          </div>
-                                        ))}
+                                      <div className="flex justify-around items-end h-36 px-2 bg-slate-50 border border-slate-100 rounded-xl py-3">
+                                        {['thumb', 'index', 'middle', 'ring', 'little'].map((finger) => {
+                                          const bounds = lastTelemetry?.bounds || {};
+                                          const str = bounds[`${finger}Str`];
+                                          const bnt = bounds[`${finger}Bnt`];
+                                          
+                                          const isThumb = finger === 'thumb';
+                                          const heightClass = isThumb ? "h-16" : "h-24";
+                                          
+                                          const currentAngle = lastTelemetry[finger] !== undefined ? Number(lastTelemetry[finger]) : 0;
+                                          // Increase sensitivity: Max out the bar visual at 40 degrees instead of 90
+                                          const percent = Math.min(100, Math.max(0, (currentAngle / 40) * 100)); 
+                                          
+                                          let barColor = "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]";
+                                          if (percent > 75) barColor = "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]";
+                                          else if (percent > 45) barColor = "bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.5)]";
+
+                                          return (
+                                            <div key={finger} className="flex flex-col items-center justify-end h-full gap-1.5">
+                                              <span className="text-[10px] font-bold text-slate-700 leading-tight">
+                                                {currentAngle.toFixed(1)}°
+                                              </span>
+                                              
+                                              <div className={`w-6 bg-slate-200 rounded-full relative overflow-hidden flex items-end ${heightClass}`}>
+                                                <div 
+                                                  className={`w-full rounded-full transition-all duration-200 ${barColor}`} 
+                                                  style={{ height: `${percent}%` }}
+                                                ></div>
+                                              </div>
+                                              
+                                              <span className="text-[9px] font-bold text-slate-400 uppercase mt-1">{finger.slice(0, 3)}</span>
+                                              
+                                              <div className="flex flex-col w-full text-[6px] text-slate-400 font-medium items-center leading-none mt-1">
+                                                <span>S:{str ?? '-'}</span>
+                                                <span className="text-blue-500 font-bold">R:{getFingerRawValue(lastTelemetry, finger)}</span>
+                                                <span>B:{bnt ?? '-'}</span>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
                                       </div>
                                     )}
                                     <div>
@@ -1075,6 +1157,41 @@ function CalibrationPage() {
 
                           {/* Expanded Bottom: Status Banner & Row Actions */}
                           <div className="col-span-1 md:col-span-2 pt-4 border-t border-slate-300 flex flex-col sm:flex-row justify-between items-center gap-4">
+                            
+                            {status === 'calibrating' && (idx === 1 || idx === 2) && (
+                              <div className="flex flex-col gap-2 mr-auto w-full sm:w-auto">
+                                <div className="text-[10px] font-bold text-slate-700 bg-white px-3 py-1.5 rounded-lg border shadow-sm flex items-center justify-between">
+                                  <div>
+                                    <span className="text-blue-600 mr-1">Step {wizardIndex + 1}/6:</span>
+                                    <span className="uppercase text-slate-900">{wizardOrder[wizardIndex]}</span>
+                                  </div>
+                                  {isRecording && (
+                                    <span className="text-[9px] text-slate-400 ml-3">
+                                      MIN:{tempMin === 4095 ? '-' : tempMin} MAX:{tempMax === 0 ? '-' : tempMax}
+                                    </span>
+                                  )}
+                                </div>
+                                
+                                <button
+                                  onClick={startWizardRecording}
+                                  disabled={isRecording}
+                                  className={`px-4 py-2 text-white text-[11px] font-bold rounded-lg transition disabled:opacity-90 flex items-center justify-center gap-2 shadow-sm ${
+                                    isRecording ? 'bg-rose-500 animate-pulse' : 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
+                                  }`}
+                                >
+                                  {isRecording ? (
+                                    <>
+                                      <Activity className="w-3.5 h-3.5"/> RECORDING: {recordingTimeLeft}s
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Video className="w-3.5 h-3.5"/> Start 5s Wiggle Test
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            )}
+
                             <div className={`p-3 rounded-xl border flex items-center justify-between text-xs font-bold transition w-full sm:w-auto sm:flex-1 ${
                               status === 'ready' 
                                 ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
@@ -1089,8 +1206,8 @@ function CalibrationPage() {
                                 {status === 'disconnected' && 'STATUS: DISCONNECTED (Telemetry Offline)'}
                                 {status === 'skipped' && 'STATUS: BYPASSED / SKIPPED'}
                                 {status === 'calibrating' && (
-                                  idx === 1 ? 'CALIBRATING: Flex your fingers now...' :
-                                  idx === 2 ? 'CALIBRATING: Bend your elbow back and forth...' :
+                                  idx === 1 ? 'CALIBRATING: Follow the wizard to test flex limits...' :
+                                  idx === 2 ? 'CALIBRATING: Bend your elbow fully back and forth...' :
                                   idx === 3 ? 'CALIBRATING: Rotate and tilt your wrist...' :
                                   idx === 4 ? 'CALIBRATING: Squeeze palm force sensor...' : 
                                   'CALIBRATING: Establishing connection link...'

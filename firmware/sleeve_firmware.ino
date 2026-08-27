@@ -64,21 +64,38 @@ bool mpuFound = false;
 unsigned long lastStreamTime = 0;
 const int streamInterval = 100; // 100ms = 10Hz sample rate
 
-// Calibration limits variables (Adjust based on sensor raw readings)
-int thumbMin = 1500, thumbMax = 3200;
-int indexMin = 1600, indexMax = 3100;
-int middleMin = 1550, middleMax = 3300;
-int ringMin = 1480, ringMax = 3050;
-int littleMin = 1400, littleMax = 2900;
-int elbowMin = 1500, elbowMax = 3400;
+// Finger and Elbow calibration storage variables (Loaded from NVS)
+int thumbStraight = 0, thumbBent = 4095;
+int indexStraight = 0, indexBent = 4095;
+int middleStraight = 0, middleBent = 4095;
+int ringStraight = 0, ringBent = 4095;
+int littleStraight = 0, littleBent = 4095;
+int elbowStraight = 0, elbowBent = 4095;
 
-// Helper maps raw ADC values to percentages
-int mapFlexSensor(int rawVal, int minVal, int maxVal) {
-  // Constrain raw reading
-  int val = constrain(rawVal, minVal, maxVal);
-  // Map raw 12-bit ADC value (0-4095) to flex percentage (0-100%)
-  // 100% means fully bent, 0% means flat / straight
-  return map(val, minVal, maxVal, 0, 100);
+// EMA Filter variables
+const float emaAlpha = 0.2;
+float f_thumb = -1, f_index = -1, f_middle = -1, f_ring = -1, f_little = -1, f_elbow = -1;
+
+// Last sent angle (for deadband stabilization)
+const float angleDeadband = 1.0;
+float a_thumb = 0, a_index = 0, a_middle = 0, a_ring = 0, a_little = 0, a_elbow = 0;
+bool sensorsStable = false;
+
+// Helper maps filtered ADC values to angles (0 to 90 degrees)
+float mapFlexAngle(float filteredVal, int straightVal, int bentVal) {
+  // Determine bounds
+  float low = min(straightVal, bentVal);
+  float high = max(straightVal, bentVal);
+  
+  // Constrain reading
+  float val = constrain(filteredVal, low, high);
+  
+  // Map to 0-90 degrees
+  if (bentVal == straightVal) return 0.0; // safety
+  float angle = (val - straightVal) * 90.0 / (float)(bentVal - straightVal);
+  
+  // Safety constrain to expected anatomical bounds
+  return constrain(angle, 0.0, 90.0);
 }
 
 // WebSocket Event Handler Callback
@@ -102,6 +119,42 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         if (command && strcmp(command, "set_step") == 0) {
           const char* step = doc["step"];
           Serial.printf("[WS] Step changed to: %s\n", step);
+        } else if (command && strcmp(command, "set_sensor_bounds") == 0) {
+          const char* sensor = doc["sensor"];
+          int strVal = doc["straight"];
+          int bntVal = doc["bent"];
+          
+          if (!sensor) return;
+          
+          Serial.printf("[WS] Calibration Command: set_sensor_bounds for %s (S:%d B:%d)\n", sensor, strVal, bntVal);
+          
+          if (abs(strVal - bntVal) < 20) {
+            Serial.printf("[FLEX] %s calibration invalid: insufficient sensor range (%d vs %d)\n", sensor, strVal, bntVal);
+            return; // Ignore garbage calibration
+          }
+          
+          preferences.begin("physio", false);
+          if (strcmp(sensor, "thumb") == 0) {
+            thumbStraight = strVal; thumbBent = bntVal;
+            preferences.putInt("thumbStr", strVal); preferences.putInt("thumbBnt", bntVal);
+          } else if (strcmp(sensor, "index") == 0) {
+            indexStraight = strVal; indexBent = bntVal;
+            preferences.putInt("indexStr", strVal); preferences.putInt("indexBnt", bntVal);
+          } else if (strcmp(sensor, "middle") == 0) {
+            middleStraight = strVal; middleBent = bntVal;
+            preferences.putInt("middleStr", strVal); preferences.putInt("middleBnt", bntVal);
+          } else if (strcmp(sensor, "ring") == 0) {
+            ringStraight = strVal; ringBent = bntVal;
+            preferences.putInt("ringStr", strVal); preferences.putInt("ringBnt", bntVal);
+          } else if (strcmp(sensor, "little") == 0) {
+            littleStraight = strVal; littleBent = bntVal;
+            preferences.putInt("littleStr", strVal); preferences.putInt("littleBnt", bntVal);
+          } else if (strcmp(sensor, "elbow") == 0) {
+            elbowStraight = strVal; elbowBent = bntVal;
+            preferences.putInt("elbowStr", strVal); preferences.putInt("elbowBnt", bntVal);
+          }
+          preferences.end();
+          Serial.printf("[FLEX] Saved %s Calibration.\n", sensor);
         }
       }
       break;
@@ -131,6 +184,18 @@ void setup() {
     Serial.printf("[NVS] Loaded server host from memory: %s\n", server_host.c_str());
   } else {
     Serial.println("[NVS] No server host stored in memory. Using code defaults.");
+  }
+  
+  // Load Flex Calibration
+  thumbStraight = preferences.getInt("thumbStr", 0); thumbBent = preferences.getInt("thumbBnt", 4095);
+  indexStraight = preferences.getInt("indexStr", 0); indexBent = preferences.getInt("indexBnt", 4095);
+  middleStraight = preferences.getInt("middleStr", 0); middleBent = preferences.getInt("middleBnt", 4095);
+  ringStraight = preferences.getInt("ringStr", 0); ringBent = preferences.getInt("ringBnt", 4095);
+  littleStraight = preferences.getInt("littleStr", 0); littleBent = preferences.getInt("littleBnt", 4095);
+  elbowStraight = preferences.getInt("elbowStr", 0); elbowBent = preferences.getInt("elbowBnt", 4095);
+
+  if (thumbStraight == 0 && thumbBent == 4095) {
+    Serial.println("[FLEX] WARNING: Calibration required for finger flex sensors.");
   }
   
   // 1. Initialize Wi-Fi Connection
@@ -272,15 +337,42 @@ void loop() {
     int rawElbow = analogRead(PIN_ELBOW);
     int rawPressure = analogRead(PIN_PRESSURE);
 
-    // B. Calculate mapped percentages
-    int thumbFlex = mapFlexSensor(rawThumb, thumbMin, thumbMax);
-    int indexFlex = mapFlexSensor(rawIndex, indexMin, indexMax);
-    int middleFlex = mapFlexSensor(rawMiddle, middleMin, middleMax);
-    int ringFlex = mapFlexSensor(rawRing, ringMin, ringMax);                       
-    int littleFlex = mapFlexSensor(rawLittle, littleMin, littleMax);
+    // Initialize EMA on first run
+    if (f_thumb < 0) {
+      f_thumb = rawThumb; f_index = rawIndex; f_middle = rawMiddle; f_ring = rawRing; f_little = rawLittle; f_elbow = rawElbow;
+    } else {
+      f_thumb = (emaAlpha * rawThumb) + ((1.0 - emaAlpha) * f_thumb);
+      f_index = (emaAlpha * rawIndex) + ((1.0 - emaAlpha) * f_index);
+      f_middle = (emaAlpha * rawMiddle) + ((1.0 - emaAlpha) * f_middle);
+      f_ring = (emaAlpha * rawRing) + ((1.0 - emaAlpha) * f_ring);
+      f_little = (emaAlpha * rawLittle) + ((1.0 - emaAlpha) * f_little);
+      f_elbow = (emaAlpha * rawElbow) + ((1.0 - emaAlpha) * f_elbow);
+    }
     
-    // Elbow straight (180°) down to flexed (90°)
-    int elbowAngle = map(rawElbow, elbowMin, elbowMax, 180, 90);
+    // Check Stability (if raw variance from filtered is low across the board)
+    bool isStableNow = (abs(rawThumb - f_thumb) < 8) && (abs(rawIndex - f_index) < 8) && 
+                       (abs(rawMiddle - f_middle) < 8) && (abs(rawRing - f_ring) < 8) && 
+                       (abs(rawLittle - f_little) < 8) && (abs(rawElbow - f_elbow) < 8);
+    sensorsStable = isStableNow;
+
+    // B. Calculate mapped angles
+    float t_angle = mapFlexAngle(f_thumb, thumbStraight, thumbBent);
+    if (abs(t_angle - a_thumb) > angleDeadband) a_thumb = t_angle;
+    
+    float i_angle = mapFlexAngle(f_index, indexStraight, indexBent);
+    if (abs(i_angle - a_index) > angleDeadband) a_index = i_angle;
+    
+    float m_angle = mapFlexAngle(f_middle, middleStraight, middleBent);
+    if (abs(m_angle - a_middle) > angleDeadband) a_middle = m_angle;
+    
+    float r_angle = mapFlexAngle(f_ring, ringStraight, ringBent);
+    if (abs(r_angle - a_ring) > angleDeadband) a_ring = r_angle;
+    
+    float l_angle = mapFlexAngle(f_little, littleStraight, littleBent);
+    if (abs(l_angle - a_little) > angleDeadband) a_little = l_angle;
+    
+    float el_angle = mapFlexAngle(f_elbow, elbowStraight, elbowBent);
+    if (abs(el_angle - a_elbow) > angleDeadband) a_elbow = el_angle;
 
     // Grip pressure resistance force (arbitrary Newton approximation)
     int gripForce = map(constrain(rawPressure, 0, 3000), 0, 3000, 0, 800);
@@ -296,26 +388,40 @@ void loop() {
     }
 
     // D. Always print readings to serial for user debugging/wiring tests
-    Serial.printf("[TELEMETRY] status=%s | raw_thumb=%d raw_index=%d raw_middle=%d raw_ring=%d raw_little=%d raw_elbow=%d raw_pressure=%d | thumb=%d%% index=%d%% middle=%d%% ring=%d%% little=%d%% elbow=%d pressure=%d N | wrist_pitch=%.1f wrist_roll=%.1f\n",
+    Serial.printf("[TELEMETRY] status=%s | elbow=%.1f pressure=%d N | wrist_pitch=%.1f wrist_roll=%.1f\n",
                   wsConnected ? "CONNECTED" : "OFFLINE",
-                  rawThumb, rawIndex, rawMiddle, rawRing, rawLittle, rawElbow, rawPressure,
-                  thumbFlex, indexFlex, middleFlex, ringFlex, littleFlex, elbowAngle, gripForce,
-                  wristPitch, wristRoll);
+                  a_elbow, gripForce, wristPitch, wristRoll);
+    Serial.printf("[FLEX]\nThumb raw=%d filtered=%.0f angle=%.1f\nIndex raw=%d filtered=%.0f angle=%.1f\nMiddle raw=%d filtered=%.0f angle=%.1f\nRing raw=%d filtered=%.0f angle=%.1f\nLittle raw=%d filtered=%.0f angle=%.1f\n",
+                  rawThumb, f_thumb, a_thumb,
+                  rawIndex, f_index, a_index,
+                  rawMiddle, f_middle, a_middle,
+                  rawRing, f_ring, a_ring,
+                  rawLittle, f_little, a_little);
 
     // E. Serialize and send JSON string over WebSocket only if connected
     if (wsConnected) {
       StaticJsonDocument<512> doc;
       doc["battery"] = 94; // Simulating battery status level
-      doc["thumb"] = thumbFlex;
-      doc["index"] = indexFlex;
-      doc["middle"] = middleFlex;
-      doc["ring"] = ringFlex;
-      doc["little"] = littleFlex;
-      doc["elbow"] = elbowAngle;
+      doc["thumb"] = a_thumb;
+      doc["index"] = a_index;
+      doc["middle"] = a_middle;
+      doc["ring"] = a_ring;
+      doc["little"] = a_little;
+      doc["elbow"] = a_elbow;
       doc["pressure"] = gripForce;
       doc["wrist_pitch"] = round(wristPitch * 10.0) / 10.0;
       doc["wrist_roll"] = round(wristRoll * 10.0) / 10.0;
       doc["mpu_working"] = mpuFound;
+      doc["stable"] = sensorsStable;
+
+      // Send Calibration Bounds for UI Display
+      JsonObject bounds = doc.createNestedObject("bounds");
+      bounds["thumbStr"] = thumbStraight; bounds["thumbBnt"] = thumbBent;
+      bounds["indexStr"] = indexStraight; bounds["indexBnt"] = indexBent;
+      bounds["middleStr"] = middleStraight; bounds["middleBnt"] = middleBent;
+      bounds["ringStr"] = ringStraight; bounds["ringBnt"] = ringBent;
+      bounds["littleStr"] = littleStraight; bounds["littleBnt"] = littleBent;
+      bounds["elbowStr"] = elbowStraight; bounds["elbowBnt"] = elbowBent;
 
       // Add raw ADC telemetry fields for advanced dashboard diagnostics
       doc["raw_thumb"] = rawThumb;
