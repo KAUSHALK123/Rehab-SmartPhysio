@@ -10,6 +10,7 @@ class Exercise(Base):
     exercise_name = Column(String(255), nullable=False)
     description = Column(Text, nullable=False)
     body_part = Column(String(50), nullable=False)
+    is_system = Column(Integer, default=1, nullable=False) # 1 for system, 0 for otherwise (sqlite boolean)
     
     # New injury-centric columns
     target_joint = Column(String(100), nullable=True)

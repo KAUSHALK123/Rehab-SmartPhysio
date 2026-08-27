@@ -76,7 +76,7 @@ function PatientProfilePage() {
     height_cm: '',
     weight_kg: '',
     dominant_hand: 'Right',
-    injured_arm: 'Left',
+    affected_side: 'Right',
     injury_type: '',
     body_part_id: '',
     condition_id: '',
@@ -176,7 +176,7 @@ function PatientProfilePage() {
       height_cm: '',
       weight_kg: '',
       dominant_hand: 'Right',
-      injured_arm: 'Left',
+      affected_side: 'Right',
       injury_type: '',
       body_part_id: initialPartId,
       condition_id: initialConds[0]?.id || '',
@@ -200,10 +200,10 @@ function PatientProfilePage() {
       height_cm: patient.height_cm,
       weight_kg: patient.weight_kg,
       dominant_hand: patient.dominant_hand,
-      injured_arm: patient.injured_arm,
+      affected_side: patient.affected_side || 'Right',
       injury_type: patient.injury_type || '',
       body_part_id: patient.body_part_id || '',
-      condition_id: patient.condition_id || '',
+      condition_id: (patient.conditions && patient.conditions.length > 0) ? patient.conditions[0].id : '',
       rehabilitation_goal_id: patient.rehabilitation_goal_id || ''
     });
     setIsModalOpen(true);
@@ -221,11 +221,9 @@ function PatientProfilePage() {
     if (!formData.condition_id) return showNotification('Please select a diagnosed condition.', 'error');
     if (!formData.rehabilitation_goal_id) return showNotification('Please select a rehabilitation goal.', 'error');
 
-    // Sync condition name to injury_type for safety/backwards compatibility
-    const activeCond = conditions.find(c => c.id === formData.condition_id);
     const payload = {
       ...formData,
-      injury_type: activeCond ? activeCond.name : formData.injury_type
+      condition_ids: [formData.condition_id]
     };
 
     try {
@@ -421,12 +419,9 @@ function PatientProfilePage() {
                     <span className="px-2.5 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs font-semibold">
                       {patient.gender}, {patient.age} yrs
                     </span>
-                    <span className="px-2.5 py-1 bg-blue-50 text-primary rounded-lg text-xs font-semibold border border-blue-100">
-                      Condition: {patient.condition_name || patient.injury_type || "None"}
-                    </span>
-                    {patient.body_part_name && (
+                    {patient.conditions && patient.conditions.length > 0 && (
                       <span className="px-2.5 py-1 bg-violet-50 text-violet-600 rounded-lg text-xs font-semibold border border-violet-100">
-                        Area: {patient.body_part_name}
+                        Condition: {patient.conditions.map(c => c.name).join(', ')}
                       </span>
                     )}
                     {patient.rehabilitation_goal_name && (
@@ -450,7 +445,7 @@ function PatientProfilePage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Activity className="w-4 h-4 text-slate-400" />
-                      <span>Injured: {patient.injured_arm} Arm</span>
+                      <span>Affected Side: {patient.affected_side}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Heart className="w-4 h-4 text-slate-400" />
@@ -600,18 +595,18 @@ function PatientProfilePage() {
                   </select>
                 </div>
 
-                {/* Injured Side */}
+                {/* Affected Side */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Injured Side</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Affected Side</label>
                   <select 
-                    name="injured_arm"
-                    value={formData.injured_arm}
+                    name="affected_side"
+                    value={formData.affected_side}
                     onChange={handleInputChange}
                     className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800"
                   >
                     <option value="Left">Left Side</option>
                     <option value="Right">Right Side</option>
-                    <option value="Both">Both Sides</option>
+                    <option value="Bilateral">Bilateral (Both)</option>
                   </select>
                 </div>
 

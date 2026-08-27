@@ -314,11 +314,8 @@ def seed_patients():
                 height_cm=168.0,
                 weight_kg=62.0,
                 dominant_hand="Right",
-                injured_arm="Left",
-                body_part_id=bp_shoulder.id if bp_shoulder else None,
-                condition_id=cond_rotator.id if cond_rotator else None,
-                rehabilitation_goal_id=goal_rom.id if goal_rom else None,
-                injury_type="Rotator Cuff Rehabilitation"
+                affected_side="Left",
+                rehabilitation_goal_id=goal_rom.id if goal_rom else None
             )
             p2 = Patient(
                 user_id=user.id,
@@ -328,11 +325,8 @@ def seed_patients():
                 height_cm=182.0,
                 weight_kg=88.0,
                 dominant_hand="Right",
-                injured_arm="Right",
-                body_part_id=bp_wrist.id if bp_wrist else None,
-                condition_id=cond_sprain.id if cond_sprain else None,
-                rehabilitation_goal_id=goal_strength.id if goal_strength else None,
-                injury_type="Wrist Sprain"
+                affected_side="Right",
+                rehabilitation_goal_id=goal_strength.id if goal_strength else None
             )
             db.add(p1)
             db.add(p2)
@@ -380,6 +374,9 @@ app.include_router(exercise.router, prefix=settings.API_V1_STR)
 app.include_router(session.router, prefix=settings.API_V1_STR)
 app.include_router(analytics.router, prefix=settings.API_V1_STR)
 app.include_router(injury.router, prefix=settings.API_V1_STR)
+
+from app.api import anatomy
+app.include_router(anatomy.router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 def read_root():
