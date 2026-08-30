@@ -22,3 +22,19 @@ class CalibrationSession(Base):
     
     battery_percentage = Column(Integer, default=100, nullable=False)
     calibration_result = Column(String(50), default="PASS", nullable=False)
+
+    # Raw calibration min/max bounds
+    thumb_min = Column(Integer, nullable=True)
+    thumb_max = Column(Integer, nullable=True)
+    index_min = Column(Integer, nullable=True)
+    index_max = Column(Integer, nullable=True)
+    middle_min = Column(Integer, nullable=True)
+    middle_max = Column(Integer, nullable=True)
+    ring_min = Column(Integer, nullable=True)
+    ring_max = Column(Integer, nullable=True)
+    little_min = Column(Integer, nullable=True)
+    little_max = Column(Integer, nullable=True)
+    elbow_min = Column(Integer, nullable=True)
+    elbow_max = Column(Integer, nullable=True)
+    pressure_min = Column(Integer, nullable=True)
+    pressure_max = Column(Integer, nullable=True)

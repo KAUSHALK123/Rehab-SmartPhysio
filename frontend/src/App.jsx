@@ -14,6 +14,7 @@ import SettingsPage from './pages/SettingsPage';
 import MessagesPage from './pages/MessagesPage';
 import AppointmentsPage from './pages/AppointmentsPage';
 import ReportsPage from './pages/ReportsPage';
+import Debug3DPage from './pages/Debug3DPage';
 
 // Component to protect user pages
 function ProtectedRoute({ children }) {
@@ -70,6 +71,9 @@ function App() {
             <Route path="/appointments" element={<AppointmentsPage />} />
             <Route path="/reports" element={<ReportsPage />} />
           </Route>
+
+          {/* Debug route - no auth required for quick testing */}
+          <Route path="/debug-3d" element={<Debug3DPage />} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />

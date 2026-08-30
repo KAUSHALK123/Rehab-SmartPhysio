@@ -454,6 +454,9 @@ function CalibrationPage() {
     elbow: 180
   });
   
+  // Track calibrated raw bounds
+  const [calibratedBounds, setCalibratedBounds] = useState({});
+  
   // Track min/max readings for variance check during calibration
   const [minSeen, setMinSeen] = useState({});
   const [maxSeen, setMaxSeen] = useState({});
@@ -514,6 +517,12 @@ function CalibrationPage() {
         straight: tempMin,
         bent: tempMax
       });
+      
+      setCalibratedBounds(prev => ({
+        ...prev,
+        [sensorName + '_min']: tempMin,
+        [sensorName + '_max']: tempMax
+      }));
       
       if (wizardIndex < 4) { // Finished a finger (0-3), move to next finger
         setWizardIndex(prev => prev + 1);
@@ -826,7 +835,23 @@ function CalibrationPage() {
         little: sensorStatuses.flex === 'ready',
         elbow: sensorStatuses.elbow === 'ready',
         battery: battery,
-        patient_id: localStorage.getItem('activePatientId') || null
+        patient_id: localStorage.getItem('activePatientId') || null,
+        
+        // Raw bounds
+        thumb_min: calibratedBounds.thumb_min || null,
+        thumb_max: calibratedBounds.thumb_max || null,
+        index_min: calibratedBounds.index_min || null,
+        index_max: calibratedBounds.index_max || null,
+        middle_min: calibratedBounds.middle_min || null,
+        middle_max: calibratedBounds.middle_max || null,
+        ring_min: calibratedBounds.ring_min || null,
+        ring_max: calibratedBounds.ring_max || null,
+        little_min: calibratedBounds.little_min || null,
+        little_max: calibratedBounds.little_max || null,
+        elbow_min: calibratedBounds.elbow_min || null,
+        elbow_max: calibratedBounds.elbow_max || null,
+        pressure_min: minSeen.pressure || null,
+        pressure_max: maxSeen.pressure || null
       });
       navigate('/dashboard');
     } catch (err) {
@@ -858,9 +883,7 @@ function CalibrationPage() {
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-500">
           <span className={step === 1 ? 'text-primary font-bold' : ''}>1. Component Diagnostics</span>
           <ArrowRight className="w-4 h-4" />
-          <span className={step === 2 ? 'text-primary font-bold' : ''}>2. Motion Verification</span>
-          <ArrowRight className="w-4 h-4" />
-          <span className={step === 3 ? 'text-primary font-bold' : ''}>3. Complete</span>
+          <span className={step === 3 ? 'text-primary font-bold' : ''}>2. Complete</span>
         </div>
       </div>
 
@@ -1256,11 +1279,11 @@ function CalibrationPage() {
 
               <div className="pt-2">
                 <button
-                  onClick={() => setStep(2)}
+                  onClick={() => setStep(3)}
                   disabled={Object.values(sensorStatuses).some(s => s === 'pending' || s === 'calibrating')}
                   className="w-full py-3 neu-button-primary rounded-xl transition cursor-pointer disabled:opacity-50"
                 >
-                  Continue to Motion Verification &rarr;
+                  Continue to Save Calibration &rarr;
                 </button>
               </div>
 

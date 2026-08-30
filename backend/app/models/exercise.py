@@ -20,6 +20,9 @@ class Exercise(Base):
     hold_duration = Column(Integer, nullable=False, default=0)
     rest_duration = Column(Integer, nullable=False, default=0)
     required_sensors = Column(String(255), nullable=True)
+    camera_view = Column(String(50), nullable=True, default='straight')
+    primary_sensor = Column(String(50), nullable=True)
+    secondary_sensor = Column(String(50), nullable=True)
 
     # Core target values
     target_angle = Column(Float, nullable=False, default=0.0)

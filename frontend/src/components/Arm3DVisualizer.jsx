@@ -18,98 +18,102 @@ function FullBodyRig({ controls, injuredArm = 'Right' }) {
   }, [scene]);
 
   const groupRef = useRef();
-  const baseRotationsRef = useRef({});
+  const baseRotationsRef = useRef({ initialized: false });
 
   // Capture initial/base GLB joint rotations once to prevent snapping
   useEffect(() => {
-    if (clonedScene && !baseRotationsRef.current.initialized) {
-      const getBone = (name) => typeof clonedScene.getObjectByName === 'function' ? clonedScene.getObjectByName(name) : null;
-      
-      const bicepRight = getBone('bicep_right');
-      const rightForearm = getBone('right_forearm');
-      const circleWrist = getBone('Circle');
+    if (!clonedScene || baseRotationsRef.current.initialized) return;
 
-      const fingerNames = [
-        'thumb1', 'thumb2',
-        'index1', 'index2', 'index3',
-        'middle1', 'middle2', 'middle3',
-        'ring1', 'ring2', 'ring3',
-        'little1', 'little2', 'little3'
-      ];
+    const getNode = (name) =>
+      typeof clonedScene.getObjectByName === 'function'
+        ? clonedScene.getObjectByName(name)
+        : null;
 
-      const initialBases = {
-        initialized: true,
-        bicep_right: bicepRight ? { x: bicepRight.rotation.x, y: bicepRight.rotation.y, z: bicepRight.rotation.z } : { x: 0, y: 0, z: 0 },
-        right_forearm: rightForearm ? { x: rightForearm.rotation.x, y: rightForearm.rotation.y, z: rightForearm.rotation.z } : { x: 0, y: 0, z: 0 },
-        Circle: circleWrist ? { x: circleWrist.rotation.x, y: circleWrist.rotation.y, z: circleWrist.rotation.z } : { x: 0, y: 0, z: 0 },
-      };
+    const fingerNodeNames = [
+      'right_thumb', 'right_index', 'right_middle', 'right_ring', 'right_little'
+    ];
 
-      fingerNames.forEach(name => {
-        const bone = getBone(name);
-        if (bone) {
-          initialBases[name] = { x: bone.rotation.x, y: bone.rotation.y, z: bone.rotation.z };
-        }
-      });
+    const initialBases = { initialized: true };
 
-      baseRotationsRef.current = initialBases;
-      console.log('[FullBodyRig] Captured base rotations:', baseRotationsRef.current);
-    }
+    // Capture all standard joint bases
+    const jointNames = ['bicep_right', 'right_forearm', 'Circle', ...fingerNodeNames];
+    jointNames.forEach((name) => {
+      const node = getNode(name);
+      if (node) {
+        initialBases[name] = {
+          x: node.rotation.x,
+          y: node.rotation.y,
+          z: node.rotation.z,
+        };
+      } else {
+        initialBases[name] = { x: 0, y: 0, z: 0 };
+      }
+    });
+
+    baseRotationsRef.current = initialBases;
   }, [clonedScene]);
 
   // Frame loop for smooth real-time joint rotations
   useFrame(() => {
     if (!clonedScene || !baseRotationsRef.current.initialized) return;
 
-    const getBone = (name) => typeof clonedScene.getObjectByName === 'function' ? clonedScene.getObjectByName(name) : null;
+    const getNode = (name) =>
+      typeof clonedScene.getObjectByName === 'function'
+        ? clonedScene.getObjectByName(name)
+        : null;
 
-    const bicepRight = getBone('bicep_right');
-    const rightForearm = getBone('right_forearm');
-    const circleWrist = getBone('Circle');
     const bases = baseRotationsRef.current;
 
     // 1. Shoulder Forward/Back & Side/Twist (bicep_right)
-    if (bicepRight && bases.bicep_right) {
-      const targetZ = bases.bicep_right.z + degToRad(controls?.shoulderAngle || 0);
-      const targetX = bases.bicep_right.x + degToRad(controls?.shoulderAngleX || 0);
-
+    const bicepRight = getNode('bicep_right');
+    if (bicepRight) {
+      const base = bases.bicep_right || { x: 0, y: 0, z: 0 };
+      const targetZ = base.z + degToRad(controls?.shoulderAngle || 0);
+      const targetX = base.x + degToRad(controls?.shoulderAngleX || 0);
       bicepRight.rotation.z = THREE.MathUtils.lerp(bicepRight.rotation.z, targetZ, 0.15);
       bicepRight.rotation.x = THREE.MathUtils.lerp(bicepRight.rotation.x, targetX, 0.15);
     }
 
     // 2. Elbow Angle (right_forearm)
-    if (rightForearm && bases.right_forearm) {
-      const targetElbowZ = bases.right_forearm.z + degToRad(controls?.elbowAngle || 0);
+    const rightForearm = getNode('right_forearm');
+    if (rightForearm) {
+      const base = bases.right_forearm || { x: 0, y: 0, z: 0 };
+      const bendDeg = 180 - (controls?.elbowAngle || 180); // 180 = straight -> 0 bend
+      const targetElbowZ = base.z - degToRad(bendDeg);
       rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, targetElbowZ, 0.15);
     }
 
     // 3. Wrist Angle (Circle - Hand/Wrist assembly)
-    if (circleWrist && bases.Circle) {
-      const targetWristZ = bases.Circle.z + degToRad(controls?.wristAngle || 0);
-      circleWrist.rotation.z = THREE.MathUtils.lerp(circleWrist.rotation.z, targetWristZ, 0.15);
+    // Wrist roll should rotate around the forearm axis (local X for this node configuration).
+    const circleWrist = getNode('Circle');
+    if (circleWrist) {
+      const base = bases.Circle || { x: 0, y: 0, z: 0 };
+      const targetWristX = base.x + degToRad(controls?.wristAngle || 0);
+      circleWrist.rotation.x = THREE.MathUtils.lerp(circleWrist.rotation.x, targetWristX, 0.15);
     }
 
-    // 4. Fingers Flexion (thumb, index, middle, ring, little)
-    const fingers = [
-      { name: 'thumb', joints: ['thumb1', 'thumb2'], val: controls?.thumb !== undefined ? controls.thumb : 30 },
-      { name: 'index', joints: ['index1', 'index2', 'index3'], val: controls?.index !== undefined ? controls.index : 30 },
-      { name: 'middle', joints: ['middle1', 'middle2', 'middle3'], val: controls?.middle !== undefined ? controls.middle : 30 },
-      { name: 'ring', joints: ['ring1', 'ring2', 'ring3'], val: controls?.ring !== undefined ? controls.ring : 30 },
-      { name: 'little', joints: ['little1', 'little2', 'little3'], val: controls?.little !== undefined ? controls.little : 30 },
+    // 4. Fingers Flexion
+    // Nodes confirmed: right_thumb, right_index, right_middle, right_ring, right_little
+    // Bending (flexion) should rotate around the local X axis (curl inward).
+    const fingerMap = [
+      { node: 'right_thumb',  val: controls?.thumb  !== undefined ? controls.thumb  : 0 },
+      { node: 'right_index',  val: controls?.index  !== undefined ? controls.index  : 0 },
+      { node: 'right_middle', val: controls?.middle !== undefined ? controls.middle : 0 },
+      { node: 'right_ring',   val: controls?.ring   !== undefined ? controls.ring   : 0 },
+      { node: 'right_little', val: controls?.little !== undefined ? controls.little : 0 },
     ];
 
-    fingers.forEach(f => {
-      // Map flex sensor value (e.g. 0 to 100) to bending angle in radians (e.g. 0 to 75 degrees)
-      const flexAngle = degToRad((f.val / 100) * 75);
-      
-      f.joints.forEach(j => {
-        const bone = getBone(j);
-        const base = bases[j];
-        if (bone && base) {
-          // Bending around Z axis for fingers in this rig coordinate frame
-          const targetZ = base.z - flexAngle;
-          bone.rotation.z = THREE.MathUtils.lerp(bone.rotation.z, targetZ, 0.15);
-        }
-      });
+    fingerMap.forEach(({ node: nodeName, val }) => {
+      const fingerNode = getNode(nodeName);
+      if (!fingerNode) return;
+
+      const base = bases[nodeName] || { x: 0, y: 0, z: 0 };
+      // Clamp val to 0-90 and convert to radians
+      const flexRad = degToRad(Math.max(0, Math.min(90, val)));
+
+      // Apply bend on X axis (curl inward).
+      const targetX = base.x - flexRad;
+      fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, targetX, 0.15);
     });
   });
 
@@ -126,18 +130,53 @@ function FullBodyRig({ controls, injuredArm = 'Right' }) {
 
 // Helper component to smoothly transition camera views
 function CameraController({ cameraAngle, controlsRef }) {
-  const { camera } = useThree();
+  const { camera, scene } = useThree();
 
   useFrame(() => {
-    // Front View: [0.2, 0.4, 3.2]
-    // Side View: [2.8, 0.6, 1.5] (side-on focusing on the right arm)
-    const targetPos = cameraAngle === 'side'
-      ? new THREE.Vector3(2.8, 0.6, 1.5)
-      : new THREE.Vector3(0.2, 0.4, 3.2);
+    // Camera positions:
+    // straight: full arm front view
+    // side:     side view of full arm
+    // hand:     zoomed in to hand/finger area (front)
+    // hand_side: zoomed in to hand/finger area (side)
+    // elbow:    zoomed in to elbow joint
+    // wrist:    zoomed in to wrist joint
+    let targetPos;
+    let targetLookAt = new THREE.Vector3(0.1, 0.2, 0); // Default chest target
+
+    if (cameraAngle === 'side') {
+      targetPos = new THREE.Vector3(2.8, 0.6, 1.5);
+    } else if (cameraAngle === 'hand') {
+      targetPos = new THREE.Vector3(-0.6, -1.2, 1.0);  // Close up, aimed at hand
+      const handNode = scene.getObjectByName('Circle');
+      if (handNode) {
+        handNode.getWorldPosition(targetLookAt);
+      }
+    } else if (cameraAngle === 'hand_side') {
+      targetPos = new THREE.Vector3(0.5, -1.2, 0.8);   // Side close-up of hand
+      const handNode = scene.getObjectByName('Circle');
+      if (handNode) {
+        handNode.getWorldPosition(targetLookAt);
+      }
+    } else if (cameraAngle === 'elbow') {
+      targetPos = new THREE.Vector3(1.5, -0.4, 1.5);    // Zoomed on forearm/elbow
+      const elbowNode = scene.getObjectByName('right_forearm');
+      if (elbowNode) {
+        elbowNode.getWorldPosition(targetLookAt);
+      }
+    } else if (cameraAngle === 'wrist') {
+      targetPos = new THREE.Vector3(0.5, -0.9, 1.0);   // Zoomed on wrist area
+      const wristNode = scene.getObjectByName('Circle');
+      if (wristNode) {
+        wristNode.getWorldPosition(targetLookAt);
+      }
+    } else {
+      targetPos = new THREE.Vector3(0.2, 0.4, 3.2);    // Default straight
+    }
 
     camera.position.lerp(targetPos, 0.08);
 
     if (controlsRef.current) {
+      controlsRef.current.target.lerp(targetLookAt, 0.08);
       controlsRef.current.update();
     }
   });

@@ -54,7 +54,23 @@ def submit_calibration_result(
         little_sensor=result_in.little,
         elbow_sensor=result_in.elbow,
         battery_percentage=result_in.battery,
-        calibration_result=overall_result
+        calibration_result=overall_result,
+        
+        # Raw bounds
+        thumb_min=result_in.thumb_min,
+        thumb_max=result_in.thumb_max,
+        index_min=result_in.index_min,
+        index_max=result_in.index_max,
+        middle_min=result_in.middle_min,
+        middle_max=result_in.middle_max,
+        ring_min=result_in.ring_min,
+        ring_max=result_in.ring_max,
+        little_min=result_in.little_min,
+        little_max=result_in.little_max,
+        elbow_min=result_in.elbow_min,
+        elbow_max=result_in.elbow_max,
+        pressure_min=result_in.pressure_min,
+        pressure_max=result_in.pressure_max
     )
     db.add(session)
     db.commit()

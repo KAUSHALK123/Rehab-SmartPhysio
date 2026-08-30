@@ -19,6 +19,9 @@ class ExerciseResponse(BaseModel):
     rest_duration: int
     required_sensors: str | None = None
     supported_conditions: list[str] | None = None
+    camera_view: str | None = 'straight'
+    primary_sensor: str | None = None
+    secondary_sensor: str | None = None
     
     target_angle: float
     target_pressure: float

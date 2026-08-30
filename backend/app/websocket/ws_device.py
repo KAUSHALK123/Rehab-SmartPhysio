@@ -107,12 +107,31 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
         # State flags for local simulation loop if no physical device is active
         streaming_task = None
         
+        # Track animation time for smooth mock demo
+        mock_time = 0.0
+        
         async def stream_mock_data():
+            nonlocal mock_time
             try:
                 while True:
                     # Only send mock data if no physical device is currently streaming!
                     if len(manager.device_connections) == 0:
                         step = global_calibration_state["calibration_step"]
+                        mock_time += 0.1  # Advance time by 100ms per tick
+                        
+                        # Sinusoidal animation: fingers smoothly open (0°) and close (70°)
+                        # Period ~6 seconds, one full open-close cycle
+                        import math
+                        flex_cycle = (math.sin(mock_time * 1.05) + 1.0) / 2.0  # 0.0 to 1.0
+                        
+                        if step == "close_hand":
+                            # Force close position for calibration steps
+                            finger_val = 75 + random.randint(-2, 2)
+                        elif step == "bend_elbow":
+                            finger_val = 5 + random.randint(-1, 1)
+                        else:
+                            # Smooth animated open/close (0=straight, 70=bent)
+                            finger_val = int(flex_cycle * 70)
                         
                         packet = {
                             "type": "sensor_data",
@@ -120,12 +139,14 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                             "timestamp": int(time.time()),
                             "battery": global_calibration_state["battery"],
                             
-                            "thumb": 80 + random.randint(-2, 2) if step != "close_hand" else 10 + random.randint(-1, 1),
-                            "index": 82 + random.randint(-2, 2) if step != "close_hand" else 15 + random.randint(-1, 1),
-                            "middle": 81 + random.randint(-2, 2) if step != "close_hand" else 12 + random.randint(-1, 1),
-                            "ring": 79 + random.randint(-2, 2) if step != "close_hand" else 14 + random.randint(-1, 1),
-                            "little": 80 + random.randint(-2, 2) if step != "close_hand" else 11 + random.randint(-1, 1),
+                            # Angles in degrees 0=straight, 90=fully bent — matching real firmware
+                            "thumb":  finger_val + random.randint(-2, 2),
+                            "index":  finger_val + random.randint(-2, 2),
+                            "middle": finger_val + random.randint(-2, 2),
+                            "ring":   finger_val + random.randint(-2, 2),
+                            "little": finger_val + random.randint(-2, 2),
                             
+                            # Elbow: 180=straight, 90=bent
                             "elbow": 180 + random.randint(-3, 3) if step != "bend_elbow" else 90 + random.randint(-2, 2),
                             "pressure": 5 + random.randint(-1, 2) if step != "close_hand" else 650 + random.randint(-10, 10),
                             

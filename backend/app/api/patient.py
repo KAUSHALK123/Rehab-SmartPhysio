@@ -157,6 +157,7 @@ def get_patient_recommendations(
         
     from app.models.injury import ExerciseConditionMapping
     from app.models.exercise import Exercise
+    from app.models.calibration import CalibrationSession
     
     cond_ids = [c.id for c in patient.conditions]
     
@@ -166,4 +167,43 @@ def get_patient_recommendations(
         ExerciseConditionMapping.condition_id.in_(cond_ids)
     ).all()
     
-    return exercises
+    # Query the latest calibration session for this patient to check range of motion (ROM) bounds
+    latest_cal = db.query(CalibrationSession).filter(
+        CalibrationSession.patient_id == patient.id
+    ).order_by(CalibrationSession.calibration_time.desc()).first()
+    
+    is_stiff = False
+    if latest_cal:
+        finger_ranges = []
+        if latest_cal.thumb_min is not None and latest_cal.thumb_max is not None:
+            finger_ranges.append(abs(latest_cal.thumb_max - latest_cal.thumb_min))
+        if latest_cal.index_min is not None and latest_cal.index_max is not None:
+            finger_ranges.append(abs(latest_cal.index_max - latest_cal.index_min))
+        if latest_cal.middle_min is not None and latest_cal.middle_max is not None:
+            finger_ranges.append(abs(latest_cal.middle_max - latest_cal.middle_min))
+        if latest_cal.ring_min is not None and latest_cal.ring_max is not None:
+            finger_ranges.append(abs(latest_cal.ring_max - latest_cal.ring_min))
+        if latest_cal.little_min is not None and latest_cal.little_max is not None:
+            finger_ranges.append(abs(latest_cal.little_max - latest_cal.little_min))
+            
+        # Stiff diagnosis: If any finger range of motion is less than 800 ADC units (highly rigid hand joint)
+        if finger_ranges and any(r < 800 for r in finger_ranges):
+            is_stiff = True
+            
+    recommended_exercises = []
+    for ex in exercises:
+        # Expunge from session so in-memory changes are never committed back to DB
+        db.expunge(ex)
+        
+        if is_stiff:
+            ex.difficulty = "Easy"
+            ex.repetitions = max(5, ex.repetitions // 2)
+            if ex.target_angle > 45.0:
+                ex.target_angle = 45.0
+            if ex.target_pressure > 300.0:
+                ex.target_pressure = 300.0
+            ex.description = f"[Stiffness Relief Plan] Adjusted for your limited mobility: {ex.description}"
+            
+        recommended_exercises.append(ex)
+        
+    return recommended_exercises

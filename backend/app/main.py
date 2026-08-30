@@ -43,7 +43,10 @@ def seed_exercises():
                     "hold_seconds": 5,
                     "rest_duration": 3,
                     "rest_seconds": 3,
-                    "required_sensors": "Pressure Sensor"
+                    "required_sensors": "Pressure Sensor",
+                    "camera_view": "hand",
+                    "primary_sensor": "pressure",
+                    "secondary_sensor": "flex_avg"
                 },
                 {
                     "exercise_name": "Wrist Flexion",
@@ -61,7 +64,10 @@ def seed_exercises():
                     "hold_seconds": 3,
                     "rest_duration": 2,
                     "rest_seconds": 2,
-                    "required_sensors": "MPU"
+                    "required_sensors": "MPU",
+                    "camera_view": "wrist",
+                    "primary_sensor": "wrist_pitch",
+                    "secondary_sensor": "wrist_roll"
                 },
                 {
                     "exercise_name": "Wrist Extension",
@@ -79,7 +85,10 @@ def seed_exercises():
                     "hold_seconds": 3,
                     "rest_duration": 2,
                     "rest_seconds": 2,
-                    "required_sensors": "MPU"
+                    "required_sensors": "MPU",
+                    "camera_view": "wrist",
+                    "primary_sensor": "wrist_pitch",
+                    "secondary_sensor": "wrist_roll"
                 },
                 {
                     "exercise_name": "Wrist Rotation",
@@ -97,7 +106,10 @@ def seed_exercises():
                     "hold_seconds": 2,
                     "rest_duration": 3,
                     "rest_seconds": 3,
-                    "required_sensors": "MPU"
+                    "required_sensors": "MPU",
+                    "camera_view": "wrist",
+                    "primary_sensor": "wrist_roll",
+                    "secondary_sensor": "wrist_pitch"
                 },
                 {
                     "exercise_name": "Finger Closing",
@@ -115,7 +127,10 @@ def seed_exercises():
                     "hold_seconds": 4,
                     "rest_duration": 2,
                     "rest_seconds": 2,
-                    "required_sensors": "Flex Sensors"
+                    "required_sensors": "Flex Sensors",
+                    "camera_view": "hand",
+                    "primary_sensor": "flex_avg",
+                    "secondary_sensor": "wrist_pitch"
                 },
                 {
                     "exercise_name": "Finger Opening",
@@ -133,7 +148,10 @@ def seed_exercises():
                     "hold_seconds": 3,
                     "rest_duration": 2,
                     "rest_seconds": 2,
-                    "required_sensors": "Flex Sensors"
+                    "required_sensors": "Flex Sensors",
+                    "camera_view": "hand",
+                    "primary_sensor": "flex_avg",
+                    "secondary_sensor": "wrist_pitch"
                 },
                 {
                     "exercise_name": "Elbow Curl",
@@ -151,7 +169,10 @@ def seed_exercises():
                     "hold_seconds": 3,
                     "rest_duration": 3,
                     "rest_seconds": 3,
-                    "required_sensors": "MPU"
+                    "required_sensors": "MPU",
+                    "camera_view": "elbow",
+                    "primary_sensor": "elbow",
+                    "secondary_sensor": "wrist_roll"
                 },
                 {
                     "exercise_name": "Shoulder Raise",
@@ -169,7 +190,94 @@ def seed_exercises():
                     "hold_seconds": 4,
                     "rest_duration": 4,
                     "rest_seconds": 4,
-                    "required_sensors": "MPU"
+                    "required_sensors": "MPU",
+                    "camera_view": "side",
+                    "primary_sensor": "wrist_pitch",
+                    "secondary_sensor": "elbow"
+                },
+                {
+                    "exercise_name": "Elbow Flex Test",
+                    "description": "Slowly bend and straighten your elbow to test flex sensor range and calibrate the 3D model elbow joint.",
+                    "body_part": "Elbow",
+                    "target_joint": "Elbow",
+                    "rehabilitation_goal": "Improve Range of Motion",
+                    "difficulty": "Easy",
+                    "target_angle": 90.0,
+                    "minimum_angle": 0.0,
+                    "maximum_angle": 135.0,
+                    "target_pressure": 0.0,
+                    "repetitions": 5,
+                    "hold_duration": 3,
+                    "hold_seconds": 3,
+                    "rest_duration": 3,
+                    "rest_seconds": 3,
+                    "required_sensors": "Flex Sensor",
+                    "camera_view": "elbow",
+                    "primary_sensor": "elbow",
+                    "secondary_sensor": "wrist_roll"
+                },
+                {
+                    "exercise_name": "Finger Flex Test",
+                    "description": "Open and close your hand slowly to test all 5 finger flex sensors and calibrate the 3D finger model.",
+                    "body_part": "Hand/Fingers",
+                    "target_joint": "Fingers",
+                    "rehabilitation_goal": "Reduce Stiffness",
+                    "difficulty": "Easy",
+                    "target_angle": 70.0,
+                    "minimum_angle": 0.0,
+                    "maximum_angle": 90.0,
+                    "target_pressure": 0.0,
+                    "repetitions": 5,
+                    "hold_duration": 3,
+                    "hold_seconds": 3,
+                    "rest_duration": 3,
+                    "rest_seconds": 3,
+                    "required_sensors": "Flex Sensors",
+                    "camera_view": "hand",
+                    "primary_sensor": "flex_avg",
+                    "secondary_sensor": "pressure"
+                },
+                {
+                    "exercise_name": "Wrist Motion Test",
+                    "description": "Tilt and rotate your wrist to test MPU6050 pitch and roll readings and calibrate wrist 3D movement.",
+                    "body_part": "Wrist",
+                    "target_joint": "Wrist",
+                    "rehabilitation_goal": "Improve Range of Motion",
+                    "difficulty": "Easy",
+                    "target_angle": 45.0,
+                    "minimum_angle": -45.0,
+                    "maximum_angle": 45.0,
+                    "target_pressure": 0.0,
+                    "repetitions": 5,
+                    "hold_duration": 2,
+                    "hold_seconds": 2,
+                    "rest_duration": 2,
+                    "rest_seconds": 2,
+                    "required_sensors": "MPU",
+                    "camera_view": "wrist",
+                    "primary_sensor": "wrist_pitch",
+                    "secondary_sensor": "wrist_roll"
+                },
+                {
+                    "exercise_name": "Full Arm Diagnostic",
+                    "description": "Complete arm range of motion test: bend elbow, flex fingers, rotate wrist. Tests all sensors simultaneously.",
+                    "body_part": "Full Arm",
+                    "target_joint": "All",
+                    "rehabilitation_goal": "Improve Range of Motion",
+                    "difficulty": "Medium",
+                    "target_angle": 90.0,
+                    "minimum_angle": 0.0,
+                    "maximum_angle": 180.0,
+                    "target_pressure": 0.0,
+                    "repetitions": 3,
+                    "hold_duration": 5,
+                    "hold_seconds": 5,
+                    "rest_duration": 5,
+                    "rest_seconds": 5,
+                    "required_sensors": "All",
+                    "camera_view": "straight",
+                    "primary_sensor": "elbow",
+                    "secondary_sensor": "flex_avg"
                 }
             ]
             for ex_data in default_exercises:
@@ -222,7 +330,7 @@ def seed_injuries():
     
     db: Session = SessionLocal()
     try:
-        body_parts_data = ["Wrist", "Elbow", "Shoulder", "Hand/Fingers"]
+        body_parts_data = ["Wrist", "Elbow", "Shoulder", "Hand/Fingers", "Full Arm"]
         body_parts_dict = {}
         for bp_name in body_parts_data:
             bp = db.query(BodyPart).filter(BodyPart.name == bp_name).first()
@@ -256,6 +364,9 @@ def seed_injuries():
                 "Finger Stiffness",
                 "Reduced Grip Strength",
                 "Hand Rehabilitation"
+            ],
+            "Full Arm": [
+                "General Arm Diagnostic / Assessment"
             ]
         }
         

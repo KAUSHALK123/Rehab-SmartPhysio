@@ -13,6 +13,22 @@ class CalibrationSubmit(BaseModel):
     battery: int
     patient_id: str | None = None
 
+    # Raw bounds
+    thumb_min: int | None = None
+    thumb_max: int | None = None
+    index_min: int | None = None
+    index_max: int | None = None
+    middle_min: int | None = None
+    middle_max: int | None = None
+    ring_min: int | None = None
+    ring_max: int | None = None
+    little_min: int | None = None
+    little_max: int | None = None
+    elbow_min: int | None = None
+    elbow_max: int | None = None
+    pressure_min: int | None = None
+    pressure_max: int | None = None
+
 class CalibrationResponse(BaseModel):
     id: str
     user_id: str
@@ -28,6 +44,22 @@ class CalibrationResponse(BaseModel):
     elbow_sensor: bool
     battery_percentage: int
     calibration_result: str
+
+    # Raw bounds
+    thumb_min: int | None = None
+    thumb_max: int | None = None
+    index_min: int | None = None
+    index_max: int | None = None
+    middle_min: int | None = None
+    middle_max: int | None = None
+    ring_min: int | None = None
+    ring_max: int | None = None
+    little_min: int | None = None
+    little_max: int | None = None
+    elbow_min: int | None = None
+    elbow_max: int | None = None
+    pressure_min: int | None = None
+    pressure_max: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

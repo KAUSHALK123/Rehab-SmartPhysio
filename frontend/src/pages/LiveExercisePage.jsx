@@ -135,11 +135,11 @@ function LiveExercisePage() {
     wrist_roll: 0.0,
     elbow: 180.0,
     pressure: 0,
-    thumb: 80,
-    index: 80,
-    middle: 80,
-    ring: 80,
-    little: 80
+    thumb: 0,
+    index: 0,
+    middle: 0,
+    ring: 0,
+    little: 0
   });
 
   // State machine variables
@@ -221,6 +221,11 @@ function LiveExercisePage() {
         setExerciseDetails(exerciseRes.data);
         activeExerciseRef.current = exerciseRes.data;
         setPatientDetails(patientRes.data);
+
+        // Auto-switch camera based on exercise database configuration
+        if (exerciseRes.data.camera_view) {
+          setCameraAngle(exerciseRes.data.camera_view);
+        }
         
         // Start session in DB
         const sessionRes = await startSession(patientId, exerciseId);
@@ -281,7 +286,18 @@ function LiveExercisePage() {
       if (data.type === 'sensor_data') {
         if (data.is_mock) {
           setDeviceConnected(false);
-          setGuidance('Device Disconnected: Power off or link lost. Waiting for physical ESP32...');
+          // Still update sensors so the 3D visualizer shows animated finger movement
+          setSensors({
+            wrist_pitch: data.wrist_pitch ?? 0,
+            wrist_roll: data.wrist_roll ?? 0,
+            elbow: data.elbow ?? 180,
+            pressure: data.pressure ?? 0,
+            thumb: data.thumb ?? 0,
+            index: data.index ?? 0,
+            middle: data.middle ?? 0,
+            ring: data.ring ?? 0,
+            little: data.little ?? 0
+          });
           return;
         }
         
@@ -323,6 +339,32 @@ function LiveExercisePage() {
     };
   };
 
+  const getSensorValue = (sensorKey, data) => {
+    if (!sensorKey) return 0;
+    const key = sensorKey.toLowerCase();
+    if (key === 'flex_avg') {
+      return (data.thumb + data.index + data.middle + data.ring + data.little) / 5;
+    }
+    if (key === 'elbow') {
+      return 180 - data.elbow;
+    }
+    if (key === 'wrist_pitch') {
+      return data.wrist_pitch;
+    }
+    if (key === 'wrist_roll') {
+      return data.wrist_roll;
+    }
+    if (key === 'pressure') {
+      return data.pressure;
+    }
+    if (key === 'thumb') return data.thumb;
+    if (key === 'index') return data.index;
+    if (key === 'middle') return data.middle;
+    if (key === 'ring') return data.ring;
+    if (key === 'little') return data.little;
+    return 0;
+  };
+
   // State Machine Rep Count & Posture Guidance Logic
   const evaluateRepetitionState = (data) => {
     if (isPaused) return;
@@ -330,73 +372,31 @@ function LiveExercisePage() {
     const ex = activeExerciseRef.current;
     if (!ex) return;
 
-    const isForceBased = ex.target_pressure > 0;
+    const nameLower = ex.exercise_name.toLowerCase();
+    const primaryLower = (ex.primary_sensor || '').toLowerCase();
+    
+    const isForceBased = primaryLower === 'pressure' || ex.target_pressure > 0;
     const holdSecs = ex.hold_seconds || 0;
     
     // Extract current value we are tracking
-    let currentValue = 0;
-    let targetValue = 0;
+    let currentValue = getSensorValue(ex.primary_sensor, data);
+    let targetValue = isForceBased ? (ex.target_pressure || 200) : (ex.target_angle || 0);
+    
+    // Determine restValue
     let restValue = 0;
-    let isAscending = true; // True if target > rest
-
-    const nameLower = ex.exercise_name.toLowerCase();
-
-    // Custom clinical evaluations per exercise type
-    if (nameLower.includes('squeeze') || nameLower.includes('ball')) {
-      currentValue = data.pressure;
-      targetValue = ex.target_pressure || 200;
+    if (primaryLower === 'elbow') {
+      restValue = 15;
+    } else if (primaryLower === 'flex_avg') {
+      restValue = nameLower.includes('opening') ? 75 : 25;
+    } else if (primaryLower === 'pressure') {
       restValue = 30;
-      isAscending = true;
-    } else if (nameLower.includes('wrist rotation') || nameLower.includes('rotation')) {
-      currentValue = Math.abs(data.wrist_roll);
-      targetValue = ex.target_angle || 90;
-      restValue = 10;
-      isAscending = true;
-    } else if (isForceBased) {
-      currentValue = data.pressure;
-      targetValue = ex.target_pressure;
-      restValue = 30; 
-      isAscending = true;
+    } else if (primaryLower === 'wrist_pitch' || primaryLower === 'wrist_roll') {
+      restValue = 0;
     } else {
-      // Angle-based exercises
-      if (nameLower.includes('elbow') || nameLower.includes('curl')) {
-        currentValue = 180 - data.elbow; // flexion coordinates: 0 straight, 180 bent
-        targetValue = ex.target_angle; // e.g. 130
-        restValue = 15; // Straight arm flexion (180 - 165 = 15)
-        isAscending = true;
-      } else if (nameLower.includes('wrist flexion')) {
-        currentValue = data.wrist_pitch; // flexion is positive pitch
-        targetValue = ex.target_angle; // e.g. 60
-        restValue = 0; // neutral
-        isAscending = true;
-      } else if (nameLower.includes('wrist extension')) {
-        currentValue = -data.wrist_pitch; // extension is negative pitch
-        targetValue = ex.target_angle; // e.g. 50
-        restValue = 0;
-        isAscending = true;
-      } else if (nameLower.includes('finger closing') || nameLower.includes('closing')) {
-        currentValue = (data.thumb + data.index + data.middle + data.ring + data.little) / 5;
-        targetValue = ex.target_angle; // e.g. 95
-        restValue = 25; // Hand open
-        isAscending = true;
-      } else if (nameLower.includes('finger opening') || nameLower.includes('opening')) {
-        currentValue = (data.thumb + data.index + data.middle + data.ring + data.little) / 5;
-        targetValue = ex.target_angle; // e.g. 10
-        restValue = 75; // Hand closed
-        isAscending = false; // Flex drops as hand opens
-      } else if (nameLower.includes('shoulder') || nameLower.includes('raise')) {
-        currentValue = data.wrist_pitch; // arm raised changes pitch
-        targetValue = ex.target_angle; // e.g. 90
-        restValue = 10;
-        isAscending = true;
-      } else {
-        // Default fallback to wrist pitch
-        currentValue = data.wrist_pitch;
-        targetValue = ex.target_angle;
-        restValue = 10;
-        isAscending = true;
-      }
+      restValue = 10;
     }
+    
+    const isAscending = targetValue > restValue;
 
     // STATE MACHINE TRANSITIONS
     let nextState = repState;
@@ -505,37 +505,48 @@ function LiveExercisePage() {
     let statusVal = 'info';
 
     // 1. Posture checks & stabilizers
-    if (nameLower.includes('squeeze') || nameLower.includes('ball')) {
+    const secondaryLower = (ex.secondary_sensor || '').toLowerCase();
+    if (secondaryLower === 'wrist_pitch') {
       const pitchVal = data.wrist_pitch;
-      const fingerFlexAvg = (data.index + data.middle + data.ring + data.little) / 4;
       if (pitchVal > 15) {
         warningText = `Lower your wrist! Tilted down by ${Math.round(pitchVal - 15)}°`;
       } else if (pitchVal < -15) {
         warningText = `Raise your wrist! Tilted up by ${Math.round(-15 - pitchVal)}°`;
-      } else if (fingerFlexAvg < 40 && currentValue > restValue + 15) {
-        warningText = `Finger Form: Bend fingers more while squeezing!`;
       }
-    } else if (nameLower.includes('wrist flexion') || nameLower.includes('wrist extension')) {
+    } else if (secondaryLower === 'wrist_roll') {
       const rollVal = data.wrist_roll;
-      if (Math.abs(rollVal) > 10) {
+      const threshold = nameLower.includes('rotation') ? 10 : 15;
+      if (Math.abs(rollVal) > threshold) {
         warningText = `Keep wrist stable! Twisting by ${Math.round(Math.abs(rollVal))}°`;
       }
-    } else if (nameLower.includes('wrist rotation') || nameLower.includes('rotation')) {
+    } else if (secondaryLower === 'elbow') {
       const elbowFlex = 180 - data.elbow;
-      if (elbowFlex < 75) {
-        warningText = `Keep your elbow still! Bend more to 90°! Currently: ${Math.round(elbowFlex)}°`;
-      } else if (elbowFlex > 105) {
-        warningText = `Keep your elbow still! Straighten slightly to 90°! Currently: ${Math.round(elbowFlex)}°`;
+      if (nameLower.includes('rotation')) {
+        if (elbowFlex < 75) {
+          warningText = `Keep your elbow still! Bend more to 90°! Currently: ${Math.round(elbowFlex)}°`;
+        } else if (elbowFlex > 105) {
+          warningText = `Keep your elbow still! Straighten slightly to 90°! Currently: ${Math.round(elbowFlex)}°`;
+        }
+      } else {
+        if (elbowFlex > 20) {
+          warningText = `Straighten your elbow! Flexed by ${Math.round(elbowFlex)}°`;
+        }
       }
-    } else if (nameLower.includes('elbow curl') || nameLower.includes('elbow') || nameLower.includes('curl')) {
-      const rollVal = data.wrist_roll;
-      if (Math.abs(rollVal) > 15) {
-        warningText = `Keep wrist aligned! Twisting by ${Math.round(Math.abs(rollVal))}°`;
-      }
-    } else if (nameLower.includes('shoulder raise') || nameLower.includes('shoulder') || nameLower.includes('raise')) {
-      const elbowFlex = 180 - data.elbow;
-      if (elbowFlex > 20) {
-        warningText = `Straighten your elbow! Flexed by ${Math.round(elbowFlex)}°`;
+    } else if (secondaryLower === 'flex_avg') {
+      const flexAvg = (data.thumb + data.index + data.middle + data.ring + data.little) / 5;
+      if (nameLower.includes('squeeze') || nameLower.includes('ball')) {
+        const pitchVal = data.wrist_pitch;
+        if (pitchVal > 15) {
+          warningText = `Lower your wrist! Tilted down by ${Math.round(pitchVal - 15)}°`;
+        } else if (pitchVal < -15) {
+          warningText = `Raise your wrist! Tilted up by ${Math.round(-15 - pitchVal)}°`;
+        } else if (flexAvg < 40 && currentValue > restValue + 15) {
+          warningText = `Finger Form: Bend fingers more while squeezing!`;
+        }
+      } else {
+        if (flexAvg < 40 && currentValue > restValue + 15) {
+          warningText = `Finger Form: Bend fingers more!`;
+        }
       }
     }
 
@@ -695,10 +706,14 @@ function LiveExercisePage() {
     const nameLower = ex.exercise_name.toLowerCase();
     
     // Default fallback
+    const primaryLower = (ex.primary_sensor || '').toLowerCase();
+    const secondaryLower = (ex.secondary_sensor || '').toLowerCase();
+    
     let primary = { value: 0, min: 0, max: 100, title: 'Flexion', aimText: 'Aim: 0°', currentText: 'Current: 0°', feedbackText: 'Perform movement.' };
     let secondary = { value: 0, min: -45, max: 45, title: 'Wrist Rotation', aimText: 'Aim: 0° (Neutral)', currentText: 'Current: 0°', feedbackText: 'Keep wrist stable.' };
 
-    if (nameLower.includes('ball squeeze')) {
+    // --- Resolve Primary Gauge ---
+    if (primaryLower === 'pressure') {
       const target = ex.target_pressure || 400;
       const currentVal = sensors.pressure;
       let feedback = 'Squeeze soft therapy ball.';
@@ -716,90 +731,28 @@ function LiveExercisePage() {
         currentText: `Current: ${currentVal.toFixed(0)} N`,
         feedbackText: feedback
       };
-
-      const pitchVal = sensors.wrist_pitch;
-      let secFeedback = 'Wrist position is optimal.';
-      if (pitchVal > 15) secFeedback = 'Slightly lower your wrist.';
-      else if (pitchVal < -15) secFeedback = 'Slightly raise your wrist.';
-      
-      secondary = {
-        value: pitchVal,
-        min: -45,
-        max: 45,
-        title: 'Wrist Stability',
-        aimText: 'Aim: 0° (Neutral)',
-        currentText: `Current: ${pitchVal.toFixed(0)}°`,
-        feedbackText: secFeedback
-      };
-    } else if (nameLower.includes('wrist flexion')) {
+    } else if (primaryLower === 'wrist_pitch') {
       const target = ex.target_angle || 60;
-      const currentVal = sensors.wrist_pitch; // flexion is positive pitch
-      let feedback = 'Bend wrist downward.';
+      const isExtension = nameLower.includes('extension');
+      const currentVal = isExtension ? -sensors.wrist_pitch : sensors.wrist_pitch;
+      let feedback = isExtension ? 'Bend wrist upward.' : 'Bend wrist downward.';
       if (currentVal >= target) {
         feedback = 'Target angle reached! Hold it.';
       } else if (currentVal > 10) {
-        feedback = 'Continue flexing wrist downward.';
+        feedback = isExtension ? 'Continue extending wrist upward.' : 'Continue flexing wrist downward.';
       }
       primary = {
         value: Math.max(0, currentVal),
         min: 0,
         max: 90,
-        title: 'Wrist Pitch',
-        aimText: `Aim: ${target}° Flex`,
-        currentText: `Current: ${currentVal.toFixed(0)}°`,
-        feedbackText: feedback
-      };
-
-      const rollVal = sensors.wrist_roll;
-      let secFeedback = 'Wrist rotation is stable.';
-      if (rollVal > 10) secFeedback = 'Align wrist (tilt left).';
-      else if (rollVal < -10) secFeedback = 'Align wrist (tilt right).';
-
-      secondary = {
-        value: rollVal,
-        min: -45,
-        max: 45,
-        title: 'Wrist Rotation',
-        aimText: 'Aim: 0° (Aligned)',
-        currentText: `Current: ${rollVal.toFixed(0)}°`,
-        feedbackText: secFeedback
-      };
-    } else if (nameLower.includes('wrist extension')) {
-      const target = ex.target_angle || 50;
-      const currentVal = -sensors.wrist_pitch; // extension is negative pitch
-      let feedback = 'Bend wrist upward.';
-      if (currentVal >= target) {
-        feedback = 'Target angle reached! Hold it.';
-      } else if (currentVal > 10) {
-        feedback = 'Continue extending wrist upward.';
-      }
-      primary = {
-        value: Math.max(0, currentVal),
-        min: 0,
-        max: 90,
-        title: 'Wrist Extension',
-        aimText: `Aim: ${target}° Ext`,
+        title: isExtension ? 'Wrist Extension' : 'Wrist Pitch',
+        aimText: `Aim: ${target}° ${isExtension ? 'Ext' : 'Flex'}`,
         currentText: `Current: ${Math.max(0, currentVal).toFixed(0)}°`,
         feedbackText: feedback
       };
-
-      const rollVal = sensors.wrist_roll;
-      let secFeedback = 'Wrist rotation is stable.';
-      if (rollVal > 10) secFeedback = 'Align wrist (tilt left).';
-      else if (rollVal < -10) secFeedback = 'Align wrist (tilt right).';
-
-      secondary = {
-        value: rollVal,
-        min: -45,
-        max: 45,
-        title: 'Wrist Rotation',
-        aimText: 'Aim: 0° (Aligned)',
-        currentText: `Current: ${rollVal.toFixed(0)}°`,
-        feedbackText: secFeedback
-      };
-    } else if (nameLower.includes('wrist rotation') || nameLower.includes('rotation')) {
+    } else if (primaryLower === 'wrist_roll') {
       const target = ex.target_angle || 90;
-      const currentVal = Math.abs(sensors.wrist_roll); // CCW/CW roll
+      const currentVal = Math.abs(sensors.wrist_roll);
       let feedback = 'Rotate your wrist.';
       if (currentVal >= target) {
         feedback = 'Target rotation reached! Hold it.';
@@ -815,89 +768,36 @@ function LiveExercisePage() {
         currentText: `Current: ${sensors.wrist_roll.toFixed(0)}° ${sensors.wrist_roll >= 0 ? 'CCW' : 'CW'}`,
         feedbackText: feedback
       };
-
-      const elbowFlex = 180 - sensors.elbow;
-      let secFeedback = 'Elbow angle is stable.';
-      if (elbowFlex < 80) secFeedback = 'Bend elbow to 90°.';
-      else if (elbowFlex > 100) secFeedback = 'Slightly straighten elbow.';
-
-      secondary = {
-        value: elbowFlex,
-        min: 0,
-        max: 180,
-        title: 'Elbow Position',
-        aimText: 'Aim: 90° (Flexed)',
-        currentText: `Current: ${elbowFlex.toFixed(0)}°`,
-        feedbackText: secFeedback
-      };
-    } else if (nameLower.includes('finger closing') || nameLower.includes('closing')) {
+    } else if (primaryLower === 'flex_avg') {
       const target = ex.target_angle || 95;
+      const isOpening = nameLower.includes('opening');
       const currentVal = (sensors.thumb + sensors.index + sensors.middle + sensors.ring + sensors.little) / 5;
-      let feedback = 'Close fingers into fist.';
-      if (currentVal >= target) {
-        feedback = 'Fist fully closed! Hold it.';
-      } else if (currentVal > 30) {
-        feedback = 'Squeeze fist tighter.';
+      
+      let feedback = isOpening ? 'Extend fingers outward.' : 'Close fingers into fist.';
+      if (isOpening) {
+        if (currentVal <= target) {
+          feedback = 'Hand fully open! Hold it.';
+        } else if (currentVal < 70) {
+          feedback = 'Open hand wider.';
+        }
+      } else {
+        if (currentVal >= target) {
+          feedback = 'Fist fully closed! Hold it.';
+        } else if (currentVal > 30) {
+          feedback = 'Squeeze fist tighter.';
+        }
       }
+      
       primary = {
-        value: currentVal,
+        value: isOpening ? 100 - currentVal : currentVal,
         min: 0,
         max: 100,
-        title: 'Fist Flexion',
-        aimText: `Aim: ${target}% Fist`,
+        title: isOpening ? 'Fist Opening' : 'Fist Flexion',
+        aimText: isOpening ? `Aim: < ${target}% Flex` : `Aim: ${target}% Fist`,
         currentText: `Current: ${currentVal.toFixed(0)}%`,
         feedbackText: feedback
       };
-
-      const pitchVal = sensors.wrist_pitch;
-      let secFeedback = 'Wrist is straight.';
-      if (pitchVal > 15) secFeedback = 'Lower your wrist.';
-      else if (pitchVal < -15) secFeedback = 'Raise your wrist.';
-
-      secondary = {
-        value: pitchVal,
-        min: -45,
-        max: 45,
-        title: 'Wrist Pitch',
-        aimText: 'Aim: 0° (Neutral)',
-        currentText: `Current: ${pitchVal.toFixed(0)}°`,
-        feedbackText: secFeedback
-      };
-    } else if (nameLower.includes('finger opening') || nameLower.includes('opening')) {
-      const target = ex.target_angle || 10;
-      const currentVal = (sensors.thumb + sensors.index + sensors.middle + sensors.ring + sensors.little) / 5;
-      let feedback = 'Extend fingers outward.';
-      if (currentVal <= target) {
-        feedback = 'Hand fully open! Hold it.';
-      } else if (currentVal < 70) {
-        feedback = 'Open hand wider.';
-      }
-      primary = {
-        // Show opening percentage (where raw flex values drop to 0)
-        value: 100 - currentVal,
-        min: 0,
-        max: 100,
-        title: 'Fist Opening',
-        aimText: `Aim: < ${target}% Flex`,
-        currentText: `Current: ${currentVal.toFixed(0)}% Flex`,
-        feedbackText: feedback
-      };
-
-      const pitchVal = sensors.wrist_pitch;
-      let secFeedback = 'Wrist is straight.';
-      if (pitchVal > 15) secFeedback = 'Lower your wrist.';
-      else if (pitchVal < -15) secFeedback = 'Raise your wrist.';
-
-      secondary = {
-        value: pitchVal,
-        min: -45,
-        max: 45,
-        title: 'Wrist Pitch',
-        aimText: 'Aim: 0° (Neutral)',
-        currentText: `Current: ${pitchVal.toFixed(0)}°`,
-        feedbackText: secFeedback
-      };
-    } else if (nameLower.includes('elbow curl') || nameLower.includes('elbow') || nameLower.includes('curl')) {
+    } else if (primaryLower === 'elbow') {
       const target = ex.target_angle || 130;
       const currentVal = 180 - sensors.elbow;
       let feedback = 'Bend elbow upward.';
@@ -915,7 +815,25 @@ function LiveExercisePage() {
         currentText: `Current: ${currentVal.toFixed(0)}°`,
         feedbackText: feedback
       };
+    }
 
+    // --- Resolve Secondary Gauge (Form Indicator) ---
+    if (secondaryLower === 'wrist_pitch') {
+      const pitchVal = sensors.wrist_pitch;
+      let secFeedback = 'Wrist is straight.';
+      if (pitchVal > 15) secFeedback = 'Lower your wrist.';
+      else if (pitchVal < -15) secFeedback = 'Raise your wrist.';
+
+      secondary = {
+        value: pitchVal,
+        min: -45,
+        max: 45,
+        title: 'Wrist Pitch',
+        aimText: 'Aim: 0° (Neutral)',
+        currentText: `Current: ${pitchVal.toFixed(0)}°`,
+        feedbackText: secFeedback
+      };
+    } else if (secondaryLower === 'wrist_roll') {
       const rollVal = sensors.wrist_roll;
       let secFeedback = 'Wrist is stable.';
       if (rollVal > 10) secFeedback = 'Align wrist (tilt left).';
@@ -930,25 +848,7 @@ function LiveExercisePage() {
         currentText: `Current: ${rollVal.toFixed(0)}°`,
         feedbackText: secFeedback
       };
-    } else if (nameLower.includes('shoulder raise') || nameLower.includes('shoulder') || nameLower.includes('raise')) {
-      const target = ex.target_angle || 90;
-      const currentVal = sensors.wrist_pitch;
-      let feedback = 'Raise arm up sideways.';
-      if (currentVal >= target) {
-        feedback = 'Target angle reached! Hold it.';
-      } else if (currentVal > 15) {
-        feedback = 'Continue raising arm.';
-      }
-      primary = {
-        value: currentVal,
-        min: 0,
-        max: 120,
-        title: 'Shoulder Raise',
-        aimText: `Aim: ${target}° Raise`,
-        currentText: `Current: ${currentVal.toFixed(0)}°`,
-        feedbackText: feedback
-      };
-
+    } else if (secondaryLower === 'elbow') {
       const elbowFlex = 180 - sensors.elbow;
       let secFeedback = 'Elbow is straight.';
       if (elbowFlex > 15) secFeedback = 'Straighten your elbow.';
@@ -961,6 +861,27 @@ function LiveExercisePage() {
         aimText: 'Aim: 0° (Straight)',
         currentText: `Current: ${elbowFlex.toFixed(0)}°`,
         feedbackText: secFeedback
+      };
+    } else if (secondaryLower === 'flex_avg') {
+      const currentVal = (sensors.thumb + sensors.index + sensors.middle + sensors.ring + sensors.little) / 5;
+      secondary = {
+        value: currentVal,
+        min: 0,
+        max: 100,
+        title: 'Finger Flexion',
+        aimText: 'Aim: stable',
+        currentText: `Current: ${currentVal.toFixed(0)}%`,
+        feedbackText: 'Keep fingers stable.'
+      };
+    } else if (secondaryLower === 'pressure') {
+      secondary = {
+        value: sensors.pressure,
+        min: 0,
+        max: 500,
+        title: 'Grip Force',
+        aimText: 'Aim: 0 N (No Squeeze)',
+        currentText: `Current: ${sensors.pressure.toFixed(0)} N`,
+        feedbackText: 'Do not squeeze.'
       };
     }
 
@@ -1016,6 +937,10 @@ function LiveExercisePage() {
                       {[
                         { key: 'straight', label: 'Straight View' },
                         { key: 'side', label: 'Side View' },
+                        { key: 'hand', label: '✋ Hand View' },
+                        { key: 'hand_side', label: '✋ Hand Side' },
+                        { key: 'elbow', label: '💪 Elbow View' },
+                        { key: 'wrist', label: '⌚ Wrist View' },
                         { key: 'split', label: 'Split View' }
                       ].map((item) => (
                         <button

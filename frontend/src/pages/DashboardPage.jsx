@@ -12,6 +12,7 @@ import {
   Award,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
   Printer,
   X,
   FileText,
@@ -67,6 +68,8 @@ function DashboardPage() {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [deviceConnected, setDeviceConnected] = useState(false);
   const [liveTelemetry, setLiveTelemetry] = useState(null);
+  const [cameraAngle, setCameraAngle] = useState('straight');
+  const [showCamDropdown, setShowCamDropdown] = useState(false);
   const [controls, setControls] = useState({
     shoulderAngle: 0,
     shoulderAngleX: 0,
@@ -74,19 +77,26 @@ function DashboardPage() {
     wristAngle: 0
   });
 
-  const activeControls = deviceConnected && liveTelemetry
+  const activeControls = liveTelemetry
     ? {
         shoulderAngle: controls.shoulderAngle,
         shoulderAngleX: controls.shoulderAngleX,
         elbowAngle: 180 - liveTelemetry.elbow,
         wristAngle: liveTelemetry.wrist_roll,
-        thumb: liveTelemetry.thumb,
-        index: liveTelemetry.index,
-        middle: liveTelemetry.middle,
-        ring: liveTelemetry.ring,
-        little: liveTelemetry.little
+        thumb:  liveTelemetry.thumb  !== undefined ? liveTelemetry.thumb  : 0,
+        index:  liveTelemetry.index  !== undefined ? liveTelemetry.index  : 0,
+        middle: liveTelemetry.middle !== undefined ? liveTelemetry.middle : 0,
+        ring:   liveTelemetry.ring   !== undefined ? liveTelemetry.ring   : 0,
+        little: liveTelemetry.little !== undefined ? liveTelemetry.little : 0
       }
-    : controls;
+    : {
+        ...controls,
+        thumb: 0,
+        index: 0,
+        middle: 0,
+        ring: 0,
+        little: 0
+      };
 
   // Patient Registration Modal State
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -179,6 +189,9 @@ function DashboardPage() {
       }
       if (data.type === 'sensor_data') {
         setLiveTelemetry(data);
+        if (!data.is_mock) {
+          setDeviceConnected(true);
+        }
       }
     };
     
@@ -559,7 +572,53 @@ function DashboardPage() {
         }`}>
           {/* 3D Visualizer Canvas component container */}
           <div className="absolute inset-0">
-            <Arm3DVisualizer controls={activeControls} />
+            <Arm3DVisualizer controls={activeControls} cameraAngle={cameraAngle} />
+          </div>
+
+          {/* Camera View selector */}
+          <div className="absolute top-4 left-56 z-20">
+            <button
+              onClick={() => setShowCamDropdown(prev => !prev)}
+              className={`flex items-center gap-1.5 backdrop-blur border text-xs font-bold rounded-xl p-2.5 px-3 transition-all cursor-pointer shadow-sm ${
+                isDark 
+                  ? 'bg-slate-950/85 border-slate-800 hover:border-slate-700 text-slate-200' 
+                  : 'bg-white/85 border-slate-200 hover:border-slate-300 text-slate-800'
+              }`}
+            >
+              <span>View:</span>
+              <span className="text-blue-500 capitalize">{cameraAngle === 'straight' ? 'straight' : cameraAngle}</span>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+            </button>
+
+            {showCamDropdown && (
+              <div className={`absolute top-full left-0 mt-1.5 w-36 border rounded-xl overflow-hidden z-30 shadow-xl ${
+                isDark 
+                  ? 'bg-slate-950/95 border-slate-800 text-slate-200' 
+                  : 'bg-white/95 border-slate-200 text-slate-800'
+              }`}>
+                {[
+                  { key: 'straight', label: 'Straight View' },
+                  { key: 'side', label: 'Side View' },
+                  { key: 'hand', label: '✋ Hand View' },
+                  { key: 'hand_side', label: '✋ Hand Side' },
+                  { key: 'elbow', label: '💪 Elbow View' },
+                  { key: 'wrist', label: '⌚ Wrist View' }
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    onClick={() => {
+                      setCameraAngle(item.key);
+                      setShowCamDropdown(false);
+                    }}
+                    className={`w-full text-left px-3.5 py-2.5 text-[11px] font-semibold transition hover:bg-slate-500/10 cursor-pointer ${
+                      cameraAngle === item.key ? 'text-blue-500 bg-blue-500/5' : ''
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Sliders Control Panel Overlay */}
