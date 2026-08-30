@@ -176,9 +176,14 @@ function DashboardPage() {
 
   useEffect(() => {
     const getWsUrl = () => {
+      if (import.meta.env.VITE_WS_URL) {
+        return import.meta.env.VITE_WS_URL;
+      }
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
-      return import.meta.env.VITE_WS_URL || `${protocol}//${host}/api/v1/device/ws`;
+      // If running on Vite dev server (port 5173), redirect WS to FastAPI port 8000
+      const wsHost = host.includes(':5173') ? host.replace(':5173', ':8000') : host;
+      return `${protocol}//${wsHost}/api/v1/device/ws`;
     };
     const ws = new WebSocket(getWsUrl());
     
@@ -188,7 +193,38 @@ function DashboardPage() {
         setDeviceConnected(data.hardware_connected);
       }
       if (data.type === 'sensor_data') {
-        setLiveTelemetry(data);
+        const extractFinger = (name) => {
+          const rawKey = 'raw_' + name;
+          if (data[rawKey] !== undefined) return Math.min(100, Math.max(0, (data[rawKey] / 4095) * 100));
+          const val = data[name];
+          if (val === undefined || val === null) return 0;
+          if (typeof val === 'object') return val.raw !== undefined ? Math.min(100, Math.max(0, (val.raw / 4095) * 100)) : (val.angle || 0);
+          if (val > 100) return Math.min(100, Math.max(0, (val / 4095) * 100));
+          return val;
+        };
+
+        const extractElbow = () => {
+          if (data.raw_elbow !== undefined) return Math.min(180, Math.max(0, 180 - (data.raw_elbow / 4095) * 180));
+          const val = data.elbow;
+          if (val === undefined || val === null) return 180;
+          if (typeof val === 'object') return val.angle !== undefined ? val.angle : 180;
+          if (val > 180) return Math.min(180, Math.max(0, (val / 4095) * 180));
+          return val;
+        };
+
+        const parsedData = {
+          ...data,
+          elbow: extractElbow(),
+          wrist_pitch: data.wrist_pitch ?? data.pitch ?? 0.0,
+          wrist_roll: data.wrist_roll ?? data.roll ?? 0.0,
+          thumb: extractFinger('thumb'),
+          index: extractFinger('index'),
+          middle: extractFinger('middle'),
+          ring: extractFinger('ring'),
+          little: extractFinger('little')
+        };
+
+        setLiveTelemetry(parsedData);
         if (!data.is_mock) {
           setDeviceConnected(true);
         }

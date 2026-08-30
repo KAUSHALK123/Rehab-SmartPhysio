@@ -96,6 +96,97 @@ const WristIcon = () => (
   </svg>
 );
 
+// 5 vertical volume-style bars for finger flexion values
+const FingerVolumeBars = ({ sensors }) => {
+  const fingers = [
+    { name: 'Thumb', val: sensors.thumb || 0 },
+    { name: 'Index', val: sensors.index || 0 },
+    { name: 'Middle', val: sensors.middle || 0 },
+    { name: 'Ring', val: sensors.ring || 0 },
+    { name: 'Little', val: sensors.little || 0 }
+  ];
+
+  // Map value to temperature-style gradient colors
+  const getColorClass = (val) => {
+    if (val < 30) return 'bg-gradient-to-t from-emerald-500 to-green-400 shadow-[0_0_8px_rgba(16,185,129,0.5)]';
+    if (val < 70) return 'bg-gradient-to-t from-amber-500 to-yellow-400 shadow-[0_0_8px_rgba(245,158,11,0.5)]';
+    return 'bg-gradient-to-t from-rose-500 to-pink-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]';
+  };
+
+  return (
+    <div className="flex flex-col text-left space-y-2 bg-slate-50 border border-slate-100 rounded-xl p-3 flex-1 min-w-0 shadow-sm transition hover:shadow duration-200">
+      <div className="flex justify-between items-center">
+        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Fingers Flexion</span>
+        <span className="text-[9px] font-bold text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded">Active</span>
+      </div>
+
+      <div className="flex items-end justify-between gap-1.5 h-24 pt-2.5">
+        {fingers.map((f) => (
+          <div key={f.name} className="flex-1 flex flex-col items-center h-full justify-end">
+            <span className="text-[8px] font-extrabold text-slate-500 mb-1">{Math.round(f.val)}%</span>
+            
+            {/* Vertical Track */}
+            <div className="w-2.5 bg-slate-200 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
+              <div 
+                className={`w-full rounded-full transition-all duration-150 ease-out ${getColorClass(f.val)}`}
+                style={{ height: `${f.val}%` }}
+              />
+            </div>
+            
+            <span className="text-[8px] font-bold text-slate-400 mt-1.5 select-none">{f.name.substring(0, 3)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// Horizontal volume-style progress bar for elbow flexion
+const ElbowVolumeBar = ({ sensors, target }) => {
+  const currentElbowVal = 180 - (sensors.elbow || 180);
+  const pct = Math.min(100, Math.max(0, (currentElbowVal / 180) * 100));
+
+  const getColorClass = (val) => {
+    if (val < 45) return 'bg-gradient-to-r from-blue-500 to-indigo-400 shadow-[0_0_8px_rgba(59,130,246,0.5)]';
+    if (val < 110) return 'bg-gradient-to-r from-emerald-500 to-green-400 shadow-[0_0_8px_rgba(16,185,129,0.5)]';
+    return 'bg-gradient-to-r from-rose-500 to-pink-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]';
+  };
+
+  return (
+    <div className="flex flex-col text-left space-y-2 bg-slate-50 border border-slate-100 rounded-xl p-3 flex-1 min-w-0 shadow-sm transition hover:shadow duration-200">
+      <div className="flex justify-between items-center">
+        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Elbow Joint</span>
+        <span className="text-[9px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">Aim: {target}°</span>
+      </div>
+
+      <div className="space-y-2 py-1">
+        <div className="flex justify-between items-end">
+          <span className="text-xl font-extrabold text-slate-800 leading-none">{Math.round(currentElbowVal)}°</span>
+          <span className="text-[8px] font-bold text-slate-400">Max: 180°</span>
+        </div>
+
+        {/* Horizontal Track */}
+        <div className="w-full bg-slate-200 rounded-full h-3 relative overflow-hidden">
+          {target && (
+            <div 
+              className="absolute top-0 bottom-0 w-0.5 bg-slate-900 z-10 opacity-60"
+              style={{ left: `${(target / 180) * 100}%` }}
+            />
+          )}
+          <div 
+            className={`h-full rounded-full transition-all duration-150 ease-out ${getColorClass(currentElbowVal)}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+      
+      <p className="text-[8px] font-bold text-slate-400 leading-tight">
+        Current elbow bend angle. Aim for smooth, steady control.
+      </p>
+    </div>
+  );
+};
+
 function LiveExercisePage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -269,9 +360,14 @@ function LiveExercisePage() {
   // WebSocket Connection
   const connectWebSocket = () => {
     const getWsUrl = () => {
+      if (import.meta.env.VITE_WS_URL) {
+        return import.meta.env.VITE_WS_URL;
+      }
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
-      return import.meta.env.VITE_WS_URL || `${protocol}//${host}/api/v1/device/ws`;
+      // If running on Vite dev server (port 5173), redirect WS to FastAPI port 8000
+      const wsHost = host.includes(':5173') ? host.replace(':5173', ':8000') : host;
+      return `${protocol}//${wsHost}/api/v1/device/ws`;
     };
     const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
@@ -283,53 +379,64 @@ function LiveExercisePage() {
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
+      if (data.type === 'status_update' && data.status === 'hardware_status_changed') {
+        setDeviceConnected(data.hardware_connected);
+      }
+
       if (data.type === 'sensor_data') {
-        if (data.is_mock) {
-          setDeviceConnected(false);
-          // Still update sensors so the 3D visualizer shows animated finger movement
-          setSensors({
-            wrist_pitch: data.wrist_pitch ?? 0,
-            wrist_roll: data.wrist_roll ?? 0,
-            elbow: data.elbow ?? 180,
-            pressure: data.pressure ?? 0,
-            thumb: data.thumb ?? 0,
-            index: data.index ?? 0,
-            middle: data.middle ?? 0,
-            ring: data.ring ?? 0,
-            little: data.little ?? 0
-          });
-          return;
-        }
-        
-        setDeviceConnected(true);
-        setBattery(data.battery);
-        setSensors({
-          wrist_pitch: data.wrist_pitch,
-          wrist_roll: data.wrist_roll,
-          elbow: data.elbow,
-          pressure: data.pressure,
-          thumb: data.thumb,
-          index: data.index,
-          middle: data.middle,
-          ring: data.ring,
-          little: data.little
-        });
+        const isHardware = !data.is_mock;
+        setDeviceConnected(isHardware);
+        if (data.battery !== undefined) setBattery(data.battery);
+
+        // Normalize raw or scaled sensor readings matching CalibrationPage logic
+        const extractFinger = (name) => {
+          const rawKey = 'raw_' + name;
+          if (data[rawKey] !== undefined) return Math.min(100, Math.max(0, (data[rawKey] / 4095) * 100));
+          const val = data[name];
+          if (val === undefined || val === null) return 0;
+          if (typeof val === 'object') return val.raw !== undefined ? Math.min(100, Math.max(0, (val.raw / 4095) * 100)) : (val.angle || 0);
+          if (val > 100) return Math.min(100, Math.max(0, (val / 4095) * 100));
+          return val;
+        };
+
+        const extractElbow = () => {
+          if (data.raw_elbow !== undefined) return Math.min(180, Math.max(0, 180 - (data.raw_elbow / 4095) * 180));
+          const val = data.elbow;
+          if (val === undefined || val === null) return 180;
+          if (typeof val === 'object') return val.angle !== undefined ? val.angle : 180;
+          if (val > 180) return Math.min(180, Math.max(0, 180 - (val / 4095) * 180));
+          return val;
+        };
+
+        const parsedSensors = {
+          wrist_pitch: data.wrist_pitch ?? data.pitch ?? 0.0,
+          wrist_roll: data.wrist_roll ?? data.roll ?? 0.0,
+          elbow: extractElbow(),
+          pressure: data.pressure ?? 0,
+          thumb: extractFinger('thumb'),
+          index: extractFinger('index'),
+          middle: extractFinger('middle'),
+          ring: extractFinger('ring'),
+          little: extractFinger('little')
+        };
+
+        setSensors(parsedSensors);
 
         // Store history for averages & charting
-        telemetryHistoryRef.current.push(data);
+        telemetryHistoryRef.current.push(parsedSensors);
         
         setTelemetryStream(prev => {
           const updated = [...prev, {
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            elbow: data.elbow,
-            pitch: data.wrist_pitch,
-            pressure: data.pressure
+            elbow: parsedSensors.elbow,
+            pitch: parsedSensors.wrist_pitch,
+            pressure: parsedSensors.pressure
           }];
           return updated.slice(-50); // Keep last 50 ticks
         });
 
         // Process movement state machine
-        evaluateRepetitionStateRef.current?.(data);
+        evaluateRepetitionStateRef.current?.(parsedSensors);
       }
     };
 
@@ -1155,7 +1262,19 @@ function LiveExercisePage() {
                 </div>
                 
                 <div className="flex gap-3">
-                  <SVGGauge {...primary} />
+                  {(exerciseDetails?.primary_sensor?.toLowerCase() === 'flex_avg' || 
+                    exerciseDetails?.target_joint?.toLowerCase()?.includes('finger') ||
+                    exerciseName.toLowerCase().includes('finger') || 
+                    exerciseName.toLowerCase().includes('hand')) ? (
+                    <FingerVolumeBars sensors={sensors} />
+                  ) : (exerciseDetails?.primary_sensor?.toLowerCase() === 'elbow' || 
+                       exerciseDetails?.target_joint?.toLowerCase()?.includes('elbow') ||
+                       exerciseName.toLowerCase().includes('elbow') ||
+                       exerciseName.toLowerCase().includes('curl')) ? (
+                    <ElbowVolumeBar sensors={sensors} target={exerciseDetails?.target_angle || 90} />
+                  ) : (
+                    <SVGGauge {...primary} />
+                  )}
                   <SVGGauge {...secondary} />
                 </div>
               </div>
