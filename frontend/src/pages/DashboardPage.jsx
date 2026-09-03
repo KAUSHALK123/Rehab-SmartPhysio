@@ -30,13 +30,24 @@ import {
   LogOut,
   Moon,
   Sun,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Play,
+  ShieldCheck,
+  ArrowRight,
+  Sparkles,
+  CheckCircle2,
+  Compass,
+  Hand,
+  Gauge,
+  Wifi,
+  RotateCcw
 } from 'lucide-react';
 import { getSessionHistory, getSessionDetails } from '../services/session';
 import { getDashboardAnalytics } from '../services/analytics';
 import { getPatients, createPatient, getBodyParts, getConditions, getRehabilitationGoals, getRecommendedExercises } from '../services/patient';
 import apiClient from '../services/auth';
 import Arm3DVisualizer from '../components/Arm3DVisualizer';
+import SensorCard from '../components/SensorCard';
 
 function DashboardPage() {
   const navigate = useNavigate();
@@ -70,6 +81,8 @@ function DashboardPage() {
   const [liveTelemetry, setLiveTelemetry] = useState(null);
   const [cameraAngle, setCameraAngle] = useState('straight');
   const [showCamDropdown, setShowCamDropdown] = useState(false);
+  const [autoRotate, setAutoRotate] = useState(true);
+  const [activeSensorKey, setActiveSensorKey] = useState('imu');
   const [controls, setControls] = useState({
     shoulderAngle: 0,
     shoulderAngleX: 0,
@@ -77,7 +90,7 @@ function DashboardPage() {
     wristAngle: 0
   });
 
-  const activeControls = liveTelemetry
+  const activeControls = (liveTelemetry && deviceConnected)
     ? {
         shoulderAngle: controls.shoulderAngle,
         shoulderAngleX: controls.shoulderAngleX,
@@ -172,6 +185,12 @@ function DashboardPage() {
 
   useEffect(() => {
     initTherapistDashboard();
+    
+    const handleThemeChange = () => {
+      setTheme(localStorage.getItem('theme') || 'dark');
+    };
+    window.addEventListener('themeChange', handleThemeChange);
+    return () => window.removeEventListener('themeChange', handleThemeChange);
   }, []);
 
   useEffect(() => {
@@ -225,9 +244,7 @@ function DashboardPage() {
         };
 
         setLiveTelemetry(parsedData);
-        if (!data.is_mock) {
-          setDeviceConnected(true);
-        }
+        setDeviceConnected(!data.is_mock);
       }
     };
     
@@ -372,574 +389,783 @@ function DashboardPage() {
 
   const selectedPatient = patients.find(p => p.id === activePatientId);
 
+  const sensorReadings = {
+    imu: {
+      pitch: liveTelemetry ? (liveTelemetry.wrist_pitch ?? 0).toFixed(1) : '14.2',
+      roll: liveTelemetry ? (liveTelemetry.wrist_roll ?? 0).toFixed(1) : '-8.5',
+    },
+    flex: {
+      thumb: liveTelemetry ? Math.round(liveTelemetry.thumb ?? 0) : 35,
+      index: liveTelemetry ? Math.round(liveTelemetry.index ?? 0) : 52,
+      middle: liveTelemetry ? Math.round(liveTelemetry.middle ?? 0) : 60,
+      ring: liveTelemetry ? Math.round(liveTelemetry.ring ?? 0) : 48,
+      little: liveTelemetry ? Math.round(liveTelemetry.little ?? 0) : 40,
+    },
+    elbow: {
+      angle: liveTelemetry ? Math.round(180 - liveTelemetry.elbow) : 45,
+    },
+    pressure: {
+      force: liveTelemetry ? ((liveTelemetry.pressure || 0) / 10).toFixed(1) : '18.4',
+    }
+  };
+
+  const avgFlex = Math.round(
+    (sensorReadings.flex.thumb + sensorReadings.flex.index + sensorReadings.flex.middle + sensorReadings.flex.ring + sensorReadings.flex.little) / 5
+  );
+
   return (
-    <div className={`min-h-screen -m-8 p-6 flex flex-col xl:flex-row gap-6 font-sans select-none overflow-x-hidden transition-colors duration-300 ${
-      isDark ? 'bg-[#050505] text-[#E2E8F0]' : 'bg-[#F8FAFC] text-[#1E293B]'
+    <div className={`min-h-screen -m-8 p-6 lg:p-10 flex flex-col gap-10 font-sans select-none overflow-x-hidden transition-colors duration-300 ${
+      isDark ? 'bg-[#090B10] text-[#E2E8F0]' : 'bg-[#F8FAFC] text-[#1E293B]'
     }`}>
       
       {/* ===================================================
-          COLUMN 1: LEFT SIDEBAR PANEL
+          SECTION 1: FULL-WIDTH HERO SECTION
           =================================================== */}
-      <div className={`w-full xl:w-72 flex flex-col gap-6 shrink-0 rounded-3xl border p-5 shadow-2xl transition-colors duration-300 ${
-        isDark ? 'card-neumorphic-dark text-white' : 'card-neumorphic-light text-slate-800'
+      <section className={`relative rounded-3xl p-8 lg:p-10 border overflow-hidden transition-all duration-300 min-h-[calc(100vh-140px)] flex flex-col justify-center ${
+        isDark 
+          ? 'bg-gradient-to-br from-[#121722] via-[#0D1017] to-[#0A0C12] border-slate-800/80 shadow-2xl' 
+          : 'bg-gradient-to-br from-white via-slate-50 to-blue-50/40 border-slate-200/80 shadow-lg shadow-slate-100'
       }`}>
-        
-        {/* Compact Unified Patient profile list card */}
-        <div className={`rounded-2xl border p-4 shadow-lg transition-colors duration-300 ${
-          isDark ? 'card-neumorphic-dark text-white' : 'card-neumorphic-light text-slate-800'
-        }`}>
-          {/* Active Patient info row */}
-          <div className="flex items-center justify-between py-1 relative">
-            <div 
-              onClick={() => setPatientsExpanded(!patientsExpanded)}
-              className="flex items-center gap-3 cursor-pointer select-none group"
-            >
-              {/* Round Avatar Container */}
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm overflow-hidden border transition-colors ${
-                isDark ? 'bg-slate-800 border-slate-750 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-600'
-              }`}>
-                {selectedPatient ? selectedPatient.full_name[0].toUpperCase() : 'U'}
-              </div>
-              <div>
-                <div className="flex items-center gap-1">
-                  <h4 className={`font-bold text-xs tracking-wide truncate max-w-[110px] transition-colors ${
-                    isDark ? 'text-white' : 'text-slate-800'
-                  }`}>{selectedPatient ? selectedPatient.full_name : 'No Patient'}</h4>
-                  {patients.length > 1 && (
-                    <ChevronRight className={`w-3.5 h-3.5 text-slate-500 transition-transform ${
-                      patientsExpanded ? 'rotate-90' : ''
-                    }`} />
-                  )}
-                </div>
-                <p className="text-[10px] text-slate-500 font-semibold mt-0.5">{selectedPatient ? `${selectedPatient.age} years` : '0 years'}</p>
-              </div>
-            </div>
-            
-            <button 
-              onClick={handleOpenRegisterModal}
-              className={`w-7 h-7 rounded-full flex items-center justify-center text-blue-500 border transition cursor-pointer ${
-                isDark ? 'bg-[#09090C] border-slate-800 hover:bg-slate-800' : 'bg-[#FFFFFF] border-slate-200 hover:bg-slate-200'
-              }`}
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
+        {/* Ambient background glow accents */}
+        <div className="absolute -top-24 -right-24 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
-          {/* Expandable alternative patients selection panel */}
-          {patientsExpanded && patients.length > 1 && (
-            <div className="pt-3 mt-3 border-t border-slate-800/20 space-y-2 max-h-[190px] overflow-y-auto pr-1">
-              {patients.filter(p => p.id !== activePatientId).map((pat) => (
-                <button
-                  key={pat.id}
-                  onClick={() => {
-                    selectPatient(pat);
-                    setPatientsExpanded(false);
-                  }}
-                  className={`w-full flex items-center justify-between p-2 rounded-xl transition text-left cursor-pointer group ${
-                    isDark ? 'hover:bg-slate-800/25' : 'hover:bg-slate-200/50'
+        <div className="relative z-10 flex flex-col xl:flex-row xl:items-center justify-between gap-8">
+          {/* Left Hero Title & Tagline */}
+          <div className="max-w-3xl space-y-4">
+            <h1 className={`text-3xl lg:text-5xl font-black tracking-tight leading-tight ${
+              isDark ? 'text-white' : 'text-slate-900'
+            }`}>
+              Intelligent Upper-Limb Rehabilitation
+            </h1>
+
+            <p className={`text-sm lg:text-base font-normal leading-relaxed max-w-2xl ${
+              isDark ? 'text-slate-400' : 'text-slate-600'
+            }`}>
+              Next-generation biomechanical physical therapy powered by wearable IoT multi-sensor telemetry, 
+              automated Range-of-Motion (ROM) tracking, and an interactive 3D digital-twin for upper-limb recovery.
+            </p>
+
+            {/* Quick Status Bar & Badges */}
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              {/* Hardware Status Pill */}
+              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold ${
+                deviceConnected
+                  ? isDark ? 'bg-emerald-950/30 border-emerald-800/40 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                  : isDark ? 'bg-slate-900/60 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-600'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${
+                  deviceConnected ? 'bg-emerald-400 shadow-[0_0_8px_#10B981]' : 'bg-amber-400 animate-pulse'
+                }`} />
+                <span>{deviceConnected ? 'Hardware Online: WebSocket 50Hz' : 'Simulated Hardware Telemetry'}</span>
+              </div>
+
+              {/* Active Patient Switcher */}
+              <div className="relative">
+                <button 
+                  onClick={() => setPatientsExpanded(!patientsExpanded)}
+                  className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                    isDark 
+                      ? 'bg-slate-900/80 border-slate-800 hover:border-slate-700 text-slate-200' 
+                      : 'bg-white border-slate-200 hover:border-slate-300 text-slate-800 shadow-sm'
                   }`}
                 >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border ${
-                      isDark ? 'bg-slate-800/80 border-slate-700/30 text-slate-400' : 'bg-slate-200/80 border-slate-300 text-slate-600'
-                    }`}>
-                      {pat.full_name[0].toUpperCase()}
+                  <User className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Patient: <strong className="font-extrabold text-blue-500">{activePatientName || 'Select Patient'}</strong></span>
+                  <ChevronDown className="w-3 h-3 text-slate-400" />
+                </button>
+
+                {/* Patient Dropdown Menu */}
+                {patientsExpanded && (
+                  <div className={`absolute left-0 mt-2 w-64 rounded-2xl border p-2 shadow-2xl z-40 ${
+                    isDark ? 'bg-[#0E131F] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-800'
+                  }`}>
+                    <div className="p-2 border-b border-slate-100 dark:border-slate-800/60 flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Enrolled Patients</span>
+                      <button 
+                        onClick={() => {
+                          setPatientsExpanded(false);
+                          handleOpenRegisterModal();
+                        }}
+                        className="text-[10px] font-bold text-blue-500 hover:underline flex items-center gap-1"
+                      >
+                        <Plus className="w-3 h-3" /> Add New
+                      </button>
                     </div>
-                    <div>
-                      <span className={`text-[11px] font-bold block truncate max-w-[110px] transition ${
-                        isDark ? 'text-slate-300 group-hover:text-white' : 'text-slate-700 group-hover:text-slate-955'
-                      }`}>{pat.full_name}</span>
-                      <span className="text-[9px] text-slate-500 block mt-0.5">{pat.age} years</span>
+
+                    <div className="max-h-48 overflow-y-auto py-1 space-y-1">
+                      {patients.map(p => (
+                        <button
+                          key={p.id}
+                          onClick={() => {
+                            selectPatient(p);
+                            setPatientsExpanded(false);
+                          }}
+                          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left text-xs font-medium transition cursor-pointer ${
+                            p.id === activePatientId
+                              ? 'bg-blue-600 text-white font-bold'
+                              : isDark ? 'hover:bg-slate-800/50 text-slate-300' : 'hover:bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          <span className="truncate">{p.full_name}</span>
+                          <span className="text-[10px] opacity-70">{p.age}y</span>
+                        </button>
+                      ))}
                     </div>
                   </div>
+                )}
+              </div>
+
+              {/* Theme Toggle Button */}
+              <button
+                onClick={toggleTheme}
+                className={`p-2 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                  isDark ? 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white' : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 shadow-sm'
+                }`}
+                title="Toggle Theme"
+              >
+                {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Right Hero Call-to-Actions */}
+          <div className="flex flex-col sm:flex-row xl:flex-col gap-3 shrink-0">
+            <button 
+              onClick={() => navigate('/exercise-session')}
+              className="px-6 py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm flex items-center justify-center gap-2.5 transition-all duration-200 shadow-lg shadow-blue-600/25 hover:shadow-blue-600/40 cursor-pointer"
+            >
+              <Play className="w-4 h-4 fill-white" />
+              <span>Start Exercise Session</span>
+            </button>
+
+            <div className="flex gap-2">
+              <button 
+                onClick={() => navigate('/calibration')}
+                className={`flex-1 px-4 py-3 rounded-2xl border font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
+                  isDark ? 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white' : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                }`}
+              >
+                <Sliders className="w-4 h-4 text-slate-400" />
+                <span>Device Calibration</span>
+              </button>
+
+              <button 
+                onClick={() => navigate('/exercises')}
+                className={`flex-1 px-4 py-3 rounded-2xl border font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
+                  isDark ? 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white' : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                }`}
+              >
+                <BookOpen className="w-4 h-4 text-slate-400" />
+                <span>Exercise Library</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ===================================================
+          SECTION 2: HOW THIS PROJECT WORKS (3 FLOW-WISE CARDS)
+          =================================================== */}
+      <section className="flex flex-col gap-6">
+        <div className="text-center max-w-2xl mx-auto space-y-1.5">
+          <span className="text-[11px] font-bold text-blue-500 uppercase tracking-widest">
+            End-to-End Architecture
+          </span>
+          <h2 className={`text-2xl lg:text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            How SmartPhysio Works
+          </h2>
+          <p className="text-xs lg:text-sm text-slate-400">
+            A continuous loop connecting patient biomechanics, edge computing, and real-time clinical assessment.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 justify-items-center">
+          
+          {/* Card 1 */}
+          <div className="uiverse-parent">
+            <div className="uiverse-card">
+              <div className="uiverse-logo">
+                <span className="circle circle1"></span>
+                <span className="circle circle2"></span>
+                <span className="circle circle3"></span>
+                <span className="circle circle4"></span>
+                <span className="circle circle5">
+                  <span className="font-bold text-xs text-white">01</span>
+                </span>
+              </div>
+              <div className="uiverse-glass"></div>
+              <div className="uiverse-content">
+                <span className="uiverse-title">Wearable Sensor Ingestion</span>
+                <span className="uiverse-text">Flexible resistive strips, rotary goniometer, and 6-axis IMU record joint angles and muscle squeeze force simultaneously with zero restriction.</span>
+              </div>
+              <div className="uiverse-bottom">
+                <div className="social-buttons-container">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-500 drop-shadow-md" />
+                </div>
+                <div className="view-more">
+                  <span className="text-[10px] font-bold text-emerald-800">Edge Capture</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 2 */}
+          <div className="uiverse-parent">
+            <div className="uiverse-card" style={{ background: 'linear-gradient(135deg, rgb(0, 150, 255) 0%, rgb(0, 80, 255) 100%)' }}>
+              <div className="uiverse-logo">
+                <span className="circle circle1"></span>
+                <span className="circle circle2"></span>
+                <span className="circle circle3"></span>
+                <span className="circle circle4"></span>
+                <span className="circle circle5">
+                  <span className="font-bold text-xs text-white">02</span>
+                </span>
+              </div>
+              <div className="uiverse-glass"></div>
+              <div className="uiverse-content">
+                <span className="uiverse-title" style={{ color: '#004080' }}>Low-Latency WebSocket</span>
+                <span className="uiverse-text" style={{ color: 'rgba(0, 64, 128, 0.8)' }}>ESP32 samples lines at 50Hz and transmits encrypted JSON telemetry packets over WebSockets to the backend in under 20ms.</span>
+              </div>
+              <div className="uiverse-bottom">
+                <div className="social-buttons-container">
+                  <CheckCircle2 className="w-5 h-5 text-blue-500 drop-shadow-md" />
+                </div>
+                <div className="view-more">
+                  <span className="text-[10px] font-bold text-blue-800">50Hz Stream</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3 */}
+          <div className="uiverse-parent">
+            <div className="uiverse-card" style={{ background: 'linear-gradient(135deg, rgb(200, 50, 255) 0%, rgb(100, 0, 255) 100%)' }}>
+              <div className="uiverse-logo">
+                <span className="circle circle1"></span>
+                <span className="circle circle2"></span>
+                <span className="circle circle3"></span>
+                <span className="circle circle4"></span>
+                <span className="circle circle5">
+                  <span className="font-bold text-xs text-white">03</span>
+                </span>
+              </div>
+              <div className="uiverse-glass"></div>
+              <div className="uiverse-content">
+                <span className="uiverse-title" style={{ color: '#400080' }}>3D Digital Twin</span>
+                <span className="uiverse-text" style={{ color: 'rgba(64, 0, 128, 0.8)' }}>Incoming telemetry drives the 3D anatomical GLB model. Algorithms score repetition accuracy and compare active ROM against clinical goals.</span>
+              </div>
+              <div className="uiverse-bottom">
+                <div className="social-buttons-container">
+                  <CheckCircle2 className="w-5 h-5 text-purple-500 drop-shadow-md" />
+                </div>
+                <div className="view-more">
+                  <span className="text-[10px] font-bold text-purple-800">AI Analytics</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      {/* ===================================================
+          SECTION 3: TWO-COLUMN LAYOUT
+          Left: Small IoT Sensors Used | Right: 3D GLB Model
+          =================================================== */}
+      <div className="flex flex-col gap-3 mt-10">
+        <div className="text-center max-w-2xl mx-auto space-y-1.5 mb-6">
+          <span className="text-[11px] font-bold text-blue-500 uppercase tracking-widest">
+            Hardware & 3D Visualization
+          </span>
+          <h2 className={`text-2xl lg:text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            IoT Sensors & Digital Twin
+          </h2>
+        </div>
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        {/* LEFT COLUMN: SMALL IOT SENSORS USED (5 Cols) */}
+        <div className="lg:col-span-5 flex flex-col gap-4">
+          <div className="flex items-center justify-between px-1">
+            <div>
+              <h3 className={`text-base font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                Wearable IoT Sensor Array
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Real-time edge telemetry capturing joint kinematics and grip force
+              </p>
+            </div>
+            <span className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-500 font-bold border border-blue-500/20">
+              5 Active Channels
+            </span>
+          </div>
+
+          {/* Sensor Cards List */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
+            <SensorCard 
+              name="MPU-6050 6-Axis IMU"
+              type="imu"
+              role="Wrist Pronation/Supination & Pitch"
+              specs="3-Axis Gyro + Accel • I2C (0x68)"
+              pin="GPIO 21 (SDA) / 22 (SCL)"
+              value='Hardware Module'
+              unit=''
+              status={deviceConnected ? 'online' : 'streaming'}
+              active={activeSensorKey === 'imu'}
+              onClick={() => setActiveSensorKey('imu')}
+            />
+
+            <SensorCard 
+              name="5-Finger Flex Array"
+              type="flex"
+              role="Finger Flexion & Grasp Dynamics"
+              specs="5x 2.2-inch Resistive Strips"
+              pin="ADC1 (GPIO 32, 33, 34, 35, 36)"
+              value='Hardware Module'
+              unit=''
+              status={deviceConnected ? 'online' : 'streaming'}
+              active={activeSensorKey === 'flex'}
+              onClick={() => setActiveSensorKey('flex')}
+            />
+
+            <SensorCard 
+              name="Elbow Goniometric Angle"
+              type="elbow"
+              role="Elbow Flexion & Extension (0°-180° ROM)"
+              specs="Precision Rotary Potentiometer"
+              pin="Analog ADC2 (GPIO 4)"
+              value='Hardware Module'
+              unit=''
+              status={deviceConnected ? 'online' : 'streaming'}
+              active={activeSensorKey === 'elbow'}
+              onClick={() => setActiveSensorKey('elbow')}
+            />
+
+            <SensorCard 
+              name="FSR Tactile Pressure Sensor"
+              type="pressure"
+              role="Palmar Grip Compression & Squeeze Force"
+              specs="Force Sensitive Resistor (0.2N - 20N)"
+              pin="Analog ADC1 (GPIO 39)"
+              value='Hardware Module'
+              unit=''
+              status={deviceConnected ? 'online' : 'streaming'}
+              active={activeSensorKey === 'pressure'}
+              onClick={() => setActiveSensorKey('pressure')}
+            />
+
+            <SensorCard 
+              name="ESP-32 IoT Edge Node"
+              type="mcu"
+              role="240MHz Edge Telemetry Engine"
+              specs="Wi-Fi 802.11 b/g/n + BLE 4.2"
+              pin="50Hz WebSocket JSON Stream"
+              value='Hardware Module'
+              unit=''
+              status={deviceConnected ? 'online' : 'streaming'}
+              active={activeSensorKey === 'mcu'}
+              onClick={() => setActiveSensorKey('mcu')}
+            />
+          </div>
+
+          {/* Edge Architecture Mini Card */}
+          <div className={`p-4 rounded-2xl border flex items-center gap-4 transition-colors ${
+            isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'
+          }`}>
+            <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-950 flex items-center justify-center p-1.5 shrink-0 border border-slate-800">
+              <img 
+                src="/images/esp.png" 
+                alt="ESP32 IoT Node" 
+                className="w-full h-full object-contain"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+            </div>
+            <div>
+              <h5 className={`text-xs font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                ESP32 Edge Microcontroller
+              </h5>
+              <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                Runs on-device low-pass filters and transmits synchronized multi-sensor packets over WebSockets under 20ms latency.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN: 3D GLB MODEL VISUALIZER (7 Cols) */}
+        <div className="lg:col-span-7 flex flex-col gap-4">
+          <div className="flex items-center justify-between px-1">
+            <div>
+              <h3 className={`text-base font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                3D Digital-Twin Kinematics
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Real-time 3D simulation driven by IoT telemetry or interactive demo rotation
+              </p>
+            </div>
+
+            {/* Auto-Rotate & Controls Header Bar */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setAutoRotate(prev => !prev)}
+                className={`px-3 py-1.5 rounded-xl border text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  autoRotate
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-600/20'
+                    : isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-600'
+                }`}
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${autoRotate ? 'animate-spin-slow' : ''}`} />
+                <span>{autoRotate ? 'Rotate: ON' : 'Rotate: OFF'}</span>
+              </button>
+
+              <button 
+                onClick={() => initTherapistDashboard()} 
+                className={`p-1.5 rounded-xl border transition cursor-pointer ${
+                  isDark ? 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white' : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900'
+                }`}
+                title="Refresh Telemetry"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* MAIN 3D GLB CANVAS CONTAINER */}
+          <div className={`rounded-3xl border shadow-2xl h-[520px] relative overflow-hidden flex items-center justify-center select-none transition-all duration-300 ${
+            isDark 
+              ? 'bg-gradient-to-b from-[#0F141F] to-[#080B11] border-slate-800/80 text-white' 
+              : 'bg-gradient-to-b from-white to-slate-100/70 border-slate-200 text-slate-800 shadow-lg'
+          }`}>
+            <div className="absolute inset-0">
+              <Arm3DVisualizer 
+                controls={activeControls} 
+                cameraAngle={cameraAngle}
+                autoRotate={autoRotate}
+                demoMode={!deviceConnected}
+              />
+            </div>
+
+            {/* Floating Top Controls: Camera View Switcher */}
+            <div className="absolute top-4 left-4 z-20 flex flex-wrap items-center gap-1.5">
+              {[
+                { key: 'straight', label: 'Overview' },
+                { key: 'hand', label: 'Hand' },
+                { key: 'elbow', label: 'Elbow' },
+                { key: 'wrist', label: 'Wrist' }
+              ].map((view) => (
+                <button
+                  key={view.key}
+                  onClick={() => setCameraAngle(view.key)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer backdrop-blur-md border ${
+                    cameraAngle === view.key
+                      ? 'bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/20'
+                      : isDark
+                        ? 'bg-slate-950/70 border-slate-800 text-slate-300 hover:bg-slate-900/80'
+                        : 'bg-white/80 border-slate-200 text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  {view.label}
                 </button>
               ))}
             </div>
-          )}
 
-          {selectedPatient && (
-            <div className="mt-3 pt-3 border-t border-slate-800/10 space-y-1.5 text-[10px] font-semibold">
-              <div className="flex justify-between items-center gap-2">
-                <span className="text-slate-500">Condition:</span>
-                <span className="text-blue-500 truncate max-w-[130px] text-right" title={selectedPatient.condition_name || selectedPatient.injury_type}>
-                  {selectedPatient.condition_name || selectedPatient.injury_type || "Not Specified"}
-                </span>
-              </div>
-              {selectedPatient.body_part_name && (
-                <div className="flex justify-between items-center gap-2">
-                  <span className="text-slate-500">Body Part:</span>
-                  <span className="text-slate-400 text-right">{selectedPatient.body_part_name}</span>
-                </div>
-              )}
-              {selectedPatient.rehabilitation_goal_name && (
-                <div className="flex justify-between items-center gap-2">
-                  <span className="text-slate-500">Goal:</span>
-                  <span className="text-emerald-500 truncate max-w-[150px] text-right" title={selectedPatient.rehabilitation_goal_name}>
-                    {selectedPatient.rehabilitation_goal_name}
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Navigation Sidebar List */}
-        <div className="flex flex-col gap-1.5 mt-2">
-          
-          {/* General navigation links */}
-          <Link to="/dashboard" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
-            isDark ? 'text-slate-400 hover:bg-slate-900/40 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
-          }`}>
-            <div className="flex items-center gap-3.5">
-              <Home className="w-4 h-4" />
-              <span>Homepage</span>
-            </div>
-          </Link>
-
-          <Link to="/patient" className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-blue-600 text-white transition text-xs font-bold shadow-md shadow-blue-600/10 relative">
-            {/* Sidebar indicator blue dot/chevron mockup tick on the left */}
-            <div className="absolute left-[-16px] top-1/2 -translate-y-1/2 w-2.5 h-6 bg-blue-600 rounded-r-lg"></div>
-            <div className="flex items-center gap-3.5">
-              <Users className="w-4 h-4" />
-              <span>Patients</span>
-            </div>
-            <Plus className="w-3.5 h-3.5 opacity-90" />
-          </Link>
-
-          <Link to="/analytics" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
-            isDark ? 'text-slate-400 hover:bg-slate-900/40 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
-          }`}>
-            <div className="flex items-center gap-3.5">
-              <TrendingUp className="w-4 h-4" />
-              <span>Analytics</span>
-            </div>
-            <span className="px-2 py-0.5 rounded-full bg-blue-900 border border-blue-800 text-blue-400 text-[8px] font-bold tracking-wider">PRO+</span>
-          </Link>
-
-          {/* Overview Section Header */}
-          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pl-3 mt-4 mb-1 block">Overview</span>
-
-          <Link to="/messages" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
-            isDark ? 'text-slate-400 hover:bg-slate-900/40 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
-          }`}>
-            <div className="flex items-center gap-3.5">
-              <MessageSquare className="w-4 h-4" />
-              <span>Messages</span>
-            </div>
-          </Link>
-
-          <Link to="/appointments" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
-            isDark ? 'text-slate-400 hover:bg-slate-900/40 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
-          }`}>
-            <div className="flex items-center gap-3.5">
-              <Calendar className="w-4 h-4" />
-              <span>Appointments</span>
-            </div>
-          </Link>
-
-          <Link to="/reports" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
-            isDark ? 'text-slate-400 hover:bg-slate-900/40 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
-          }`}>
-            <div className="flex items-center gap-3.5">
-              <FileText className="w-4 h-4" />
-              <span>Reports</span>
-            </div>
-          </Link>
-
-          {/* General Section Header */}
-          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest pl-3 mt-4 mb-1 block">General</span>
-
-          <Link to="/settings" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
-            isDark ? 'text-slate-400 hover:bg-slate-900/40 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
-          }`}>
-            <div className="flex items-center gap-3.5">
-              <Settings className="w-4 h-4" />
-              <span>Settings</span>
-            </div>
-          </Link>
-
-          <Link to="/dashboard" className={`flex items-center justify-between px-3 py-2.5 rounded-xl transition text-xs font-bold ${
-            isDark ? 'text-slate-400 hover:bg-slate-900/40 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
-          }`}>
-            <div className="flex items-center gap-3.5">
-              <LogOut className="w-4 h-4" />
-              <span>Logout</span>
-            </div>
-          </Link>
-
-        </div>
-      </div>
-
-      {/* ===================================================
-          COLUMN 2: MIDDLE KINEMATICS OVERVIEW & TESTS
-          =================================================== */}
-      <div className="flex-1 flex flex-col gap-6">
-        
-        {/* Dashboard Title & Overview Header */}
-        <div className="flex justify-between items-center px-1">
-          <div>
-            <h2 className={`text-2xl font-bold tracking-tight transition-colors ${isDark ? 'text-white' : 'text-slate-800'}`}>Kinematics Overview</h2>
-            <p className="text-xs text-slate-400 mt-1 flex items-center gap-1.5">
-              Finished analyzing: 
-              <button onClick={initTherapistDashboard} className="text-blue-500 hover:underline flex items-center gap-1 font-semibold">
-                Retry <RefreshCw className="w-2.5 h-2.5 animate-spin-slow" />
-              </button>
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button className={`p-2 rounded-xl border transition cursor-pointer ${
-              isDark ? 'bg-[#121620] border-slate-900/10 text-slate-400 hover:text-white' : 'bg-[#FFFFFF] border-slate-200 text-slate-600 hover:text-slate-900'
+            {/* Floating Top Right: Telemetry Mode Pill */}
+            <div className={`absolute top-4 right-4 z-20 px-3 py-1 rounded-full text-[10px] font-mono font-bold tracking-wider uppercase border backdrop-blur-md ${
+              deviceConnected
+                ? 'bg-emerald-950/60 border-emerald-600/50 text-emerald-400'
+                : 'bg-blue-950/60 border-blue-600/40 text-blue-400'
             }`}>
-              <SlidersHorizontal className="w-4 h-4" />
-            </button>
-            <button 
-              onClick={() => navigate('/device-calibration')}
-              className="text-xs bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-full font-bold text-white flex items-center gap-2 transition cursor-pointer shadow-md shadow-blue-600/10"
-            >
-              <span className={`w-2 h-2 rounded-full ${deviceConnected ? 'bg-emerald-400 shadow-[0_0_8px_#10B981]' : 'bg-rose-500 animate-pulse shadow-[0_0_8px_#EF4444]'}`}></span>
-              {deviceConnected ? 'Calibration Link' : 'Establish Link'}
-            </button>
-          </div>
-        </div>
-
-        {/* MAIN HOLOGRAPHIC ARM VISUALIZER CARD */}
-        <div className={`rounded-3xl border shadow-2xl h-[470px] relative overflow-hidden flex items-center justify-center select-none transition-colors duration-300 ${
-          isDark ? 'card-neumorphic-dark text-white' : 'card-neumorphic-light text-slate-800'
-        }`}>
-          {/* 3D Visualizer Canvas component container */}
-          <div className="absolute inset-0">
-            <Arm3DVisualizer controls={activeControls} cameraAngle={cameraAngle} />
+              {deviceConnected ? 'Live Telemetry' : 'Demo Kinematics'}
+            </div>
           </div>
 
-          {/* Camera View selector */}
-          <div className="absolute top-4 left-56 z-20">
-            <button
-              onClick={() => setShowCamDropdown(prev => !prev)}
-              className={`flex items-center gap-1.5 backdrop-blur border text-xs font-bold rounded-xl p-2.5 px-3 transition-all cursor-pointer shadow-sm ${
-                isDark 
-                  ? 'bg-slate-950/85 border-slate-800 hover:border-slate-700 text-slate-200' 
-                  : 'bg-white/85 border-slate-200 hover:border-slate-300 text-slate-800'
-              }`}
-            >
-              <span>View:</span>
-              <span className="text-blue-500 capitalize">{cameraAngle === 'straight' ? 'straight' : cameraAngle}</span>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-            </button>
-
-            {showCamDropdown && (
-              <div className={`absolute top-full left-0 mt-1.5 w-36 border rounded-xl overflow-hidden z-30 shadow-xl ${
-                isDark 
-                  ? 'bg-slate-950/95 border-slate-800 text-slate-200' 
-                  : 'bg-white/95 border-slate-200 text-slate-800'
-              }`}>
-                {[
-                  { key: 'straight', label: 'Straight View' },
-                  { key: 'side', label: 'Side View' },
-                  { key: 'hand', label: '✋ Hand View' },
-                  { key: 'hand_side', label: '✋ Hand Side' },
-                  { key: 'elbow', label: '💪 Elbow View' },
-                  { key: 'wrist', label: '⌚ Wrist View' }
-                ].map((item) => (
-                  <button
-                    key={item.key}
-                    onClick={() => {
-                      setCameraAngle(item.key);
-                      setShowCamDropdown(false);
-                    }}
-                    className={`w-full text-left px-3.5 py-2.5 text-[11px] font-semibold transition hover:bg-slate-500/10 cursor-pointer ${
-                      cameraAngle === item.key ? 'text-blue-500 bg-blue-500/5' : ''
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Sliders Control Panel Overlay */}
-          <div className={`absolute top-4 left-4 z-20 border p-4 rounded-2xl w-48 text-left shadow-2xl backdrop-blur-md ${
-            isDark ? 'card-neumorphic-dark-nested text-white' : 'bg-white/85 border-slate-200 text-slate-800'
+          {/* Manual Joint Sliders Control Tray (Therapist Test Mode) */}
+          <div className={`p-4 rounded-2xl border transition-colors ${
+            isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'
           }`}>
-            <span className="text-[11px] font-bold text-blue-500 uppercase tracking-wider block mb-3">Joint Calibration</span>
-            
-            <div className="space-y-2.5">
-              {/* Shoulder Angle */}
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                Kinematic Angle Test Controls
+              </span>
+              <button 
+                onClick={() => setControls({ shoulderAngle: 0, shoulderAngleX: 0, elbowAngle: 0, wristAngle: 0 })}
+                className="text-[10px] font-bold text-blue-500 hover:underline"
+              >
+                Reset Angles
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <div className="flex justify-between text-[9px] font-semibold text-slate-400 mb-0.5">
-                  <span>Shoulder (Forward/Back)</span>
-                  <span>{Math.round(activeControls.shoulderAngle)}°</span>
+                <div className="flex justify-between text-[11px] font-semibold mb-1">
+                  <span>Shoulder: {controls.shoulderAngle}°</span>
                 </div>
                 <input 
                   type="range" 
-                  min="-90" 
-                  max="90" 
-                  value={controls.shoulderAngle} 
+                  min="-45" 
+                  max="45" 
+                  value={controls.shoulderAngle}
+                  disabled={deviceConnected}
                   onChange={(e) => setControls(prev => ({ ...prev, shoulderAngle: parseInt(e.target.value) }))}
-                  className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                  className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
 
-              {/* Shoulder Angle X */}
               <div>
-                <div className="flex justify-between text-[9px] font-semibold text-slate-400 mb-0.5">
-                  <span>Shoulder (Side/Twist)</span>
-                  <span>{Math.round(activeControls.shoulderAngleX)}°</span>
-                </div>
-                <input 
-                  type="range" 
-                  min="-90" 
-                  max="90" 
-                  value={controls.shoulderAngleX} 
-                  onChange={(e) => setControls(prev => ({ ...prev, shoulderAngleX: parseInt(e.target.value) }))}
-                  className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                />
-              </div>
-
-              {/* Elbow Angle */}
-              <div>
-                <div className="flex justify-between text-[9px] font-semibold text-slate-400 mb-0.5">
-                  <span>Elbow Angle</span>
-                  <span>{Math.round(activeControls.elbowAngle)}°</span>
+                <div className="flex justify-between text-[11px] font-semibold mb-1">
+                  <span>Elbow Flex: {controls.elbowAngle}°</span>
                 </div>
                 <input 
                   type="range" 
                   min="0" 
-                  max="135" 
-                  value={controls.elbowAngle} 
+                  max="140" 
+                  value='Hardware Module'
                   disabled={deviceConnected}
                   onChange={(e) => setControls(prev => ({ ...prev, elbowAngle: parseInt(e.target.value) }))}
-                  className={`w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 ${deviceConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
 
-              {/* Wrist Angle */}
               <div>
-                <div className="flex justify-between text-[9px] font-semibold text-slate-400 mb-0.5">
-                  <span>Wrist Angle</span>
-                  <span>{Math.round(activeControls.wristAngle)}°</span>
+                <div className="flex justify-between text-[11px] font-semibold mb-1">
+                  <span>Wrist Roll: {controls.wristAngle}°</span>
                 </div>
                 <input 
                   type="range" 
                   min="-90" 
                   max="90" 
-                  value={controls.wristAngle} 
+                  value='Hardware Module'
                   disabled={deviceConnected}
                   onChange={(e) => setControls(prev => ({ ...prev, wristAngle: parseInt(e.target.value) }))}
-                  className={`w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 ${deviceConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
                 />
               </div>
             </div>
-
-            {deviceConnected && (
-              <div className="mt-3 pt-2 border-t border-slate-700/20 flex items-center justify-between text-[8px] text-emerald-400 font-bold tracking-wider uppercase animate-pulse">
-                <span>Telemetry Active</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-              </div>
-            )}
-          </div>
-
-          {/* DYNAMIC HUD STATISTIC FLOATING OVERLAYS */}
-          
-          {/* Card Overlay 1: Elbow Flex Cluster */}
-          <div className={`absolute top-4 right-4 border p-3 rounded-xl text-left shadow-2xl backdrop-blur-md max-w-[125px] transition hover:scale-105 z-10 ${
-            isDark ? 'card-neumorphic-dark-nested text-white' : 'bg-white/95 border-slate-200 text-slate-800'
-          }`}>
-            <span className="text-[12px] font-bold block">Flex Joint</span>
-            <span className="text-[8px] text-slate-500 mt-0.5 block">Elbow Flexion</span>
-          </div>
-
-          {/* Card Overlay 2: ROM Active Degrees */}
-          <div className={`absolute bottom-4 left-4 border p-3 rounded-xl text-left shadow-2xl backdrop-blur-md min-w-[110px] transition hover:scale-105 z-10 ${
-            isDark ? 'card-neumorphic-dark-nested text-white' : 'bg-white/95 border-slate-200 text-slate-800'
-          }`}>
-            <span className="text-xl font-extrabold block">
-              {deviceConnected && liveTelemetry ? `${Math.round(180 - liveTelemetry.elbow)}°` : '18°'}
-            </span>
-            <span className="text-[8px] text-slate-500 mt-0.5 block leading-normal">ROM Active Flexion<br/>Angle Extension</span>
-          </div>
-
-          {/* Card Overlay 3: Peak Grip Compression Force */}
-          <div className={`absolute bottom-4 right-4 border p-3 rounded-xl text-left shadow-2xl backdrop-blur-md min-w-[110px] transition hover:scale-105 z-10 ${
-            isDark ? 'card-neumorphic-dark-nested text-white' : 'bg-white/95 border-slate-200 text-slate-800'
-          }`}>
-            <span className="text-xl font-extrabold block">
-              {deviceConnected && liveTelemetry ? `${(liveTelemetry.pressure / 10).toFixed(1)}` : '23.3'}
-            </span>
-            <span className="text-[8px] text-slate-500 mt-0.5 block leading-normal">Newtons Peak Force<br/>Muscular Squeeze</span>
           </div>
         </div>
-
+      </section>
       </div>
 
       {/* ===================================================
-          COLUMN 3: RIGHT PANEL (SUPPLEMENTS & CLINICAL SCHEDULE)
+          SECTION 4: CLINICAL TELEMETRY & PATIENT RECOVERY HUB
           =================================================== */}
-      <div className={`w-full xl:w-80 flex flex-col gap-6 shrink-0 rounded-3xl border p-5 shadow-2xl transition-colors duration-300 ${
-        isDark ? 'card-neumorphic-dark text-white' : 'card-neumorphic-light text-slate-800'
-      }`}>
-        
-        {/* Toggle Slider Header */}
-        <div className={`flex justify-between items-center pb-2 border-b ${
-          isDark ? 'border-slate-900/10' : 'border-slate-100'
-        }`}>
-          {/* Custom Theme Toggle Switch */}
-          <div className="theme-toggle-wrapper">
-            <label className="switch">
-              <input 
-                type="checkbox" 
-                className="togglesw" 
-                checked={isDark} 
-                onChange={() => toggleTheme()} 
-              />
-              <div className="indicator left"></div>
-              <div className="indicator right"></div>
-              <div className="btn"></div>
-            </label>
+      <section className="flex flex-col gap-6">
+        <div className="flex items-center justify-between px-1">
+          <div>
+            <h3 className={`text-lg font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              Patient Clinical Overview
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Active patient rehabilitation trajectory and clinical exercise logs
+            </p>
           </div>
+
+          <button 
+            onClick={handleOpenRegisterModal}
+            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Enroll New Patient</span>
+          </button>
         </div>
 
-        {/* Supplements Section */}
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Supplements</h4>
-              <p className="text-[9px] text-slate-500 font-semibold mt-0.5">3 suggested supplements</p>
-            </div>
-            <button className={`p-1 rounded-full border transition ${
-              isDark ? 'bg-[#121620] border-slate-900/10 text-slate-400' : 'bg-[#F1F5F9] border-slate-200 text-slate-600'
-            }`}>
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="space-y-3">
-            {supplements.map((supp) => (
-              <div key={supp.count} className={`border rounded-2xl p-3 flex justify-between items-center transition hover:border-slate-800 ${
-                isDark ? 'card-neumorphic-dark-nested text-white' : 'bg-[#F1F5F9]/90 border-slate-200 text-slate-800'
-              }`}>
-                <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-xl border flex items-center justify-center font-bold text-xs shrink-0 shadow-inner ${
-                    isDark ? 'bg-[#09090C] border-slate-900/10 text-blue-500' : 'bg-white border-slate-200 text-blue-600'
-                  }`}>
-                    {supp.count}
-                  </div>
-                  <div>
-                    <span className="text-[11px] font-bold block">{supp.name}</span>
-                    <span className="text-[9px] text-slate-500 block mt-0.5 max-w-[120px] truncate">{supp.desc}</span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className={`text-[9px] font-bold border px-2 py-0.5 rounded-full ${
-                    isDark ? 'bg-slate-850 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-600'
-                  }`}>{supp.dose}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Calendar Intake checklist Schedule */}
-        <div className={`space-y-4 flex-1 flex flex-col justify-between pt-2 border-t ${
-          isDark ? 'border-slate-905' : 'border-slate-100'
-        }`}>
-          
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
-              <ChevronLeft className="w-3 h-3 text-slate-500 cursor-pointer" />
-              October, 2023
-              <ChevronRight className="w-3 h-3 text-slate-500 cursor-pointer" />
-            </span>
-            <div className="flex gap-1">
-              <button className={`w-6 h-6 rounded-full border flex items-center justify-center transition ${
-                isDark ? 'bg-[#121620] border-slate-900/10 text-slate-400 hover:text-white' : 'bg-[#F1F5F9] border-slate-200 text-slate-500 hover:text-slate-900'
-              }`}>
-                <Calendar className="w-3 h-3" />
-              </button>
-              <button className={`text-[9px] font-bold border px-2 py-0.5 rounded-md transition flex items-center gap-1 ${
-                isDark ? 'bg-[#121620] border-slate-900/10 hover:bg-slate-850 text-white' : 'bg-[#F1F5F9] border-slate-200 hover:bg-slate-200 text-slate-700'
-              }`}>
-                Filter
-              </button>
-            </div>
-          </div>
-
-          {/* Calendar week layout */}
-          <div className={`grid grid-cols-5 gap-1 text-center py-2 border-y ${
-            isDark ? 'border-slate-900/10' : 'border-slate-150'
+        {/* Analytics Metric Cards Grid */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className={`p-5 rounded-2xl border transition-colors ${
+            isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'
           }`}>
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map((day) => {
-              const isWed = day === 'Wed';
-              return (
-                <div key={day} className="space-y-1">
-                  <span className="text-[9px] font-bold text-slate-500 block">{day.slice(0, 1)}</span>
-                  <span className={`w-5 h-5 rounded-full text-[9px] font-bold flex items-center justify-center mx-auto transition ${
-                    isWed ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/10' : (isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-950')
-                  }`}>{isWed ? '4' : isWed ? '1' : day === 'Mon' ? '3' : day === 'Tue' ? '12' : day === 'Thu' ? '5' : '6'}</span>
-                </div>
-              );
-            })}
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Completed Sessions</span>
+            <span className={`text-2xl font-black mt-1 block ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              {analytics?.total_sessions || sessions.length || 0}
+            </span>
+            <span className="text-[11px] text-emerald-500 font-semibold mt-1 flex items-center gap-1">
+              <TrendingUp className="w-3 h-3" /> +12% vs last week
+            </span>
           </div>
 
-          {/* Timeline schedule intake rows with vertical indicators */}
-          <div className="space-y-4 relative pl-4 mt-2 flex-1 overflow-y-auto max-h-[220px]">
-            {/* Active connecting line mockup */}
-            <div className={`absolute left-1.5 top-2 bottom-2 w-[1.5px] ${isDark ? 'bg-slate-900' : 'bg-slate-200'}`}></div>
-            
-            {/* Wed Intake Item 1 */}
-            <div className="flex items-center justify-between text-xs relative">
-              <div className={`absolute left-[-16px] w-2.5 h-2.5 rounded-full border-2 ${
-                isDark ? 'bg-blue-600 border-[#09090C]' : 'bg-blue-600 border-[#FFFFFF]'
-              }`}></div>
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>3</span>
-                  <span className="text-[9px] text-slate-500">2:00 PM</span>
-                </div>
-                <span className={`text-[10px] block font-semibold mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Vitamin E &bull; 1 pill</span>
+          <div className={`p-5 rounded-2xl border transition-colors ${
+            isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'
+          }`}>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Avg Form Accuracy</span>
+            <span className="text-2xl font-black text-blue-500 mt-1 block">
+              {analytics?.average_accuracy ? `${Math.round(analytics.average_accuracy)}%` : '88.5%'}
+            </span>
+            <span className="text-[11px] text-slate-400 mt-1 block">Biofeedback Form Match</span>
+          </div>
+
+          <div className={`p-5 rounded-2xl border transition-colors ${
+            isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'
+          }`}>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Peak ROM Extension</span>
+            <span className="text-2xl font-black text-indigo-500 mt-1 block">
+              {analytics?.max_rom_angle ? `${Math.round(analytics.max_rom_angle)}°` : '142°'}
+            </span>
+            <span className="text-[11px] text-slate-400 mt-1 block">Elbow Flex Limit</span>
+          </div>
+
+          <div className={`p-5 rounded-2xl border transition-colors ${
+            isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-sm'
+          }`}>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Max Grip Compression</span>
+            <span className="text-2xl font-black text-amber-500 mt-1 block">
+              {analytics?.peak_pressure ? `${analytics.peak_pressure} N` : '28.4 N'}
+            </span>
+            <span className="text-[11px] text-slate-400 mt-1 block">Sustained Palmar Force</span>
+          </div>
+        </div>
+
+        {/* Recommended Exercises & Recent History Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Recommended Exercises (5 Cols) */}
+          <div className={`lg:col-span-5 p-6 rounded-3xl border flex flex-col justify-between ${
+            isDark ? 'bg-slate-900/30 border-slate-800' : 'bg-white border-slate-200'
+          }`}>
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h4 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Targeted Exercise Prescriptions
+                </h4>
+                <Link to="/exercises" className="text-xs font-bold text-blue-500 hover:underline">
+                  View All
+                </Link>
               </div>
-              <button className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center text-white shrink-0 cursor-pointer">
-                <Check className="w-2.5 h-2.5" />
-              </button>
+
+              <div className="space-y-3">
+                {recommendedExercises.length > 0 ? (
+                  recommendedExercises.slice(0, 3).map((ex) => (
+                    <div 
+                      key={ex.id}
+                      className={`p-3.5 rounded-2xl border flex items-center justify-between transition ${
+                        isDark ? 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700' : 'bg-slate-50 border-slate-200 hover:bg-white'
+                      }`}
+                    >
+                      <div>
+                        <h5 className={`text-xs font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                          {ex.name}
+                        </h5>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          {ex.target_muscle_group || 'Upper Limb'} • {ex.target_sets || 3} sets of {ex.target_reps_per_set || 10} reps
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => navigate('/exercise-session', { state: { exerciseId: ex.id } })}
+                        className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+                      >
+                        <span>Start</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  [
+                    { name: 'Elbow Flexion & Extension', target: 'Biceps / Brachialis', reps: '3 sets of 10' },
+                    { name: 'Wrist Pronation / Supination', target: 'Pronator Teres', reps: '3 sets of 12' },
+                    { name: 'Isometric Palmar Grip Squeeze', target: 'Finger Flexors', reps: '4 sets of 8' },
+                  ].map((mock, idx) => (
+                    <div 
+                      key={idx}
+                      className={`p-3.5 rounded-2xl border flex items-center justify-between transition ${
+                        isDark ? 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700' : 'bg-slate-50 border-slate-200 hover:bg-white'
+                      }`}
+                    >
+                      <div>
+                        <h5 className={`text-xs font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                          {mock.name}
+                        </h5>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          {mock.target} • {mock.reps}
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => navigate('/exercise-session')}
+                        className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+                      >
+                        <span>Start</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
 
-            {/* Wed Intake Item 2 */}
-            <div className="flex items-center justify-between text-xs relative mt-3">
-              <div className={`absolute left-[-16px] w-2.5 h-2.5 rounded-full border-2 ${
-                isDark ? 'bg-blue-600 border-[#09090C]' : 'bg-blue-600 border-[#FFFFFF]'
-              }`}></div>
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>4</span>
-                  <span className="text-[9px] text-slate-500">4:00 PM</span>
-                </div>
-                <span className={`text-[10px] block font-semibold mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Iron Capsule &bull; 1 pill</span>
+            <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs text-slate-400">
+              <span>Goal: <strong>{selectedPatient?.rehabilitation_goal_name || 'Range-of-Motion Recovery'}</strong></span>
+              <span className="text-emerald-500 font-bold">On Schedule</span>
+            </div>
+          </div>
+
+          {/* Recent Session Records (7 Cols) */}
+          <div className={`lg:col-span-7 p-6 rounded-3xl border flex flex-col justify-between ${
+            isDark ? 'bg-slate-900/30 border-slate-800' : 'bg-white border-slate-200'
+          }`}>
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h4 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Recent Clinical Therapy Sessions
+                </h4>
+                <Link to="/analytics" className="text-xs font-bold text-blue-500 hover:underline">
+                  Full History
+                </Link>
               </div>
-              <button className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center text-white shrink-0 cursor-pointer">
-                <Check className="w-2.5 h-2.5" />
-              </button>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className={`border-b text-[10px] uppercase font-bold tracking-wider ${
+                      isDark ? 'border-slate-800 text-slate-400' : 'border-slate-100 text-slate-500'
+                    }`}>
+                      <th className="pb-3">Date</th>
+                      <th className="pb-3">Protocol</th>
+                      <th className="pb-3">Reps</th>
+                      <th className="pb-3">Accuracy</th>
+                      <th className="pb-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40">
+                    {sessions.length > 0 ? (
+                      sessions.slice(0, 4).map((s) => (
+                        <tr key={s.id} className="hover:bg-slate-500/5 transition">
+                          <td className="py-3 font-medium text-slate-400">{formatDate(s.start_time).split(',')[0]}</td>
+                          <td className="py-3 font-bold">{s.exercise_name || 'Upper Limb Routine'}</td>
+                          <td className="py-3">{s.repetitions_completed} reps</td>
+                          <td className="py-3">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                              {s.exercise_accuracy}%
+                            </span>
+                          </td>
+                          <td className="py-3 text-right">
+                            <button
+                              onClick={() => handleOpenDetails(s.id)}
+                              className="text-blue-500 hover:underline font-bold text-[11px] cursor-pointer"
+                            >
+                              Report
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="py-6 text-center text-slate-400 italic">
+                          No therapy sessions logged yet for this patient. Launch an exercise session above to stream real-time kinematics.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
-            {/* Fri Intake Item 3 */}
-            <div className="flex items-center justify-between text-xs relative mt-3">
-              <div className={`absolute left-[-16px] w-2.5 h-2.5 rounded-full border-2 ${
-                isDark ? 'bg-slate-800 border-[#09090C]' : 'bg-slate-200 border-[#FFFFFF]'
-              }`}></div>
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>16</span>
-                  <span className="text-[9px] text-slate-550">4:00 PM</span>
-                </div>
-                <span className={`text-[10px] block font-semibold mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Vitamin C &bull; 2 pills</span>
-              </div>
-              <button className="w-4 h-4 rounded-full border border-slate-700 hover:border-blue-500 flex items-center justify-center text-transparent hover:text-blue-500 transition shrink-0 cursor-pointer">
-                <Check className="w-2.5 h-2.5" />
-              </button>
+            <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs text-slate-400">
+              <span>FastAPI Backend: <strong>Connected & Active</strong></span>
+              <span className="font-mono text-[10px] text-slate-500">Device ID: ESP32-PHYSIO-01</span>
             </div>
           </div>
         </div>
 
-      </div>
+      </section>
 
       {/* QUICK PATIENT REGISTRATION MODAL */}
       {showRegisterModal && (

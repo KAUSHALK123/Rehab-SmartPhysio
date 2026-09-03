@@ -8,7 +8,7 @@ import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 const degToRad = (degrees) => ((degrees || 0) * Math.PI) / 180;
 
 // 3D Human Rig Component for Kinematics Overview
-function FullBodyRig({ controls, injuredArm = 'Right' }) {
+function FullBodyRig({ controls, injuredArm = 'Right', demoMode = false }) {
   // Load full_rig GLB from public/models directory
   const { scene } = useGLTF('/models/full_rig.glb');
   
@@ -54,8 +54,33 @@ function FullBodyRig({ controls, injuredArm = 'Right' }) {
   }, [clonedScene]);
 
   // Frame loop for smooth real-time joint rotations
-  useFrame(() => {
+  const lastControlsRef = useRef({});
+
+  useFrame(({ clock }) => {
     if (!clonedScene || !baseRotationsRef.current.initialized) return;
+
+    const t = clock.getElapsedTime();
+    let computedControls = controls;
+
+    if (demoMode && (!controls || Object.keys(controls).length === 0)) {
+      computedControls = {
+        shoulderAngle: Math.sin(t * 0.8) * 8,
+        shoulderAngleX: Math.cos(t * 0.7) * 6,
+        elbowAngle: 150 - Math.abs(Math.sin(t * 1.2)) * 60,
+        wristAngle: Math.sin(t * 1.5) * 35,
+        thumb: Math.max(0, Math.sin(t * 1.8) * 45),
+        index: Math.max(0, Math.sin(t * 1.8 + 0.2) * 55),
+        middle: Math.max(0, Math.sin(t * 1.8 + 0.4) * 60),
+        ring: Math.max(0, Math.sin(t * 1.8 + 0.6) * 55),
+        little: Math.max(0, Math.sin(t * 1.8 + 0.8) * 50),
+      };
+    }
+
+    // Use current controls if provided and has valid keys, otherwise fallback to last valid
+    const activeControls = (computedControls && Object.keys(computedControls).length > 0) ? computedControls : lastControlsRef.current;
+    if (computedControls && Object.keys(computedControls).length > 0) {
+      lastControlsRef.current = computedControls;
+    }
 
     const getNode = (name) =>
       typeof clonedScene.getObjectByName === 'function'
@@ -68,8 +93,8 @@ function FullBodyRig({ controls, injuredArm = 'Right' }) {
     const bicepRight = getNode('bicep_right');
     if (bicepRight) {
       const base = bases.bicep_right || { x: 0, y: 0, z: 0 };
-      const targetZ = base.z + degToRad(controls?.shoulderAngle || 0);
-      const targetX = base.x + degToRad(controls?.shoulderAngleX || 0);
+      const targetZ = base.z + degToRad(activeControls?.shoulderAngle || 0);
+      const targetX = base.x + degToRad(activeControls?.shoulderAngleX || 0);
       bicepRight.rotation.z = THREE.MathUtils.lerp(bicepRight.rotation.z, targetZ, 0.15);
       bicepRight.rotation.x = THREE.MathUtils.lerp(bicepRight.rotation.x, targetX, 0.15);
     }
@@ -78,7 +103,7 @@ function FullBodyRig({ controls, injuredArm = 'Right' }) {
     const rightForearm = getNode('right_forearm');
     if (rightForearm) {
       const base = bases.right_forearm || { x: 0, y: 0, z: 0 };
-      const bendDeg = 180 - (controls?.elbowAngle || 180); // 180 = straight -> 0 bend
+      const bendDeg = 180 - (activeControls?.elbowAngle || 180); // 180 = straight -> 0 bend
       const targetElbowZ = base.z - degToRad(bendDeg);
       rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, targetElbowZ, 0.15);
     }
@@ -88,7 +113,7 @@ function FullBodyRig({ controls, injuredArm = 'Right' }) {
     const circleWrist = getNode('Circle');
     if (circleWrist) {
       const base = bases.Circle || { x: 0, y: 0, z: 0 };
-      const targetWristX = base.x + degToRad(controls?.wristAngle || 0);
+      const targetWristX = base.x + degToRad(activeControls?.wristAngle || 0);
       circleWrist.rotation.x = THREE.MathUtils.lerp(circleWrist.rotation.x, targetWristX, 0.15);
     }
 
@@ -96,11 +121,11 @@ function FullBodyRig({ controls, injuredArm = 'Right' }) {
     // Nodes confirmed: right_thumb, right_index, right_middle, right_ring, right_little
     // Bending (flexion) should rotate around the local X axis (curl inward).
     const fingerMap = [
-      { node: 'right_thumb',  val: controls?.thumb  !== undefined ? controls.thumb  : 0 },
-      { node: 'right_index',  val: controls?.index  !== undefined ? controls.index  : 0 },
-      { node: 'right_middle', val: controls?.middle !== undefined ? controls.middle : 0 },
-      { node: 'right_ring',   val: controls?.ring   !== undefined ? controls.ring   : 0 },
-      { node: 'right_little', val: controls?.little !== undefined ? controls.little : 0 },
+      { node: 'right_thumb',  val: activeControls?.thumb  !== undefined ? activeControls.thumb  : 0 },
+      { node: 'right_index',  val: activeControls?.index  !== undefined ? activeControls.index  : 0 },
+      { node: 'right_middle', val: activeControls?.middle !== undefined ? activeControls.middle : 0 },
+      { node: 'right_ring',   val: activeControls?.ring   !== undefined ? activeControls.ring   : 0 },
+      { node: 'right_little', val: activeControls?.little !== undefined ? activeControls.little : 0 },
     ];
 
     fingerMap.forEach(({ node: nodeName, val }) => {
@@ -185,7 +210,14 @@ function CameraController({ cameraAngle, controlsRef }) {
 }
 
 // Main Canvas container component for Dashboard Kinematics Overview
-export default function Arm3DVisualizer({ controls, cameraAngle = 'straight', disableOrbit = false, injuredArm = 'Right' }) {
+export default function Arm3DVisualizer({ 
+  controls, 
+  cameraAngle = 'straight', 
+  disableOrbit = false, 
+  injuredArm = 'Right',
+  autoRotate = false,
+  demoMode = false
+}) {
   const controlsRef = useRef();
 
   return (
@@ -201,7 +233,7 @@ export default function Arm3DVisualizer({ controls, cameraAngle = 'straight', di
         <pointLight position={[0, 2, 3]} intensity={0.5} />
         
         <Center position={[0, 0, 0]}>
-          <FullBodyRig controls={controls} injuredArm={injuredArm} />
+          <FullBodyRig controls={controls} injuredArm={injuredArm} demoMode={demoMode} />
         </Center>
         
         {/* Dynamic camera transitions */}
@@ -213,6 +245,8 @@ export default function Arm3DVisualizer({ controls, cameraAngle = 'straight', di
           enableZoom={!disableOrbit} 
           enableRotate={!disableOrbit} 
           enablePan={false} 
+          autoRotate={autoRotate}
+          autoRotateSpeed={1.2}
           minDistance={1.5}
           maxDistance={5.5}
           target={[0.1, 0.2, 0]}

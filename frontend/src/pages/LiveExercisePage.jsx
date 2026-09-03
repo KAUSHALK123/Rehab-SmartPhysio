@@ -788,7 +788,20 @@ function LiveExercisePage() {
     return `${m}:${s}`;
   };
 
-  const activeSensors = isPaused && frozenSensors ? frozenSensors : sensors;
+  const defaultSensors = {
+    wrist_pitch: 0.0,
+    wrist_roll: 0.0,
+    elbow: 180.0,
+    thumb: 0,
+    index: 0,
+    middle: 0,
+    ring: 0,
+    little: 0
+  };
+
+  const activeSensors = isPaused && frozenSensors 
+    ? frozenSensors 
+    : (deviceConnected ? sensors : defaultSensors);
 
   const activeControls = {
     shoulderAngle: activeSensors.wrist_pitch,

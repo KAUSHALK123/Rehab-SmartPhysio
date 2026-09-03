@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import LandingPage from './pages/LandingPage';
 import DashboardLayout from './layouts/DashboardLayout';
 import DashboardPage from './pages/DashboardPage';
 import CalibrationPage from './pages/CalibrationPage';
@@ -34,6 +35,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           {/* Public Routes */}
+          <Route path="/overview" element={<LandingPage />} />
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route 
             path="/login" 
