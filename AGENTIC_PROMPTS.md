@@ -250,3 +250,43 @@ VERIFICATION:
 
 > Phase 2 requires deleting smartphysio.db to re-seed the database with new columns. 
 > Make sure to re-register your patient after the DB reset.
+
+
+---
+
+## Phase 4 Prompt: Random Forest ML Integration & Live Inference
+
+```text
+The user has generated a custom dataset using the /data-collection page and is ready to fully integrate the Random Forest ML model into the live application.
+
+CONTEXT:
+- The dataset is saved as 'dataset.csv' in the backend root directory.
+- The training script is 'backend/train_rf_classifier.py'.
+- The ML service is 'backend/app/services/ml_service.py'.
+- The WebSocket handler broadcasting live data is 'backend/app/websocket/ws_device.py'.
+- The live UI displaying the form score is 'frontend/src/pages/LiveExercisePage.jsx'.
+
+WHAT TO DO:
+
+STEP 1: TRAIN THE MODEL
+1. Run `python train_rf_classifier.py dataset.csv` in the backend directory.
+2. Verify that it outputs a high accuracy score and saves `classifier.joblib` to `backend/app/resources/classifier.joblib`.
+
+STEP 2: WIRE UP THE BACKEND INFERENCE
+1. In `backend/app/websocket/ws_device.py`:
+   - Import `from app.services.ml_service import ml_service`.
+   - Before broadcasting the sensor telemetry to all clients, check if there is an active exercise session.
+   - If there is an active session (meaning the user is doing an exercise), call `ml_score = ml_service.evaluate_exercise(active_exercise_name, sensor_data)`.
+   - Inject this `ml_score` into the JSON payload that gets sent to the frontend (e.g., `sensor_data["ml_accuracy_score"] = ml_score`).
+
+STEP 3: WIRE UP THE FRONTEND UI
+1. In `frontend/src/pages/LiveExercisePage.jsx`:
+   - Locate the logic where `formScore` is calculated. Currently, it uses hardcoded math (e.g., `const currentFormScore = calculateFormScore()`).
+   - Replace this math logic. Instead, read the new `ml_accuracy_score` directly from the incoming WebSocket packet (`latestData.ml_accuracy_score`).
+   - Use this ML-driven score to fill the Form Quality gauge.
+
+STEP 4: VERIFICATION
+- Start a mock exercise session.
+- Verify in the terminal that `ml_service` is predicting probabilities.
+- Verify that the Form Quality gauge on the `LiveExercisePage` dynamically moves based on the ML predictions rather than the old math rules.
+```
