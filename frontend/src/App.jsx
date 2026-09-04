@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import LandingPage from './pages/LandingPage';
 import DashboardLayout from './layouts/DashboardLayout';
 import DashboardPage from './pages/DashboardPage';
 import CalibrationPage from './pages/CalibrationPage';
@@ -15,6 +16,7 @@ import MessagesPage from './pages/MessagesPage';
 import AppointmentsPage from './pages/AppointmentsPage';
 import ReportsPage from './pages/ReportsPage';
 import Debug3DPage from './pages/Debug3DPage';
+import DataCollectionPage from './pages/DataCollectionPage';
 
 // Component to protect user pages
 function ProtectedRoute({ children }) {
@@ -34,6 +36,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           {/* Public Routes */}
+          <Route path="/overview" element={<LandingPage />} />
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route 
             path="/login" 
@@ -74,6 +77,7 @@ function App() {
 
           {/* Debug route - no auth required for quick testing */}
           <Route path="/debug-3d" element={<Debug3DPage />} />
+          <Route path="/data-collection" element={<DataCollectionPage />} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
