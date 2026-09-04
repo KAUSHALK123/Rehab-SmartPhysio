@@ -433,7 +433,7 @@ function DashboardPage() {
         <div className="relative z-10 flex flex-col xl:flex-row xl:items-center justify-between gap-8">
           {/* Left Hero Title & Tagline */}
           <div className="max-w-3xl space-y-4">
-            <h1 className={`text-3xl lg:text-5xl font-black tracking-tight leading-tight ${
+            <h1 className={`text-3xl lg:text-5xl font-black font-syne tracking-tight leading-tight ${
               isDark ? 'text-white' : 'text-slate-900'
             }`}>
               Intelligent Upper-Limb Rehabilitation
@@ -457,7 +457,7 @@ function DashboardPage() {
                 <span className={`w-2 h-2 rounded-full ${
                   deviceConnected ? 'bg-emerald-400 shadow-[0_0_8px_#10B981]' : 'bg-amber-400 animate-pulse'
                 }`} />
-                <span>{deviceConnected ? 'Hardware Online: WebSocket 50Hz' : 'Simulated Hardware Telemetry'}</span>
+                <span>{deviceConnected ? 'Hardware Online: WebSocket 50Hz' : 'Hardware Disconnected'}</span>
               </div>
 
               {/* Active Patient Switcher */}
@@ -516,16 +516,7 @@ function DashboardPage() {
                 )}
               </div>
 
-              {/* Theme Toggle Button */}
-              <button
-                onClick={toggleTheme}
-                className={`p-2 rounded-xl border text-xs font-semibold transition cursor-pointer ${
-                  isDark ? 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white' : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 shadow-sm'
-                }`}
-                title="Toggle Theme"
-              >
-                {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
-              </button>
+              
             </div>
           </div>
 
@@ -564,6 +555,8 @@ function DashboardPage() {
         </div>
       </section>
 
+      <hr className="border-slate-200/50 dark:border-slate-800/50 my-12" />
+
       {/* ===================================================
           SECTION 2: HOW THIS PROJECT WORKS (3 FLOW-WISE CARDS)
           =================================================== */}
@@ -572,7 +565,7 @@ function DashboardPage() {
           <span className="text-[11px] font-bold text-blue-500 uppercase tracking-widest">
             End-to-End Architecture
           </span>
-          <h2 className={`text-2xl lg:text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          <h2 className={`text-2xl lg:text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'} font-syne`}>
             How SmartPhysio Works
           </h2>
           <p className="text-xs lg:text-sm text-slate-400">
@@ -597,7 +590,7 @@ function DashboardPage() {
               <div className="uiverse-glass"></div>
               <div className="uiverse-content">
                 <span className="uiverse-title">Wearable Sensor Ingestion</span>
-                <span className="uiverse-text">Flexible resistive strips, rotary goniometer, and 6-axis IMU record joint angles and muscle squeeze force simultaneously with zero restriction.</span>
+                <span className="uiverse-text" style={{ color: '#004020', fontWeight: '600', fontSize: '13px' }}>Flexible resistive strips, rotary goniometer, and 6-axis IMU record joint angles and muscle squeeze force simultaneously with zero restriction.</span>
               </div>
               <div className="uiverse-bottom">
                 <div className="social-buttons-container">
@@ -625,7 +618,7 @@ function DashboardPage() {
               <div className="uiverse-glass"></div>
               <div className="uiverse-content">
                 <span className="uiverse-title" style={{ color: '#004080' }}>Low-Latency WebSocket</span>
-                <span className="uiverse-text" style={{ color: 'rgba(0, 64, 128, 0.8)' }}>ESP32 samples lines at 50Hz and transmits encrypted JSON telemetry packets over WebSockets to the backend in under 20ms.</span>
+                <span className="uiverse-text" style={{ color: '#003060', fontWeight: '600', fontSize: '13px' }}>ESP32 samples lines at 50Hz and transmits encrypted JSON telemetry packets over WebSockets to the backend in under 20ms.</span>
               </div>
               <div className="uiverse-bottom">
                 <div className="social-buttons-container">
@@ -653,7 +646,7 @@ function DashboardPage() {
               <div className="uiverse-glass"></div>
               <div className="uiverse-content">
                 <span className="uiverse-title" style={{ color: '#400080' }}>3D Digital Twin</span>
-                <span className="uiverse-text" style={{ color: 'rgba(64, 0, 128, 0.8)' }}>Incoming telemetry drives the 3D anatomical GLB model. Algorithms score repetition accuracy and compare active ROM against clinical goals.</span>
+                <span className="uiverse-text" style={{ color: '#300060', fontWeight: '600', fontSize: '13px' }}>Incoming telemetry drives the 3D anatomical GLB model. Algorithms score repetition accuracy and compare active ROM against clinical goals.</span>
               </div>
               <div className="uiverse-bottom">
                 <div className="social-buttons-container">
@@ -669,6 +662,8 @@ function DashboardPage() {
         </div>
       </section>
 
+      <hr className="border-slate-200/50 dark:border-slate-800/50 my-12" />
+
       {/* ===================================================
           SECTION 3: TWO-COLUMN LAYOUT
           Left: Small IoT Sensors Used | Right: 3D GLB Model
@@ -678,7 +673,7 @@ function DashboardPage() {
           <span className="text-[11px] font-bold text-blue-500 uppercase tracking-widest">
             Hardware & 3D Visualization
           </span>
-          <h2 className={`text-2xl lg:text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          <h2 className={`text-2xl lg:text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'} font-syne`}>
             IoT Sensors & Digital Twin
           </h2>
         </div>
@@ -688,7 +683,7 @@ function DashboardPage() {
         <div className="lg:col-span-5 flex flex-col gap-4">
           <div className="flex items-center justify-between px-1">
             <div>
-              <h3 className={`text-base font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              <h3 className={`text-base font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'} font-syne`}>
                 Wearable IoT Sensor Array
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
@@ -795,7 +790,7 @@ function DashboardPage() {
         <div className="lg:col-span-7 flex flex-col gap-4">
           <div className="flex items-center justify-between px-1">
             <div>
-              <h3 className={`text-base font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              <h3 className={`text-base font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'} font-syne`}>
                 3D Digital-Twin Kinematics
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
@@ -877,74 +872,11 @@ function DashboardPage() {
               {deviceConnected ? 'Live Telemetry' : 'Demo Kinematics'}
             </div>
           </div>
-
-          {/* Manual Joint Sliders Control Tray (Therapist Test Mode) */}
-          <div className={`p-4 rounded-2xl border transition-colors ${
-            isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200'
-          }`}>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-                Kinematic Angle Test Controls
-              </span>
-              <button 
-                onClick={() => setControls({ shoulderAngle: 0, shoulderAngleX: 0, elbowAngle: 0, wristAngle: 0 })}
-                className="text-[10px] font-bold text-blue-500 hover:underline"
-              >
-                Reset Angles
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <div className="flex justify-between text-[11px] font-semibold mb-1">
-                  <span>Shoulder: {controls.shoulderAngle}°</span>
-                </div>
-                <input 
-                  type="range" 
-                  min="-45" 
-                  max="45" 
-                  value={controls.shoulderAngle}
-                  disabled={deviceConnected}
-                  onChange={(e) => setControls(prev => ({ ...prev, shoulderAngle: parseInt(e.target.value) }))}
-                  className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                />
-              </div>
-
-              <div>
-                <div className="flex justify-between text-[11px] font-semibold mb-1">
-                  <span>Elbow Flex: {controls.elbowAngle}°</span>
-                </div>
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="140" 
-                  value='Hardware Module'
-                  disabled={deviceConnected}
-                  onChange={(e) => setControls(prev => ({ ...prev, elbowAngle: parseInt(e.target.value) }))}
-                  className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                />
-              </div>
-
-              <div>
-                <div className="flex justify-between text-[11px] font-semibold mb-1">
-                  <span>Wrist Roll: {controls.wristAngle}°</span>
-                </div>
-                <input 
-                  type="range" 
-                  min="-90" 
-                  max="90" 
-                  value='Hardware Module'
-                  disabled={deviceConnected}
-                  onChange={(e) => setControls(prev => ({ ...prev, wristAngle: parseInt(e.target.value) }))}
-                  className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                />
-              </div>
-            </div>
-          </div>
         </div>
       </section>
       </div>
+
+      <hr className="border-slate-200/50 dark:border-slate-800/50 my-12" />
 
       {/* ===================================================
           SECTION 4: CLINICAL TELEMETRY & PATIENT RECOVERY HUB
@@ -952,7 +884,7 @@ function DashboardPage() {
       <section className="flex flex-col gap-6">
         <div className="flex items-center justify-between px-1">
           <div>
-            <h3 className={`text-lg font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            <h3 className={`text-lg font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'} font-syne`}>
               Patient Clinical Overview
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
@@ -1022,7 +954,7 @@ function DashboardPage() {
           }`}>
             <div>
               <div className="flex items-center justify-between mb-4">
-                <h4 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                <h4 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'} font-syne`}>
                   Targeted Exercise Prescriptions
                 </h4>
                 <Link to="/exercises" className="text-xs font-bold text-blue-500 hover:underline">
@@ -1103,7 +1035,7 @@ function DashboardPage() {
           }`}>
             <div>
               <div className="flex items-center justify-between mb-4">
-                <h4 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                <h4 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'} font-syne`}>
                   Recent Clinical Therapy Sessions
                 </h4>
                 <Link to="/analytics" className="text-xs font-bold text-blue-500 hover:underline">
@@ -1178,7 +1110,7 @@ function DashboardPage() {
             <div className={`px-6 py-4 border-b flex justify-between items-center ${
               isDark ? 'border-slate-850' : 'border-slate-100'
             }`}>
-              <h4 className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              <h4 className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'} font-syne`}>
                 <User className="w-4 h-4 text-blue-500" />
                 Add New Patient Profile
               </h4>
@@ -1400,7 +1332,7 @@ function DashboardPage() {
             <div className={`px-6 py-4 border-b flex justify-between items-center print:hidden ${
               isDark ? 'bg-[#09090C] border-slate-850' : 'bg-[#FFFFFF] border-slate-100'
             }`}>
-              <h4 className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              <h4 className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'} font-syne`}>
                 <FileText className="w-4 h-4 text-blue-500" />
                 Clinical Session Record
               </h4>
