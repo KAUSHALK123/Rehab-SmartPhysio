@@ -343,6 +343,111 @@ function ExerciseLibraryPage() {
               ))}
             </div>
           </div>
+
+
+          {/* Trial / Sensor Test Section */}
+          <div className="space-y-4 pt-6 border-t-2 border-slate-100">
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-4 bg-purple-500 rounded-full"></div>
+              <h4 className="text-sm font-extrabold text-slate-500 uppercase tracking-widest">
+                Trial / Sensor Test
+              </h4>
+            </div>
+            <p className="text-xs text-slate-500 max-w-2xl">
+              Use these diagnostic exercises to verify sensor telemetry and 3D arm visualization. These tests do not record to your patient analytics.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              
+              {/* Finger Sensor Test */}
+              <div className="bg-slate-50 rounded-2xl border-2 border-slate-200 border-dashed hover:border-purple-300 transition-all duration-200 flex flex-col justify-between overflow-hidden group">
+                <div className="p-6 space-y-4.5">
+                  <div className="flex justify-between items-center">
+                    <span className="px-2.5 py-1 bg-white text-slate-600 rounded-lg text-xs font-semibold border border-slate-200">
+                      Hand/Fingers
+                    </span>
+                    <span className="px-2.5 py-0.5 text-[10px] font-extrabold rounded-full uppercase tracking-wider bg-purple-100 text-purple-700">
+                      Diagnostic
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-lg font-bold text-slate-800">Finger Sensor Test</h4>
+                    <p className="text-slate-500 text-xs md:text-sm h-10">
+                      Test all 5 flex sensors and finger movement in the 3D model.
+                    </p>
+                  </div>
+                </div>
+                <div className="bg-slate-100/50 px-6 py-4 flex items-center justify-end">
+                  <button 
+                    onClick={() => navigate('/exercise-session?mode=trial&type=fingers')}
+                    className="px-4 py-2 text-xs font-bold rounded-lg transition flex items-center gap-1.5 bg-purple-600 text-white hover:bg-purple-700 shadow-sm"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    Start Test
+                  </button>
+                </div>
+              </div>
+
+              {/* Wrist Sensor Test */}
+              <div className="bg-slate-50 rounded-2xl border-2 border-slate-200 border-dashed hover:border-purple-300 transition-all duration-200 flex flex-col justify-between overflow-hidden group">
+                <div className="p-6 space-y-4.5">
+                  <div className="flex justify-between items-center">
+                    <span className="px-2.5 py-1 bg-white text-slate-600 rounded-lg text-xs font-semibold border border-slate-200">
+                      Wrist
+                    </span>
+                    <span className="px-2.5 py-0.5 text-[10px] font-extrabold rounded-full uppercase tracking-wider bg-purple-100 text-purple-700">
+                      Diagnostic
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-lg font-bold text-slate-800">Wrist Sensor Test</h4>
+                    <p className="text-slate-500 text-xs md:text-sm h-10">
+                      Test MPU6050 wrist angle, pitch, and rotation.
+                    </p>
+                  </div>
+                </div>
+                <div className="bg-slate-100/50 px-6 py-4 flex items-center justify-end">
+                  <button 
+                    onClick={() => navigate('/exercise-session?mode=trial&type=wrist')}
+                    className="px-4 py-2 text-xs font-bold rounded-lg transition flex items-center gap-1.5 bg-purple-600 text-white hover:bg-purple-700 shadow-sm"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    Start Test
+                  </button>
+                </div>
+              </div>
+
+              {/* Elbow Sensor Test */}
+              <div className="bg-slate-50 rounded-2xl border-2 border-slate-200 border-dashed hover:border-purple-300 transition-all duration-200 flex flex-col justify-between overflow-hidden group">
+                <div className="p-6 space-y-4.5">
+                  <div className="flex justify-between items-center">
+                    <span className="px-2.5 py-1 bg-white text-slate-600 rounded-lg text-xs font-semibold border border-slate-200">
+                      Elbow
+                    </span>
+                    <span className="px-2.5 py-0.5 text-[10px] font-extrabold rounded-full uppercase tracking-wider bg-purple-100 text-purple-700">
+                      Diagnostic
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-lg font-bold text-slate-800">Elbow Sensor Test</h4>
+                    <p className="text-slate-500 text-xs md:text-sm h-10">
+                      Test elbow flex sensor bend angle and visualization.
+                    </p>
+                  </div>
+                </div>
+                <div className="bg-slate-100/50 px-6 py-4 flex items-center justify-end">
+                  <button 
+                    onClick={() => navigate('/exercise-session?mode=trial&type=elbow')}
+                    className="px-4 py-2 text-xs font-bold rounded-lg transition flex items-center gap-1.5 bg-purple-600 text-white hover:bg-purple-700 shadow-sm"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    Start Test
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
         </div>
       )}
 

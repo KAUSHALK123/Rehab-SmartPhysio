@@ -28,6 +28,7 @@ import {
 import { startSession, endSession } from '../services/session';
 import apiClient from '../services/auth';
 import Arm3DVisualizer from '../components/Arm3DVisualizer';
+import Trial3DVisualizer from '../components/Trial3DVisualizer';
 
 // Speedometer-style circular gauge component with rotating needle
 const SVGGauge = ({ value, min = 0, max = 180, title, aimText, currentText, feedbackText }) => {
@@ -191,9 +192,15 @@ function LiveExercisePage() {
   const navigate = useNavigate();
   const location = useLocation();
   
+  // Check if we are in trial mode
+  const searchParams = new URLSearchParams(location.search);
+  const mode = searchParams.get('mode');
+  const trialType = searchParams.get('type') || '';
+  const isTrial = mode === 'trial';
+
   // Exercise parameters passed in route state (or loaded from localStorage)
   const exerciseId = location.state?.exerciseId || localStorage.getItem('activeExerciseId') || '';
-  const exerciseName = location.state?.exerciseName || localStorage.getItem('activeExerciseName') || 'Exercise Routine';
+  const exerciseName = isTrial ? `Trial: ${trialType ? trialType.charAt(0).toUpperCase() + trialType.slice(1) : ''} Test` : (location.state?.exerciseName || localStorage.getItem('activeExerciseName') || 'Exercise Routine');
   const patientId = localStorage.getItem('activePatientId') || '';
   const patientName = localStorage.getItem('activePatientName') || 'Patient';
 
@@ -297,32 +304,55 @@ function LiveExercisePage() {
   
   useEffect(() => {
     isMounted.current = true;
-    if (!patientId || !exerciseId) {
+    
+    // In Trial mode, bypass DB exercise check and patient check
+    if (!isTrial && (!patientId || !exerciseId)) {
       navigate('/exercises');
       return;
     }
 
     const loadExercise = async () => {
       try {
-        const [exerciseRes, patientRes] = await Promise.all([
-          apiClient.get(`/exercises/${exerciseId}`),
-          apiClient.get(`/patients/${patientId}`)
-        ]);
-        if (!isMounted.current) return;
-        setExerciseDetails(exerciseRes.data);
-        activeExerciseRef.current = exerciseRes.data;
-        setPatientDetails(patientRes.data);
+        if (isTrial) {
+          // Hardcoded configuration for trial modes
+          let mockConfig = {};
+          if (trialType === 'fingers') {
+            mockConfig = { exercise_name: 'Finger Sensor Test', primary_sensor: 'flex_avg', secondary_sensor: 'pressure', camera_view: 'hand', target_angle: 90 };
+          } else if (trialType === 'wrist') {
+            mockConfig = { exercise_name: 'Wrist Sensor Test', primary_sensor: 'wrist_pitch', secondary_sensor: 'wrist_roll', camera_view: 'wrist', target_angle: 45 };
+          } else if (trialType === 'elbow') {
+            mockConfig = { exercise_name: 'Elbow Sensor Test', primary_sensor: 'elbow', secondary_sensor: 'wrist_roll', camera_view: 'elbow', target_angle: 90 };
+          } else {
+            mockConfig = { exercise_name: 'Sensor Test', primary_sensor: 'flex_avg', camera_view: 'straight' };
+          }
+          
+          setExerciseDetails(mockConfig);
+          activeExerciseRef.current = mockConfig;
+          setCameraAngle(mockConfig.camera_view || 'straight');
+          setSessionActive(true);
+          setGuidance(`Trial Mode: ${mockConfig.exercise_name} active. Check telemetry stream.`);
+        } else {
+          // Standard execution flow
+          const [exerciseRes, patientRes] = await Promise.all([
+            apiClient.get(`/exercises/${exerciseId}`),
+            apiClient.get(`/patients/${patientId}`)
+          ]);
+          if (!isMounted.current) return;
+          setExerciseDetails(exerciseRes.data);
+          activeExerciseRef.current = exerciseRes.data;
+          setPatientDetails(patientRes.data);
 
-        // Auto-switch camera based on exercise database configuration
-        if (exerciseRes.data.camera_view) {
-          setCameraAngle(exerciseRes.data.camera_view);
+          // Auto-switch camera based on exercise database configuration
+          if (exerciseRes.data.camera_view) {
+            setCameraAngle(exerciseRes.data.camera_view);
+          }
+          
+          // Start session in DB
+          const sessionRes = await startSession(patientId, exerciseId);
+          if (!isMounted.current) return;
+          setSessionId(sessionRes.session_id);
+          setSessionActive(true);
         }
-        
-        // Start session in DB
-        const sessionRes = await startSession(patientId, exerciseId);
-        if (!isMounted.current) return;
-        setSessionId(sessionRes.session_id);
-        setSessionActive(true);
       } catch (err) {
         console.error("Failed to initialize exercise session", err);
         navigate('/exercises');
@@ -475,6 +505,22 @@ function LiveExercisePage() {
   // State Machine Rep Count & Posture Guidance Logic
   const evaluateRepetitionState = (data) => {
     if (isPaused) return;
+
+    if (isTrial) {
+      // In trial mode, we just update static test guidance and avoid running the rep state machine
+      if (trialType === 'fingers') {
+        setGuidance('Open and close your fingers slowly. Observe the 3D hand.');
+        setAiFeedback({ progress: 100, suggestion: 'Try bending your index finger or thumb.', warning: null, status: 'info' });
+      } else if (trialType === 'wrist') {
+        setGuidance('Move your wrist slowly. Rotate left and right, and bend upward/downward.');
+        setAiFeedback({ progress: 100, suggestion: 'Rotate your wrist to test the MPU6050 angles.', warning: null, status: 'info' });
+      } else {
+        setGuidance('Keep your upper arm steady. Bend and straighten your elbow.');
+        setAiFeedback({ progress: 100, suggestion: 'Test the elbow flex sensor range.', warning: null, status: 'info' });
+      }
+      return;
+    }
+
 
     const ex = activeExerciseRef.current;
     if (!ex) return;
@@ -768,6 +814,12 @@ function LiveExercisePage() {
       average_pressure: Number(avgPressure.toFixed(1)),
       exercise_accuracy: accuracy
     };
+
+    if (isTrial) {
+      // Bypass analytics and navigate directly back
+      navigate('/exercises');
+      return;
+    }
 
     try {
       await endSession(payload);
@@ -1101,7 +1153,7 @@ function LiveExercisePage() {
                       <div className="absolute top-2 left-2 z-10 bg-slate-900/80 backdrop-blur text-[9px] font-extrabold px-2.5 py-1 rounded-lg border border-slate-800 uppercase tracking-widest text-slate-400">
                         Straight View
                       </div>
-                      <Arm3DVisualizer 
+                      <VisualizerComponent 
                         controls={activeControls} 
                         cameraAngle="straight" 
                         disableOrbit={true} 
@@ -1112,7 +1164,7 @@ function LiveExercisePage() {
                       <div className="absolute top-2 left-2 z-10 bg-slate-900/80 backdrop-blur text-[9px] font-extrabold px-2.5 py-1 rounded-lg border border-slate-800 uppercase tracking-widest text-slate-400">
                         Side View
                       </div>
-                      <Arm3DVisualizer 
+                      <VisualizerComponent 
                         controls={activeControls} 
                         cameraAngle="side" 
                         disableOrbit={true} 
@@ -1121,7 +1173,7 @@ function LiveExercisePage() {
                     </div>
                   </div>
                 ) : (
-                  <Arm3DVisualizer 
+                  <VisualizerComponent 
                     controls={activeControls} 
                     cameraAngle={cameraAngle} 
                     disableOrbit={true} 
