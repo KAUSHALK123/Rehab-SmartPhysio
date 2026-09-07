@@ -31,6 +31,8 @@ import Arm3DVisualizer from '../components/Arm3DVisualizer';
 import Trial3DVisualizer from '../components/Trial3DVisualizer';
 import GLBCalibrationPanel from '../components/GLBCalibrationPanel';
 import FingerSensorTrialPanel from '../components/FingerSensorTrialPanel';
+import WristSensorTrialPanel from '../components/WristSensorTrialPanel';
+import ElbowSensorTrialPanel from '../components/ElbowSensorTrialPanel';
 import { processFingerTelemetry } from '../services/fingerSensorMapper';
 import { processWristTelemetry } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
@@ -361,6 +363,8 @@ function LiveExercisePage() {
   const [calibRestAngles, setCalibRestAngles] = useState({ x: 0, y: 0, z: 0 });
 
   const [fingerTrialView, setFingerTrialView] = useState('sensor'); // 'sensor' | 'calibration'
+  const [wristTrialView, setWristTrialView] = useState('sensor'); // 'sensor' | 'calibration'
+  const [elbowTrialView, setElbowTrialView] = useState('sensor'); // 'sensor' | 'calibration'
   const [sensorFingerAngles, setSensorFingerAngles] = useState(null);
   const [sensorWristAngles, setSensorWristAngles] = useState(null);
   const [sensorElbowAngles, setSensorElbowAngles] = useState(null);
@@ -1089,17 +1093,19 @@ function LiveExercisePage() {
   };
 
   // Resolve active calibrated finger angles for 3D visualizer
-  // - In trial finger calibration view, keep fingers at rest so user can calibrate target bone
-  // - In trial finger sensor test view, use trial panel angles (sensor or simulation/demo)
-  // - In main exercise sessions, use live sensor calibrated angles
   const activeSensorFingerAngles = (isTrial && trialType === 'fingers' && fingerTrialView === 'calibration')
     ? null
     : sensorFingerAngles;
 
   // Resolve active calibrated wrist angles for 3D visualizer
-  // - In trial mode, wrist test / calibration panel manages its own angles
-  // - In main exercise sessions, use live sensor calibrated angles
-  const activeSensorWristAngles = isTrial ? null : sensorWristAngles;
+  const activeSensorWristAngles = (isTrial && trialType === 'wrist' && wristTrialView === 'calibration')
+    ? null
+    : sensorWristAngles;
+
+  // Resolve active calibrated elbow angles for 3D visualizer
+  const activeSensorElbowAngles = (isTrial && trialType === 'elbow' && elbowTrialView === 'calibration')
+    ? null
+    : (sensorElbowAngles?.angles || sensorElbowAngles);
 
   // Build the dynamic gauge configurations for the selected exercise
   const getExerciseFeedback = () => {
@@ -1392,12 +1398,12 @@ function LiveExercisePage() {
                         cameraAngle="straight" 
                         disableOrbit={isTrial ? false : true} 
                         injuredArm={patientDetails?.injured_arm || 'Right'}
-                        calibrationActive={isTrial && (trialType === 'wrist' || trialType === 'elbow' || (trialType === 'fingers' && fingerTrialView === 'calibration'))}
+                        calibrationActive={isTrial && ((trialType === 'fingers' && fingerTrialView === 'calibration') || (trialType === 'wrist' && wristTrialView === 'calibration') || (trialType === 'elbow' && elbowTrialView === 'calibration'))}
                         targetBone={calibTargetBone}
                         testAngles={calibTestAngles}
                         sensorFingerAngles={activeSensorFingerAngles}
                         sensorWristAngles={activeSensorWristAngles}
-                        sensorElbowAngles={isTrial ? null : (sensorElbowAngles?.angles || null)}
+                        sensorElbowAngles={activeSensorElbowAngles}
                         onRestAnglesCaptured={handleRestAnglesCaptured}
                       />
                     </div>
@@ -1410,12 +1416,12 @@ function LiveExercisePage() {
                         cameraAngle="side" 
                         disableOrbit={isTrial ? false : true} 
                         injuredArm={patientDetails?.injured_arm || 'Right'}
-                        calibrationActive={isTrial && (trialType === 'wrist' || trialType === 'elbow' || (trialType === 'fingers' && fingerTrialView === 'calibration'))}
+                        calibrationActive={isTrial && ((trialType === 'fingers' && fingerTrialView === 'calibration') || (trialType === 'wrist' && wristTrialView === 'calibration') || (trialType === 'elbow' && elbowTrialView === 'calibration'))}
                         targetBone={calibTargetBone}
                         testAngles={calibTestAngles}
                         sensorFingerAngles={activeSensorFingerAngles}
                         sensorWristAngles={activeSensorWristAngles}
-                        sensorElbowAngles={isTrial ? null : (sensorElbowAngles?.angles || null)}
+                        sensorElbowAngles={activeSensorElbowAngles}
                         onRestAnglesCaptured={handleRestAnglesCaptured}
                       />
                     </div>
@@ -1426,12 +1432,12 @@ function LiveExercisePage() {
                     cameraAngle={cameraAngle} 
                     disableOrbit={isTrial ? false : true} 
                     injuredArm={patientDetails?.injured_arm || 'Right'}
-                    calibrationActive={isTrial && (trialType === 'wrist' || trialType === 'elbow' || (trialType === 'fingers' && fingerTrialView === 'calibration'))}
+                    calibrationActive={isTrial && ((trialType === 'fingers' && fingerTrialView === 'calibration') || (trialType === 'wrist' && wristTrialView === 'calibration') || (trialType === 'elbow' && elbowTrialView === 'calibration'))}
                     targetBone={calibTargetBone}
                     testAngles={calibTestAngles}
                     sensorFingerAngles={activeSensorFingerAngles}
                     sensorWristAngles={activeSensorWristAngles}
-                    sensorElbowAngles={isTrial ? null : (sensorElbowAngles?.angles || null)}
+                    sensorElbowAngles={activeSensorElbowAngles}
                     onRestAnglesCaptured={handleRestAnglesCaptured}
                   />
                 )}
@@ -1514,13 +1520,67 @@ function LiveExercisePage() {
                 </div>
               ) : isTrial && (trialType === 'wrist' || trialType === 'elbow') ? (
                 <div className="flex-1 flex flex-col justify-between overflow-y-auto pr-1">
-                  <GLBCalibrationPanel 
-                    mode={trialType === 'elbow' ? 'elbow' : 'wrist'}
-                    onActiveJointChange={handleCalibrationJointChange}
-                    onTestAnglesChange={handleCalibrationTestAnglesChange}
-                    restAngles={calibRestAngles}
-                    liveRotation={calibTestAngles}
-                  />
+                  {trialType === 'wrist' ? (
+                    wristTrialView === 'sensor' ? (
+                      <WristSensorTrialPanel 
+                        liveSensors={rawSensorPacket}
+                        deviceConnected={deviceConnected}
+                        lastPacketTime={lastPacketTime}
+                        onAnglesUpdate={(angles) => setSensorWristAngles(angles)}
+                        onToggleCalibrationMode={() => setWristTrialView('calibration')}
+                      />
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center bg-purple-50 p-2.5 rounded-xl border border-purple-200">
+                          <span className="text-[10px] font-bold text-purple-700">GLB Range Calibration Mode</span>
+                          <button
+                            type="button"
+                            onClick={() => setWristTrialView('sensor')}
+                            className="text-[10px] font-extrabold text-purple-800 underline cursor-pointer"
+                          >
+                            ← Return to Live Sensor Mode
+                          </button>
+                        </div>
+                        <GLBCalibrationPanel 
+                          mode="wrist"
+                          onActiveJointChange={handleCalibrationJointChange}
+                          onTestAnglesChange={handleCalibrationTestAnglesChange}
+                          restAngles={calibRestAngles}
+                          liveRotation={calibTestAngles}
+                        />
+                      </div>
+                    )
+                  ) : (
+                    elbowTrialView === 'sensor' ? (
+                      <ElbowSensorTrialPanel 
+                        liveSensors={rawSensorPacket}
+                        deviceConnected={deviceConnected}
+                        lastPacketTime={lastPacketTime}
+                        onAnglesUpdate={(angles) => setSensorElbowAngles(angles)}
+                        onToggleCalibrationMode={() => setElbowTrialView('calibration')}
+                      />
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center bg-purple-50 p-2.5 rounded-xl border border-purple-200">
+                          <span className="text-[10px] font-bold text-purple-700">GLB Range Calibration Mode</span>
+                          <button
+                            type="button"
+                            onClick={() => setElbowTrialView('sensor')}
+                            className="text-[10px] font-extrabold text-purple-800 underline cursor-pointer"
+                          >
+                            ← Return to Live Sensor Mode
+                          </button>
+                        </div>
+                        <GLBCalibrationPanel 
+                          mode="elbow"
+                          onActiveJointChange={handleCalibrationJointChange}
+                          onTestAnglesChange={handleCalibrationTestAnglesChange}
+                          restAngles={calibRestAngles}
+                          liveRotation={calibTestAngles}
+                        />
+                      </div>
+                    )
+                  )}
                   <div className="flex gap-3 mt-4 pt-2 border-t border-slate-100">
                     <button 
                       type="button"
