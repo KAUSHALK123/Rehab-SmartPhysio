@@ -27,6 +27,9 @@ export default function WristSensorTrialPanel({
   const [isWristSynced, setIsWristSynced] = useState(true);
   const [simAngle, setSimAngle] = useState(0);
 
+  // Manual XYZ fine-tuning offsets in simulation mode
+  const [customXYZ, setCustomXYZ] = useState(null);
+
   // Connection heartbeat tracking
   const [connectionLost, setConnectionLost] = useState(false);
   const [timeSinceLastPacket, setTimeSinceLastPacket] = useState(0);
@@ -51,10 +54,19 @@ export default function WristSensorTrialPanel({
 
   // Read approved calibration bounds for selected movement
   const movementConfig = glbConfig.current?.wrist?.[selectedMovement] || {
-    x: { min: -35, max: 35 },
-    y: { min: -25, max: 25 },
-    z: { min: -20, max: 20 }
+    x: { min: -45, max: 45 },
+    y: { min: -60, max: 60 },
+    z: { min: -35, max: 35 }
   };
+
+  const getMovementLimits = (movId) => {
+    if (movId === 'upDown') return { min: -45, max: 45, label: 'Up / Down Flexion (X)', axis: 'x' };
+    if (movId === 'hiMovement') return { min: -35, max: 35, label: 'Left / Right Waving (Z)', axis: 'z' };
+    if (movId === 'twist') return { min: -60, max: 60, label: 'Pronation / Supination (Y)', axis: 'y' };
+    return { min: -45, max: 45, label: 'Wrist Movement', axis: 'x' };
+  };
+
+  const movLimits = getMovementLimits(selectedMovement);
 
   // MPU6050 live readings
   const rawPitch = liveSensors?.wrist_pitch ?? liveSensors?.pitch ?? 0;
@@ -74,15 +86,23 @@ export default function WristSensorTrialPanel({
   if (activeMode === 'live' && isWristSynced && deviceConnected && processedLive) {
     activeAngles = processedLive.angles;
     primaryRawVal = processedLive.raw;
-    normRatio = processedLive.normalized;
+    normRatio = processedLive.normalizedRatio ?? 0.5;
     primarySensorName = selectedMovement === 'upDown' ? 'Pitch' : 'Roll';
   } else if (activeMode === 'simulation') {
-    // Map manual slider simAngle to normalized ratio [-45, 45] -> [0, 1]
-    const norm = Math.max(0, Math.min(1, (simAngle + 45) / 90.0));
-    activeAngles = mapWristSensorToGLBAngles(norm, selectedMovement, glbConfig.current);
-    primaryRawVal = simAngle;
-    normRatio = norm;
-    primarySensorName = selectedMovement === 'upDown' ? 'Sim Pitch' : 'Sim Roll';
+    if (customXYZ) {
+      activeAngles = customXYZ;
+      primaryRawVal = customXYZ[movLimits.axis] || 0;
+      const span = movLimits.max - movLimits.min || 90;
+      normRatio = Math.max(0, Math.min(1, (primaryRawVal - movLimits.min) / span));
+      primarySensorName = `Sim ${movLimits.axis.toUpperCase()}`;
+    } else {
+      const span = movLimits.max - movLimits.min || 90;
+      const norm = Math.max(0, Math.min(1, (simAngle - movLimits.min) / span));
+      activeAngles = mapWristSensorToGLBAngles(norm, selectedMovement, glbConfig.current);
+      primaryRawVal = simAngle;
+      normRatio = norm;
+      primarySensorName = selectedMovement === 'upDown' ? 'Sim Pitch' : selectedMovement === 'twist' ? 'Sim Twist' : 'Sim Wave';
+    }
   }
 
   // Notify 3D model visualizer
@@ -94,13 +114,44 @@ export default function WristSensorTrialPanel({
     }
   }, [activeAngles.x, activeAngles.y, activeAngles.z, isWristSynced, activeMode]);
 
-  // Handle manual slider adjustment
+  // Handle movement dropdown change
+  const handleMovementChange = (newMov) => {
+    setSelectedMovement(newMov);
+    setCustomXYZ(null);
+    setSimAngle(0);
+    if (activeMode === 'simulation') {
+      const limits = getMovementLimits(newMov);
+      const span = limits.max - limits.min || 90;
+      const norm = 0.5;
+      const mapped = mapWristSensorToGLBAngles(norm, newMov, glbConfig.current);
+      onAnglesUpdate?.(mapped);
+    }
+  };
+
+  // Handle manual main slider adjustment
   const handleSimSliderChange = (newVal) => {
     setActiveMode('simulation');
+    setCustomXYZ(null);
     setSimAngle(Number(newVal));
   };
 
+  // Handle individual axis slider change (X, Y, Z fine tuning)
+  const handleCustomAxisChange = (axis, val) => {
+    setActiveMode('simulation');
+    const num = Number(val);
+    setCustomXYZ(prev => ({
+      x: activeAngles.x,
+      y: activeAngles.y,
+      z: activeAngles.z,
+      ...(prev || {}),
+      [axis]: num
+    }));
+  };
+
   const switchToLiveMode = () => {
+    setActiveMode('simulation');
+    setCustomXYZ(null);
+    setSimAngle(0);
     setActiveMode('live');
     if (processedLive) {
       onAnglesUpdate?.(processedLive.angles);
@@ -109,10 +160,9 @@ export default function WristSensorTrialPanel({
 
   // Range span helper for bar percentage
   const getGlbPct = () => {
-    const primaryAxis = selectedMovement === 'upDown' ? 'x' : 'y';
-    const limit = movementConfig[primaryAxis] || { min: -35, max: 35 };
-    const val = activeAngles[primaryAxis] || 0;
-    const span = Math.abs(limit.max - limit.min) || 70;
+    const limit = movementConfig[movLimits.axis] || { min: movLimits.min, max: movLimits.max };
+    const val = activeAngles[movLimits.axis] || 0;
+    const span = Math.abs(limit.max - limit.min) || 90;
     return Math.max(0, Math.min(100, ((val - limit.min) / span) * 100));
   };
 
@@ -166,7 +216,7 @@ export default function WristSensorTrialPanel({
               <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">
                 GLB WRIST MOVEMENT
               </span>
-              <span className="text-[9px] font-bold text-slate-400">Target Angle</span>
+              <span className="text-[9px] font-bold text-slate-400">Euler Angles</span>
             </div>
 
             <div className="space-y-2">
@@ -186,8 +236,8 @@ export default function WristSensorTrialPanel({
               </div>
 
               <div className="flex justify-between text-[9px] font-bold text-slate-400">
-                <span>Range: {movementConfig.x.min}° → {movementConfig.x.max}°</span>
-                <span className="text-purple-600 uppercase font-extrabold">Circle Joint</span>
+                <span>Axis {movLimits.axis.toUpperCase()}: {activeAngles[movLimits.axis]}°</span>
+                <span className="text-purple-600 uppercase font-extrabold">Circle Bone</span>
               </div>
             </div>
           </div>
@@ -236,7 +286,7 @@ export default function WristSensorTrialPanel({
           }`}
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isWristSynced ? 'animate-spin' : ''}`} />
-          {isWristSynced ? 'REAL TIME WRIST SYNC ACTIVE' : 'SYNC VALUES & SHOW REAL TIME WRIST'}
+          {isWristSynced ? 'REAL-TIME WRIST ACTIVE' : 'SYNC VALUES & SHOW REAL TIME WRIST'}
         </button>
       </div>
 
@@ -245,7 +295,7 @@ export default function WristSensorTrialPanel({
         <div className="flex justify-between items-center">
           <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <Sliders className="w-3.5 h-3.5 text-purple-600" />
-            Manual Sensor Adjustment &amp; Test Presets
+            Manual Sensor Adjustment &amp; Movement Test
           </span>
           {activeMode !== 'live' && (
             <button
@@ -258,53 +308,54 @@ export default function WristSensorTrialPanel({
           )}
         </div>
 
-        {/* Movement Selector & Slider */}
-        <div className="grid grid-cols-3 gap-3 items-center">
-          <div>
-            <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-              Select Movement
-            </label>
-            <select
-              value={selectedMovement}
-              onChange={(e) => {
-                setSelectedMovement(e.target.value);
-                handleSimSliderChange(simAngle);
-              }}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 cursor-pointer focus:outline-none focus:ring-1 focus:ring-purple-500"
-            >
-              <option value="upDown">Up / Down (Flexion)</option>
-              <option value="hiMovement">Hi Movement (Waving)</option>
-              <option value="twist">Left / Right Twist</option>
-            </select>
-          </div>
+        {/* Movement Selector Dropdown */}
+        <div>
+          <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+            Select Wrist Movement to Test
+          </label>
+          <select
+            value={selectedMovement}
+            onChange={(e) => handleMovementChange(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 cursor-pointer focus:outline-none focus:ring-1 focus:ring-purple-500"
+          >
+            <option value="upDown">1. Up / Down Waving (Flexion / Extension - Axis X)</option>
+            <option value="hiMovement">2. Hi Movement (Left / Right Waving - Axis Z)</option>
+            <option value="twist">3. Left / Right Twist (Pronation / Supination - Axis Y)</option>
+          </select>
+        </div>
 
-          <div className="col-span-2 space-y-1">
-            <div className="flex justify-between items-center text-[10px]">
-              <span className="font-bold text-slate-500">Test Sensor Angle</span>
-              <span className="font-extrabold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
-                {simAngle}°
-              </span>
-            </div>
-            <input
-              type="range"
-              min="-45"
-              max="45"
-              step="1"
-              value={simAngle}
-              onChange={(e) => handleSimSliderChange(e.target.value)}
-              className="w-full accent-purple-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg"
-            />
+        {/* Primary Movement Test Slider */}
+        <div className="space-y-1 bg-purple-50/50 border border-purple-100 p-2.5 rounded-lg">
+          <div className="flex justify-between items-center text-[10px]">
+            <span className="font-extrabold text-purple-900">{movLimits.label}</span>
+            <span className="font-black text-purple-700 bg-white px-1.5 py-0.5 rounded border border-purple-200 shadow-xs">
+              {simAngle}°
+            </span>
+          </div>
+          <input
+            type="range"
+            min={movLimits.min}
+            max={movLimits.max}
+            step="1"
+            value={simAngle}
+            onChange={(e) => handleSimSliderChange(e.target.value)}
+            className="w-full accent-purple-600 cursor-pointer h-1.5 bg-purple-200 rounded-lg"
+          />
+          <div className="flex justify-between text-[8px] font-bold text-slate-400">
+            <span>Min ({movLimits.min}°)</span>
+            <span>Neutral (0°)</span>
+            <span>Max (+{movLimits.max}°)</span>
           </div>
         </div>
 
-        {/* Quick Test Presets */}
-        <div className="flex gap-2 pt-0.5">
+        {/* Quick Test Presets for Selected Movement */}
+        <div className="flex gap-2">
           <button
             type="button"
-            onClick={() => handleSimSliderChange(-45)}
+            onClick={() => handleSimSliderChange(movLimits.min)}
             className="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition text-[10px] cursor-pointer"
           >
-            Min (-45°)
+            Min ({movLimits.min}°)
           </button>
           <button
             type="button"
@@ -315,11 +366,68 @@ export default function WristSensorTrialPanel({
           </button>
           <button
             type="button"
-            onClick={() => handleSimSliderChange(45)}
+            onClick={() => handleSimSliderChange(movLimits.max)}
             className="flex-1 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg transition text-[10px] cursor-pointer shadow-sm"
           >
-            Max (+45°)
+            Max (+{movLimits.max}°)
           </button>
+        </div>
+
+        {/* Individual X, Y, Z Axis Fine Tuning Sliders */}
+        <div className="pt-2 border-t border-slate-100 space-y-2">
+          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">
+            Independent Axis Fine Tuning
+          </span>
+          <div className="grid grid-cols-3 gap-2">
+            {/* Axis X */}
+            <div className="space-y-1 bg-slate-50 p-1.5 rounded border border-slate-200">
+              <div className="flex justify-between text-[9px] font-bold text-blue-600">
+                <span>Pitch X</span>
+                <span>{activeAngles.x}°</span>
+              </div>
+              <input
+                type="range"
+                min="-60"
+                max="60"
+                step="1"
+                value={activeAngles.x}
+                onChange={(e) => handleCustomAxisChange('x', e.target.value)}
+                className="w-full accent-blue-600 cursor-pointer h-1 bg-slate-200 rounded"
+              />
+            </div>
+            {/* Axis Y */}
+            <div className="space-y-1 bg-slate-50 p-1.5 rounded border border-slate-200">
+              <div className="flex justify-between text-[9px] font-bold text-emerald-600">
+                <span>Twist Y</span>
+                <span>{activeAngles.y}°</span>
+              </div>
+              <input
+                type="range"
+                min="-60"
+                max="60"
+                step="1"
+                value={activeAngles.y}
+                onChange={(e) => handleCustomAxisChange('y', e.target.value)}
+                className="w-full accent-emerald-600 cursor-pointer h-1 bg-slate-200 rounded"
+              />
+            </div>
+            {/* Axis Z */}
+            <div className="space-y-1 bg-slate-50 p-1.5 rounded border border-slate-200">
+              <div className="flex justify-between text-[9px] font-bold text-purple-600">
+                <span>Wave Z</span>
+                <span>{activeAngles.z}°</span>
+              </div>
+              <input
+                type="range"
+                min="-60"
+                max="60"
+                step="1"
+                value={activeAngles.z}
+                onChange={(e) => handleCustomAxisChange('z', e.target.value)}
+                className="w-full accent-purple-600 cursor-pointer h-1 bg-slate-200 rounded"
+              />
+            </div>
+          </div>
         </div>
       </div>
 

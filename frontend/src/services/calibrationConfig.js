@@ -12,7 +12,7 @@ export const WRIST_MOVEMENTS = [
     defaultRanges: {
       x: { min: -35, max: 35 },
       y: { min: -25, max: 25 },
-      z: { min: -20, max: 20 }
+      z: { min: -35, max: 35 }
     }
   },
   { 
@@ -21,9 +21,9 @@ export const WRIST_MOVEMENTS = [
     description: 'Up ↕ Down wrist flexion and extension',
     targetBone: 'Circle',
     defaultRanges: {
-      x: { min: -40, max: 40 },
-      y: { min: -15, max: 15 },
-      z: { min: -15, max: 15 }
+      x: { min: -45, max: 45 },
+      y: { min: -10, max: 10 },
+      z: { min: -10, max: 10 }
     }
   },
   { 
@@ -32,9 +32,9 @@ export const WRIST_MOVEMENTS = [
     description: 'Twist Left ↔ Twist Right forearm/wrist pronation & supination',
     targetBone: 'Circle',
     defaultRanges: {
-      x: { min: -45, max: 45 },
-      y: { min: -30, max: 30 },
-      z: { min: -30, max: 30 }
+      x: { min: -5, max: 5 },
+      y: { min: -60, max: 60 },
+      z: { min: -5, max: 5 }
     }
   }
 ];
