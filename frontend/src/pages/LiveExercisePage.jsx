@@ -28,6 +28,10 @@ import {
 import { startSession, endSession } from '../services/session';
 import apiClient from '../services/auth';
 import Arm3DVisualizer from '../components/Arm3DVisualizer';
+import Trial3DVisualizer from '../components/Trial3DVisualizer';
+import GLBCalibrationPanel from '../components/GLBCalibrationPanel';
+import FingerSensorTrialPanel from '../components/FingerSensorTrialPanel';
+import { processFingerTelemetry } from '../services/fingerSensorMapper';
 
 // Speedometer-style circular gauge component with rotating needle
 const SVGGauge = ({ value, min = 0, max = 180, title, aimText, currentText, feedbackText }) => {
@@ -191,9 +195,39 @@ function LiveExercisePage() {
   const navigate = useNavigate();
   const location = useLocation();
   
+  // Check if we are in trial mode
+  const searchParams = new URLSearchParams(location.search);
+  const mode = searchParams.get('mode');
+  const trialType = searchParams.get('type') || '';
+  const isTrial = mode === 'trial';
+  const VisualizerComponent = isTrial ? Trial3DVisualizer : Arm3DVisualizer;
+
+  // Calibration & Trial Sandbox states
+  const [calibTargetBone, setCalibTargetBone] = useState(trialType === 'fingers' ? 'right_index' : 'Circle');
+  const [calibTestAngles, setCalibTestAngles] = useState({ x: 0, y: 0, z: 0 });
+  const [calibRestAngles, setCalibRestAngles] = useState({ x: 0, y: 0, z: 0 });
+
+  // Fix 2: Finger Sensor Telemetry & Movement states
+  const [fingerTrialView, setFingerTrialView] = useState('sensor'); // 'sensor' | 'calibration'
+  const [sensorFingerAngles, setSensorFingerAngles] = useState(null);
+  const [rawSensorPacket, setRawSensorPacket] = useState({});
+  const [lastPacketTime, setLastPacketTime] = useState(null);
+
+  const handleCalibrationJointChange = ({ boneName }) => {
+    if (boneName) setCalibTargetBone(boneName);
+  };
+
+  const handleCalibrationTestAnglesChange = (angles) => {
+    setCalibTestAngles(angles);
+  };
+
+  const handleRestAnglesCaptured = (base) => {
+    setCalibRestAngles(base);
+  };
+
   // Exercise parameters passed in route state (or loaded from localStorage)
   const exerciseId = location.state?.exerciseId || localStorage.getItem('activeExerciseId') || '';
-  const exerciseName = location.state?.exerciseName || localStorage.getItem('activeExerciseName') || 'Exercise Routine';
+  const exerciseName = isTrial ? `Trial: ${trialType ? trialType.charAt(0).toUpperCase() + trialType.slice(1) : ''} Test` : (location.state?.exerciseName || localStorage.getItem('activeExerciseName') || 'Exercise Routine');
   const patientId = localStorage.getItem('activePatientId') || '';
   const patientName = localStorage.getItem('activePatientName') || 'Patient';
 
@@ -262,6 +296,12 @@ function LiveExercisePage() {
     evaluateRepetitionStateRef.current = evaluateRepetitionState;
   });
 
+  // Track isPaused state in ref for WebSocket message handlers without stale closures
+  const isPausedRef = useRef(isPaused);
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
+
   const togglePauseSession = () => {
     setIsPaused(prev => {
       const nextPaused = !prev;
@@ -297,32 +337,55 @@ function LiveExercisePage() {
   
   useEffect(() => {
     isMounted.current = true;
-    if (!patientId || !exerciseId) {
+    
+    // In Trial mode, bypass DB exercise check and patient check
+    if (!isTrial && (!patientId || !exerciseId)) {
       navigate('/exercises');
       return;
     }
 
     const loadExercise = async () => {
       try {
-        const [exerciseRes, patientRes] = await Promise.all([
-          apiClient.get(`/exercises/${exerciseId}`),
-          apiClient.get(`/patients/${patientId}`)
-        ]);
-        if (!isMounted.current) return;
-        setExerciseDetails(exerciseRes.data);
-        activeExerciseRef.current = exerciseRes.data;
-        setPatientDetails(patientRes.data);
+        if (isTrial) {
+          // Hardcoded configuration for trial modes
+          let mockConfig = {};
+          if (trialType === 'fingers') {
+            mockConfig = { exercise_name: 'Finger Sensor Test', primary_sensor: 'flex_avg', secondary_sensor: 'pressure', camera_view: 'hand', target_angle: 90 };
+          } else if (trialType === 'wrist') {
+            mockConfig = { exercise_name: 'Wrist Sensor Test', primary_sensor: 'wrist_pitch', secondary_sensor: 'wrist_roll', camera_view: 'wrist', target_angle: 45 };
+          } else if (trialType === 'elbow') {
+            mockConfig = { exercise_name: 'Elbow Sensor Test', primary_sensor: 'elbow', secondary_sensor: 'wrist_roll', camera_view: 'elbow', target_angle: 90 };
+          } else {
+            mockConfig = { exercise_name: 'Sensor Test', primary_sensor: 'flex_avg', camera_view: 'straight' };
+          }
+          
+          setExerciseDetails(mockConfig);
+          activeExerciseRef.current = mockConfig;
+          setCameraAngle(mockConfig.camera_view || 'straight');
+          setSessionActive(true);
+          setGuidance(`Trial Mode: ${mockConfig.exercise_name} active. Check telemetry stream.`);
+        } else {
+          // Standard execution flow
+          const [exerciseRes, patientRes] = await Promise.all([
+            apiClient.get(`/exercises/${exerciseId}`),
+            apiClient.get(`/patients/${patientId}`)
+          ]);
+          if (!isMounted.current) return;
+          setExerciseDetails(exerciseRes.data);
+          activeExerciseRef.current = exerciseRes.data;
+          setPatientDetails(patientRes.data);
 
-        // Auto-switch camera based on exercise database configuration
-        if (exerciseRes.data.camera_view) {
-          setCameraAngle(exerciseRes.data.camera_view);
+          // Auto-switch camera based on exercise database configuration
+          if (exerciseRes.data.camera_view) {
+            setCameraAngle(exerciseRes.data.camera_view);
+          }
+          
+          // Start session in DB
+          const sessionRes = await startSession(patientId, exerciseId);
+          if (!isMounted.current) return;
+          setSessionId(sessionRes.session_id);
+          setSessionActive(true);
         }
-        
-        // Start session in DB
-        const sessionRes = await startSession(patientId, exerciseId);
-        if (!isMounted.current) return;
-        setSessionId(sessionRes.session_id);
-        setSessionActive(true);
       } catch (err) {
         console.error("Failed to initialize exercise session", err);
         navigate('/exercises');
@@ -387,6 +450,16 @@ function LiveExercisePage() {
         const isHardware = !data.is_mock;
         setDeviceConnected(isHardware);
         if (data.battery !== undefined) setBattery(data.battery);
+        setRawSensorPacket(data);
+        setLastPacketTime(Date.now());
+
+        // In main exercise mode, calculate calibrated finger GLB angles from live telemetry
+        if (!isTrial && !isPausedRef.current) {
+          const computed = processFingerTelemetry(data);
+          if (computed && computed.angles) {
+            setSensorFingerAngles(computed.angles);
+          }
+        }
 
         // Normalize raw or scaled sensor readings matching CalibrationPage logic
         const extractFinger = (name) => {
@@ -475,6 +548,22 @@ function LiveExercisePage() {
   // State Machine Rep Count & Posture Guidance Logic
   const evaluateRepetitionState = (data) => {
     if (isPaused) return;
+
+    if (isTrial) {
+      // In trial mode, we just update static test guidance and avoid running the rep state machine
+      if (trialType === 'fingers') {
+        setGuidance('Open and close your fingers slowly. Observe the 3D hand.');
+        setAiFeedback({ progress: 100, suggestion: 'Try bending your index finger or thumb.', warning: null, status: 'info' });
+      } else if (trialType === 'wrist') {
+        setGuidance('Move your wrist slowly. Rotate left and right, and bend upward/downward.');
+        setAiFeedback({ progress: 100, suggestion: 'Rotate your wrist to test the MPU6050 angles.', warning: null, status: 'info' });
+      } else {
+        setGuidance('Keep your upper arm steady. Bend and straighten your elbow.');
+        setAiFeedback({ progress: 100, suggestion: 'Test the elbow flex sensor range.', warning: null, status: 'info' });
+      }
+      return;
+    }
+
 
     const ex = activeExerciseRef.current;
     if (!ex) return;
@@ -769,6 +858,12 @@ function LiveExercisePage() {
       exercise_accuracy: accuracy
     };
 
+    if (isTrial) {
+      // Bypass analytics and navigate directly back
+      navigate('/exercises');
+      return;
+    }
+
     try {
       await endSession(payload);
       setSummaryData(payload);
@@ -814,6 +909,14 @@ function LiveExercisePage() {
     ring: activeSensors.ring,
     little: activeSensors.little
   };
+
+  // Resolve active calibrated finger angles for 3D visualizer
+  // - In trial finger calibration view, keep fingers at rest so user can calibrate target bone
+  // - In trial finger sensor test view, use trial panel angles (sensor or simulation/demo)
+  // - In main exercise sessions, use live sensor calibrated angles
+  const activeSensorFingerAngles = (isTrial && trialType === 'fingers' && fingerTrialView === 'calibration')
+    ? null
+    : sensorFingerAngles;
 
   // Build the dynamic gauge configurations for the selected exercise
   const getExerciseFeedback = () => {
@@ -1101,31 +1204,46 @@ function LiveExercisePage() {
                       <div className="absolute top-2 left-2 z-10 bg-slate-900/80 backdrop-blur text-[9px] font-extrabold px-2.5 py-1 rounded-lg border border-slate-800 uppercase tracking-widest text-slate-400">
                         Straight View
                       </div>
-                      <Arm3DVisualizer 
+                      <VisualizerComponent 
                         controls={activeControls} 
                         cameraAngle="straight" 
-                        disableOrbit={true} 
+                        disableOrbit={isTrial ? false : true} 
                         injuredArm={patientDetails?.injured_arm || 'Right'}
+                        calibrationActive={isTrial && (trialType === 'wrist' || (trialType === 'fingers' && fingerTrialView === 'calibration'))}
+                        targetBone={calibTargetBone}
+                        testAngles={calibTestAngles}
+                        sensorFingerAngles={activeSensorFingerAngles}
+                        onRestAnglesCaptured={handleRestAnglesCaptured}
                       />
                     </div>
                     <div className="relative w-full h-full rounded-2xl overflow-hidden bg-slate-950 border border-slate-850 shadow-inner">
                       <div className="absolute top-2 left-2 z-10 bg-slate-900/80 backdrop-blur text-[9px] font-extrabold px-2.5 py-1 rounded-lg border border-slate-800 uppercase tracking-widest text-slate-400">
                         Side View
                       </div>
-                      <Arm3DVisualizer 
+                      <VisualizerComponent 
                         controls={activeControls} 
                         cameraAngle="side" 
-                        disableOrbit={true} 
+                        disableOrbit={isTrial ? false : true} 
                         injuredArm={patientDetails?.injured_arm || 'Right'}
+                        calibrationActive={isTrial && (trialType === 'wrist' || (trialType === 'fingers' && fingerTrialView === 'calibration'))}
+                        targetBone={calibTargetBone}
+                        testAngles={calibTestAngles}
+                        sensorFingerAngles={activeSensorFingerAngles}
+                        onRestAnglesCaptured={handleRestAnglesCaptured}
                       />
                     </div>
                   </div>
                 ) : (
-                  <Arm3DVisualizer 
+                  <VisualizerComponent 
                     controls={activeControls} 
                     cameraAngle={cameraAngle} 
-                    disableOrbit={true} 
+                    disableOrbit={isTrial ? false : true} 
                     injuredArm={patientDetails?.injured_arm || 'Right'}
+                    calibrationActive={isTrial && (trialType === 'wrist' || (trialType === 'fingers' && fingerTrialView === 'calibration'))}
+                    targetBone={calibTargetBone}
+                    testAngles={calibTestAngles}
+                    sensorFingerAngles={activeSensorFingerAngles}
+                    onRestAnglesCaptured={handleRestAnglesCaptured}
                   />
                 )}
               </div>
@@ -1150,12 +1268,76 @@ function LiveExercisePage() {
             {/* Right Panel: Guidance, Recommendations, & Counters */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between overflow-y-auto">
               
-              {/* Header Details */}
-              <div className="space-y-1">
-                <span className="text-[10px] text-primary font-bold uppercase tracking-wider block">Rehab Assessment Session</span>
-                <h3 className="text-xl font-bold text-slate-800">{exerciseName}</h3>
-                <p className="text-xs text-slate-500 font-semibold">Patient: {patientName}</p>
-              </div>
+              {isTrial && trialType === 'fingers' ? (
+                <div className="flex-1 flex flex-col justify-between overflow-y-auto pr-1">
+                  {fingerTrialView === 'sensor' ? (
+                    <FingerSensorTrialPanel 
+                      liveSensors={rawSensorPacket}
+                      deviceConnected={deviceConnected}
+                      lastPacketTime={lastPacketTime}
+                      onAnglesUpdate={(angles) => setSensorFingerAngles(angles)}
+                      onToggleCalibrationMode={() => setFingerTrialView('calibration')}
+                    />
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center bg-purple-50 p-2.5 rounded-xl border border-purple-200">
+                        <span className="text-[10px] font-bold text-purple-700">GLB Range Calibration Mode</span>
+                        <button
+                          type="button"
+                          onClick={() => setFingerTrialView('sensor')}
+                          className="text-[10px] font-extrabold text-purple-800 underline cursor-pointer"
+                        >
+                          ← Return to Live Sensor Mode
+                        </button>
+                      </div>
+                      <GLBCalibrationPanel 
+                        mode="fingers"
+                        onActiveJointChange={handleCalibrationJointChange}
+                        onTestAnglesChange={handleCalibrationTestAnglesChange}
+                        restAngles={calibRestAngles}
+                        liveRotation={calibTestAngles}
+                      />
+                    </div>
+                  )}
+                  <div className="flex gap-3 mt-4 pt-2 border-t border-slate-100">
+                    <button 
+                      type="button"
+                      onClick={() => navigate('/exercises')}
+                      className="w-full py-3 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-sm text-xs"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Return to Exercise Library
+                    </button>
+                  </div>
+                </div>
+              ) : isTrial && trialType === 'wrist' ? (
+                <div className="flex-1 flex flex-col justify-between overflow-y-auto pr-1">
+                  <GLBCalibrationPanel 
+                    mode="wrist"
+                    onActiveJointChange={handleCalibrationJointChange}
+                    onTestAnglesChange={handleCalibrationTestAnglesChange}
+                    restAngles={calibRestAngles}
+                    liveRotation={calibTestAngles}
+                  />
+                  <div className="flex gap-3 mt-4 pt-2 border-t border-slate-100">
+                    <button 
+                      type="button"
+                      onClick={() => navigate('/exercises')}
+                      className="w-full py-3 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-sm text-xs"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Return to Exercise Library
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Header Details */}
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-primary font-bold uppercase tracking-wider block">Rehab Assessment Session</span>
+                    <h3 className="text-xl font-bold text-slate-800">{exerciseName}</h3>
+                    <p className="text-xs text-slate-500 font-semibold">Patient: {patientName}</p>
+                  </div>
 
               {/* AI Real-time Clinical Feedback Companion Card */}
               <div className={`p-4 rounded-xl border transition-all duration-200 mt-2 ${
@@ -1321,6 +1503,8 @@ function LiveExercisePage() {
                   End & Save
                 </button>
               </div>
+                </>
+              )}
             </div>
 
           </div>
