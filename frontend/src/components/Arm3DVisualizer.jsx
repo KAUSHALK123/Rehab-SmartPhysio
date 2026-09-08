@@ -3,12 +3,13 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useGLTF, OrbitControls, Grid, Center } from '@react-three/drei';
 import * as THREE from 'three';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { applyCalibratedFingerRotation } from '../services/fingerSensorMapper';
 
 // Degree to radian conversion helper
 const degToRad = (degrees) => ((degrees || 0) * Math.PI) / 180;
 
 // 3D Human Rig Component for Kinematics Overview
-function FullBodyRig({ controls, injuredArm = 'Right', demoMode = false }) {
+function FullBodyRig({ controls, injuredArm = 'Right', demoMode = false, sensorFingerAngles = null }) {
   // Load full_rig GLB from public/models directory
   const { scene } = useGLTF('/models/full_rig.glb');
   
@@ -133,12 +134,28 @@ function FullBodyRig({ controls, injuredArm = 'Right', demoMode = false }) {
       if (!fingerNode) return;
 
       const base = bases[nodeName] || { x: 0, y: 0, z: 0 };
-      // Clamp val to 0-90 and convert to radians
-      const flexRad = degToRad(Math.max(0, Math.min(90, val)));
+      const isThumb = nodeName === 'right_thumb';
 
-      // Apply bend on X axis (curl inward).
-      const targetX = base.x - flexRad;
-      fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, targetX, 0.15);
+      if (sensorFingerAngles && typeof sensorFingerAngles === 'object') {
+        // Real-time sensor-driven GLB movement from proven Trial logic
+        const fingerKey = nodeName.replace('right_', '');
+        const mappedAngleDeg = sensorFingerAngles[fingerKey] !== undefined ? sensorFingerAngles[fingerKey] : 0;
+        applyCalibratedFingerRotation(fingerNode, nodeName, base, mappedAngleDeg, 0.25);
+      } else {
+        // Fallback when sensorFingerAngles is not provided (e.g. demo mode or offline)
+        const flexRad = degToRad(Math.max(0, Math.min(90, val)));
+        if (isThumb) {
+          const targetX = base.x + flexRad;
+          fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, targetX, 0.15);
+          fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, 0.15);
+          fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, base.z, 0.15);
+        } else {
+          const targetZ = base.z + flexRad;
+          fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, base.x, 0.15);
+          fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, 0.15);
+          fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, targetZ, 0.15);
+        }
+      }
     });
   });
 
@@ -216,7 +233,8 @@ export default function Arm3DVisualizer({
   disableOrbit = false, 
   injuredArm = 'Right',
   autoRotate = false,
-  demoMode = false
+  demoMode = false,
+  sensorFingerAngles = null
 }) {
   const controlsRef = useRef();
 
@@ -233,7 +251,12 @@ export default function Arm3DVisualizer({
         <pointLight position={[0, 2, 3]} intensity={0.5} />
         
         <Center position={[0, 0, 0]}>
-          <FullBodyRig controls={controls} injuredArm={injuredArm} demoMode={demoMode} />
+          <FullBodyRig 
+            controls={controls} 
+            injuredArm={injuredArm} 
+            demoMode={demoMode} 
+            sensorFingerAngles={sensorFingerAngles} 
+          />
         </Center>
         
         {/* Dynamic camera transitions */}
