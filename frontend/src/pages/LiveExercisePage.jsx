@@ -32,6 +32,8 @@ import Trial3DVisualizer from '../components/Trial3DVisualizer';
 import GLBCalibrationPanel from '../components/GLBCalibrationPanel';
 import FingerSensorTrialPanel from '../components/FingerSensorTrialPanel';
 import { processFingerTelemetry } from '../services/fingerSensorMapper';
+import { processWristTelemetry } from '../services/wristSensorMapper';
+import { processElbowTelemetry } from '../services/elbowSensorMapper';
 
 // Speedometer-style circular gauge component with rotating needle
 const SVGGauge = ({ value, min = 0, max = 180, title, aimText, currentText, feedbackText }) => {
@@ -203,13 +205,17 @@ function LiveExercisePage() {
   const VisualizerComponent = isTrial ? Trial3DVisualizer : Arm3DVisualizer;
 
   // Calibration & Trial Sandbox states
-  const [calibTargetBone, setCalibTargetBone] = useState(trialType === 'fingers' ? 'right_index' : 'Circle');
+  const [calibTargetBone, setCalibTargetBone] = useState(
+    trialType === 'fingers' ? 'right_index' : trialType === 'elbow' ? 'WristArm' : 'Circle'
+  );
   const [calibTestAngles, setCalibTestAngles] = useState({ x: 0, y: 0, z: 0 });
   const [calibRestAngles, setCalibRestAngles] = useState({ x: 0, y: 0, z: 0 });
 
   // Fix 2: Finger Sensor Telemetry & Movement states
   const [fingerTrialView, setFingerTrialView] = useState('sensor'); // 'sensor' | 'calibration'
   const [sensorFingerAngles, setSensorFingerAngles] = useState(null);
+  const [sensorWristAngles, setSensorWristAngles] = useState(null);
+  const [sensorElbowAngles, setSensorElbowAngles] = useState(null);
   const [rawSensorPacket, setRawSensorPacket] = useState({});
   const [lastPacketTime, setLastPacketTime] = useState(null);
 
@@ -453,11 +459,26 @@ function LiveExercisePage() {
         setRawSensorPacket(data);
         setLastPacketTime(Date.now());
 
-        // In main exercise mode, calculate calibrated finger GLB angles from live telemetry
+        // In main exercise mode, calculate calibrated finger, wrist, and elbow GLB angles from live telemetry
         if (!isTrial && !isPausedRef.current) {
-          const computed = processFingerTelemetry(data);
-          if (computed && computed.angles) {
-            setSensorFingerAngles(computed.angles);
+          if (isHardware) {
+            const computed = processFingerTelemetry(data);
+            if (computed && computed.angles) {
+              setSensorFingerAngles(computed.angles);
+            }
+          } else {
+            // When hardware is disconnected / telemetry is mock, do not fake finger angles
+            setSensorFingerAngles(null);
+          }
+
+          const wristComputed = processWristTelemetry(data, activeExerciseRef.current || exerciseDetails);
+          if (wristComputed && wristComputed.angles) {
+            setSensorWristAngles(wristComputed.angles);
+          }
+
+          const elbowComputed = processElbowTelemetry(data, activeExerciseRef.current || exerciseDetails);
+          if (elbowComputed && elbowComputed.angles) {
+            setSensorElbowAngles(elbowComputed);
           }
         }
 
@@ -918,6 +939,11 @@ function LiveExercisePage() {
     ? null
     : sensorFingerAngles;
 
+  // Resolve active calibrated wrist angles for 3D visualizer
+  // - In trial mode, wrist test / calibration panel manages its own angles
+  // - In main exercise sessions, use live sensor calibrated angles
+  const activeSensorWristAngles = isTrial ? null : sensorWristAngles;
+
   // Build the dynamic gauge configurations for the selected exercise
   const getExerciseFeedback = () => {
     const ex = exerciseDetails;
@@ -1209,10 +1235,12 @@ function LiveExercisePage() {
                         cameraAngle="straight" 
                         disableOrbit={isTrial ? false : true} 
                         injuredArm={patientDetails?.injured_arm || 'Right'}
-                        calibrationActive={isTrial && (trialType === 'wrist' || (trialType === 'fingers' && fingerTrialView === 'calibration'))}
+                        calibrationActive={isTrial && (trialType === 'wrist' || trialType === 'elbow' || (trialType === 'fingers' && fingerTrialView === 'calibration'))}
                         targetBone={calibTargetBone}
                         testAngles={calibTestAngles}
                         sensorFingerAngles={activeSensorFingerAngles}
+                        sensorWristAngles={activeSensorWristAngles}
+                        sensorElbowAngles={isTrial ? null : (sensorElbowAngles?.angles || null)}
                         onRestAnglesCaptured={handleRestAnglesCaptured}
                       />
                     </div>
@@ -1225,10 +1253,12 @@ function LiveExercisePage() {
                         cameraAngle="side" 
                         disableOrbit={isTrial ? false : true} 
                         injuredArm={patientDetails?.injured_arm || 'Right'}
-                        calibrationActive={isTrial && (trialType === 'wrist' || (trialType === 'fingers' && fingerTrialView === 'calibration'))}
+                        calibrationActive={isTrial && (trialType === 'wrist' || trialType === 'elbow' || (trialType === 'fingers' && fingerTrialView === 'calibration'))}
                         targetBone={calibTargetBone}
                         testAngles={calibTestAngles}
                         sensorFingerAngles={activeSensorFingerAngles}
+                        sensorWristAngles={activeSensorWristAngles}
+                        sensorElbowAngles={isTrial ? null : (sensorElbowAngles?.angles || null)}
                         onRestAnglesCaptured={handleRestAnglesCaptured}
                       />
                     </div>
@@ -1239,10 +1269,12 @@ function LiveExercisePage() {
                     cameraAngle={cameraAngle} 
                     disableOrbit={isTrial ? false : true} 
                     injuredArm={patientDetails?.injured_arm || 'Right'}
-                    calibrationActive={isTrial && (trialType === 'wrist' || (trialType === 'fingers' && fingerTrialView === 'calibration'))}
+                    calibrationActive={isTrial && (trialType === 'wrist' || trialType === 'elbow' || (trialType === 'fingers' && fingerTrialView === 'calibration'))}
                     targetBone={calibTargetBone}
                     testAngles={calibTestAngles}
                     sensorFingerAngles={activeSensorFingerAngles}
+                    sensorWristAngles={activeSensorWristAngles}
+                    sensorElbowAngles={isTrial ? null : (sensorElbowAngles?.angles || null)}
                     onRestAnglesCaptured={handleRestAnglesCaptured}
                   />
                 )}
@@ -1263,6 +1295,19 @@ function LiveExercisePage() {
               <div className="absolute bottom-4 left-4 text-[10px] text-slate-400 bg-slate-950/60 p-2 px-3 border border-slate-850 rounded-lg font-medium">
                 Use the camera angle buttons to toggle viewpoints.
               </div>
+
+              {/* Floating Time Elapsed Overlay (Bottom-Right of 3D GLB Viewport) */}
+              {!isTrial && (
+                <div className="absolute bottom-4 right-4 z-10 bg-slate-950/85 backdrop-blur border border-slate-800 rounded-xl p-2.5 px-3.5 shadow-xl flex flex-col items-center min-w-[120px]">
+                  <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block mb-0.5">
+                    TIME ELAPSED
+                  </span>
+                  <p className="text-xl font-black text-slate-100 flex items-center justify-center gap-1.5">
+                    <Clock className="w-4 h-4 text-slate-400" />
+                    {formatTime(secondsElapsed)}
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Right Panel: Guidance, Recommendations, & Counters */}
@@ -1310,10 +1355,10 @@ function LiveExercisePage() {
                     </button>
                   </div>
                 </div>
-              ) : isTrial && trialType === 'wrist' ? (
+              ) : isTrial && (trialType === 'wrist' || trialType === 'elbow') ? (
                 <div className="flex-1 flex flex-col justify-between overflow-y-auto pr-1">
                   <GLBCalibrationPanel 
-                    mode="wrist"
+                    mode={trialType === 'elbow' ? 'elbow' : 'wrist'}
                     onActiveJointChange={handleCalibrationJointChange}
                     onTestAnglesChange={handleCalibrationTestAnglesChange}
                     restAngles={calibRestAngles}
@@ -1416,32 +1461,24 @@ function LiveExercisePage() {
               <hr className="border-slate-100 my-3" />
 
               {/* Counters Grid */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-center space-y-1">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 text-center space-y-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase block tracking-wider">Repetitions</span>
-                  <p className="text-3xl font-extrabold text-slate-800">
-                    {repsCompleted} <span className="text-sm text-slate-400 font-medium">/ {exerciseDetails?.repetitions || 10}</span>
+                  <p className="text-2xl font-extrabold text-slate-800">
+                    {repsCompleted} <span className="text-xs text-slate-400 font-medium">/ {exerciseDetails?.repetitions || 10}</span>
                   </p>
                 </div>
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-center space-y-1">
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 text-center space-y-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase block tracking-wider">Accuracy Score</span>
-                  <p className={`text-3xl font-extrabold ${accuracy >= 80 ? 'text-green-600' : 'text-amber-500'}`}>
+                  <p className={`text-2xl font-extrabold ${accuracy >= 80 ? 'text-green-600' : 'text-amber-500'}`}>
                     {accuracy}%
                   </p>
                 </div>
                 
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-center space-y-1">
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 text-center space-y-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase block tracking-wider">Hold Timer</span>
-                  <p className={`text-3xl font-extrabold ${holdCountdown > 0 ? 'text-primary animate-pulse' : 'text-slate-400'}`}>
+                  <p className={`text-2xl font-extrabold ${holdCountdown > 0 ? 'text-primary animate-pulse' : 'text-slate-400'}`}>
                     {holdCountdown > 0 ? `${holdCountdown}s` : '0s'}
-                  </p>
-                </div>
-
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-center space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block tracking-wider">Time Elapsed</span>
-                  <p className="text-3xl font-extrabold text-slate-800 flex items-center justify-center gap-1.5">
-                    <Clock className="w-5 h-5 text-slate-400" />
-                    {formatTime(secondsElapsed)}
                   </p>
                 </div>
               </div>

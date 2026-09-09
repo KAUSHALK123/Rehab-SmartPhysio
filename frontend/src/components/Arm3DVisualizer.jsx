@@ -4,12 +4,21 @@ import { useGLTF, OrbitControls, Grid, Center } from '@react-three/drei';
 import * as THREE from 'three';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { applyCalibratedFingerRotation } from '../services/fingerSensorMapper';
+import { applyCalibratedWristRotation } from '../services/wristSensorMapper';
+import { applyCalibratedElbowRotation } from '../services/elbowSensorMapper';
 
 // Degree to radian conversion helper
 const degToRad = (degrees) => ((degrees || 0) * Math.PI) / 180;
 
 // 3D Human Rig Component for Kinematics Overview
-function FullBodyRig({ controls, injuredArm = 'Right', demoMode = false, sensorFingerAngles = null }) {
+function FullBodyRig({ 
+  controls, 
+  injuredArm = 'Right', 
+  demoMode = false, 
+  sensorFingerAngles = null,
+  sensorWristAngles = null,
+  sensorElbowAngles = null
+}) {
   // Load full_rig GLB from public/models directory
   const { scene } = useGLTF('/models/full_rig.glb');
   
@@ -104,18 +113,33 @@ function FullBodyRig({ controls, injuredArm = 'Right', demoMode = false, sensorF
     const rightForearm = getNode('right_forearm');
     if (rightForearm) {
       const base = bases.right_forearm || { x: 0, y: 0, z: 0 };
-      const bendDeg = 180 - (activeControls?.elbowAngle || 180); // 180 = straight -> 0 bend
-      const targetElbowZ = base.z - degToRad(bendDeg);
-      rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, targetElbowZ, 0.15);
+      if (sensorElbowAngles && typeof sensorElbowAngles === 'object') {
+        const bendDeg = sensorElbowAngles.percentage !== undefined
+          ? (sensorElbowAngles.percentage * 1.1)
+          : (sensorElbowAngles.x ? Math.abs(sensorElbowAngles.x) : 0);
+        const targetElbowZ = base.z - degToRad(bendDeg);
+        rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, targetElbowZ, 0.25);
+      } else {
+        const bendDeg = 180 - (activeControls?.elbowAngle || 180); // 180 = straight -> 0 bend
+        const targetElbowZ = base.z - degToRad(bendDeg);
+        rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, targetElbowZ, 0.15);
+      }
     }
 
-    // 3. Wrist Angle (Circle - Hand/Wrist assembly)
-    // Wrist roll should rotate around the forearm axis (local X for this node configuration).
+    // 3. Wrist Joint ('Circle' - Hand/Wrist assembly)
     const circleWrist = getNode('Circle');
     if (circleWrist) {
       const base = bases.Circle || { x: 0, y: 0, z: 0 };
-      const targetWristX = base.x + degToRad(activeControls?.wristAngle || 0);
-      circleWrist.rotation.x = THREE.MathUtils.lerp(circleWrist.rotation.x, targetWristX, 0.15);
+      if (sensorWristAngles && typeof sensorWristAngles === 'object') {
+        // Real-time sensor-driven GLB movement from proven Trial Wrist logic
+        applyCalibratedWristRotation(circleWrist, base, sensorWristAngles, 0.25);
+      } else {
+        // Fallback when sensorWristAngles is not provided (e.g. demoMode or uncalibrated)
+        const targetWristX = base.x + degToRad(activeControls?.wristAngle || 0);
+        circleWrist.rotation.x = THREE.MathUtils.lerp(circleWrist.rotation.x, targetWristX, 0.15);
+        circleWrist.rotation.y = THREE.MathUtils.lerp(circleWrist.rotation.y, base.y, 0.15);
+        circleWrist.rotation.z = THREE.MathUtils.lerp(circleWrist.rotation.z, base.z, 0.15);
+      }
     }
 
     // 4. Fingers Flexion
@@ -234,7 +258,9 @@ export default function Arm3DVisualizer({
   injuredArm = 'Right',
   autoRotate = false,
   demoMode = false,
-  sensorFingerAngles = null
+  sensorFingerAngles = null,
+  sensorWristAngles = null,
+  sensorElbowAngles = null
 }) {
   const controlsRef = useRef();
 
@@ -256,6 +282,8 @@ export default function Arm3DVisualizer({
             injuredArm={injuredArm} 
             demoMode={demoMode} 
             sensorFingerAngles={sensorFingerAngles} 
+            sensorWristAngles={sensorWristAngles}
+            sensorElbowAngles={sensorElbowAngles}
           />
         </Center>
         

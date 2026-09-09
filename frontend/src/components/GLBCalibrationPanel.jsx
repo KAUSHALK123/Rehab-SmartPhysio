@@ -15,19 +15,20 @@ import {
 import { 
   WRIST_MOVEMENTS, 
   FINGER_MOVEMENTS, 
+  ELBOW_MOVEMENTS,
   loadCalibrationConfig, 
   saveCalibrationConfig 
 } from '../services/calibrationConfig';
 
 export default function GLBCalibrationPanel({
-  mode = 'wrist', // 'wrist' | 'fingers'
+  mode = 'wrist', // 'wrist' | 'fingers' | 'elbow'
   onActiveJointChange, // Callback: ({ boneName, movementId }) => void
   onTestAnglesChange,  // Callback: ({ x, y, z }) => void
   restAngles = { x: 0, y: 0, z: 0 },
   liveRotation = { x: 0, y: 0, z: 0 }
 }) {
-  const movements = mode === 'wrist' ? WRIST_MOVEMENTS : FINGER_MOVEMENTS;
-  const configCategory = mode === 'wrist' ? 'wrist' : 'fingers';
+  const movements = mode === 'wrist' ? WRIST_MOVEMENTS : mode === 'fingers' ? FINGER_MOVEMENTS : ELBOW_MOVEMENTS;
+  const configCategory = mode === 'wrist' ? 'wrist' : mode === 'fingers' ? 'fingers' : 'elbow';
 
   // Master calibration configuration loaded from storage
   const [calibrationConfig, setCalibrationConfig] = useState(() => loadCalibrationConfig());
@@ -91,7 +92,7 @@ export default function GLBCalibrationPanel({
 
     // Notify visualizer of active bone
     const movementMeta = movements.find(m => m.id === selectedId);
-    const boneName = mode === 'wrist' ? movementMeta?.targetBone : movementMeta?.bone;
+    const boneName = mode === 'wrist' || mode === 'elbow' ? movementMeta?.targetBone : movementMeta?.bone;
     onActiveJointChange?.({ boneName, movementId: selectedId });
 
     setInputError('');
@@ -146,6 +147,7 @@ export default function GLBCalibrationPanel({
 
     // Clamp current test angles within new limits
     const isFinger = mode === 'fingers';
+    const isElbow = mode === 'elbow';
     const isThumb = isFinger && selectedId === 'thumb';
     const isZOnly = isFinger && !isThumb;
 
@@ -154,7 +156,9 @@ export default function GLBCalibrationPanel({
     const clampedZ = Math.min(zMax, Math.max(zMin, testAngles.z));
 
     let clamped;
-    if (isFinger) {
+    if (isElbow) {
+      clamped = { x: clampedX, y: 0, z: 0 };
+    } else if (isFinger) {
       if (isThumb) {
         clamped = { x: clampedX, y: 0, z: 0 };
       } else if (isZOnly) {
@@ -178,11 +182,15 @@ export default function GLBCalibrationPanel({
   const handleSliderChange = (axis, val) => {
     const num = parseFloat(val);
     const isFinger = mode === 'fingers';
+    const isElbow = mode === 'elbow';
     const isThumb = isFinger && selectedId === 'thumb';
     const isZOnly = isFinger && !isThumb;
 
     let updated;
-    if (isFinger) {
+    if (isElbow) {
+      // Elbow uses LOCAL X axis only; Y and Z stay at 0
+      updated = { x: axis === 'x' ? (isNaN(num) ? 0 : num) : 0, y: 0, z: 0 };
+    } else if (isFinger) {
       if (isThumb) {
         // Thumb uses LOCAL X axis only; Y and Z stay at 0
         updated = { x: axis === 'x' ? (isNaN(num) ? 0 : num) : 0, y: 0, z: 0 };
@@ -212,7 +220,7 @@ export default function GLBCalibrationPanel({
   // Approve & Save the current active limits into configuration & localStorage
   const handleApproveAndSave = () => {
     const movementMeta = movements.find(m => m.id === selectedId);
-    const targetBone = mode === 'wrist' ? movementMeta?.targetBone : movementMeta?.bone;
+    const targetBone = mode === 'wrist' || mode === 'elbow' ? movementMeta?.targetBone : movementMeta?.bone;
 
     const updatedConfig = {
       ...calibrationConfig,
@@ -248,7 +256,7 @@ export default function GLBCalibrationPanel({
           <div className="flex items-center gap-2">
             <Sliders className="w-4 h-4 text-purple-600" />
             <span className="font-extrabold text-sm uppercase tracking-wider text-slate-800">
-              {mode === 'wrist' ? 'Wrist GLB Calibration' : 'Finger GLB Calibration'}
+              {mode === 'wrist' ? 'Wrist GLB Calibration' : mode === 'fingers' ? 'Finger GLB Calibration' : 'Elbow GLB Calibration'}
             </span>
           </div>
 

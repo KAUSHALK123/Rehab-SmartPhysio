@@ -92,6 +92,20 @@ export const FINGER_MOVEMENTS = [
   }
 ];
 
+export const ELBOW_MOVEMENTS = [
+  { 
+    id: 'elbowFlexion', 
+    label: 'Elbow Flexion / Extension', 
+    description: 'Bending and straightening of the elbow joint',
+    targetBone: 'WristArm',
+    defaultRanges: {
+      x: { min: -110, max: 0 },
+      y: { min: -15, max: 15 },
+      z: { min: -15, max: 15 }
+    }
+  }
+];
+
 const STORAGE_KEY = 'smartphysio_glb_calibration';
 
 /**
@@ -101,7 +115,8 @@ export const getDefaultCalibration = () => {
   const config = {
     version: 1,
     wrist: {},
-    fingers: {}
+    fingers: {},
+    elbow: {}
   };
 
   WRIST_MOVEMENTS.forEach(m => {
@@ -123,6 +138,18 @@ export const getDefaultCalibration = () => {
       x: { ...f.defaultRanges.x },
       y: { ...f.defaultRanges.y },
       z: { ...f.defaultRanges.z },
+      approved: false,
+      approvedAt: null
+    };
+  });
+
+  ELBOW_MOVEMENTS.forEach(e => {
+    config.elbow[e.id] = {
+      targetBone: e.targetBone,
+      rotationOrder: 'XYZ',
+      x: { ...e.defaultRanges.x },
+      y: { ...e.defaultRanges.y },
+      z: { ...e.defaultRanges.z },
       approved: false,
       approvedAt: null
     };
@@ -166,6 +193,20 @@ export const loadCalibrationConfig = () => {
             x: { ...defaults.fingers[f.id].x, ...(parsed.fingers[f.id].x || {}) },
             y: { ...defaults.fingers[f.id].y, ...(parsed.fingers[f.id].y || {}) },
             z: { ...defaults.fingers[f.id].z, ...(parsed.fingers[f.id].z || {}) },
+          };
+        }
+      });
+    }
+
+    if (parsed.elbow) {
+      ELBOW_MOVEMENTS.forEach(e => {
+        if (parsed.elbow[e.id]) {
+          merged.elbow[e.id] = {
+            ...defaults.elbow[e.id],
+            ...parsed.elbow[e.id],
+            x: { ...defaults.elbow[e.id].x, ...(parsed.elbow[e.id].x || {}) },
+            y: { ...defaults.elbow[e.id].y, ...(parsed.elbow[e.id].y || {}) },
+            z: { ...defaults.elbow[e.id].z, ...(parsed.elbow[e.id].z || {}) },
           };
         }
       });

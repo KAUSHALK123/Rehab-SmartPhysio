@@ -4,9 +4,65 @@ import { useGLTF, OrbitControls, Grid, Center } from '@react-three/drei';
 import * as THREE from 'three';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { applyCalibratedFingerRotation } from '../services/fingerSensorMapper';
+import { applyCalibratedWristRotation } from '../services/wristSensorMapper';
+import { applyCalibratedElbowRotation } from '../services/elbowSensorMapper';
 
 // Degree to radian conversion helper
 const degToRad = (degrees) => ((degrees || 0) * Math.PI) / 180;
+
+// Dedicated Elbow Model Rig for Elbow Calibration Sandbox
+function ElbowStandaloneRig({
+  calibrationActive = false,
+  targetBone = 'WristArm',
+  testAngles = { x: 0, y: 0, z: 0 },
+  onRestAnglesCaptured
+}) {
+  const { scene } = useGLTF('/models/elbow.glb');
+  const clonedScene = React.useMemo(() => {
+    return scene.clone ? SkeletonUtils.clone(scene) : scene;
+  }, [scene]);
+
+  const baseRotationsRef = useRef({ initialized: false });
+
+  useEffect(() => {
+    if (!clonedScene || baseRotationsRef.current.initialized) return;
+
+    const forearmNode = typeof clonedScene.getObjectByName === 'function'
+      ? clonedScene.getObjectByName('WristArm')
+      : null;
+
+    const base = forearmNode
+      ? { x: forearmNode.rotation.x, y: forearmNode.rotation.y, z: forearmNode.rotation.z }
+      : { x: 0, y: 0, z: 0 };
+
+    baseRotationsRef.current = { initialized: true, WristArm: base };
+
+    if (onRestAnglesCaptured) {
+      onRestAnglesCaptured(base);
+    }
+  }, [clonedScene]);
+
+  useFrame(() => {
+    if (!clonedScene || !baseRotationsRef.current.initialized) return;
+
+    const forearmNode = typeof clonedScene.getObjectByName === 'function'
+      ? clonedScene.getObjectByName('WristArm')
+      : null;
+
+    if (forearmNode) {
+      const base = baseRotationsRef.current.WristArm || { x: 0, y: 0, z: 0 };
+      if (calibrationActive) {
+        applyCalibratedElbowRotation(forearmNode, base, testAngles, 0.25);
+      }
+    }
+  });
+
+  return (
+    <group rotation={[0, Math.PI, 0]} scale={[1.3, 1.3, 1.3]} position={[0, -0.2, 0]}>
+      <primitive object={clonedScene} />
+    </group>
+  );
+}
 
 // 3D Human Rig Component for Kinematics Overview & Calibration Sandbox
 function FullBodyRig({ 
@@ -17,6 +73,7 @@ function FullBodyRig({
   targetBone = 'Circle',
   testAngles = { x: 0, y: 0, z: 0 },
   sensorFingerAngles = null,
+  sensorWristAngles = null,
   onRestAnglesCaptured
 }) {
   // Load full_rig GLB from public/models directory
@@ -138,12 +195,10 @@ function FullBodyRig({
       const base = bases.Circle || { x: 0, y: 0, z: 0 };
       if (calibrationActive && targetBone === 'Circle') {
         // Calibration override: combine 3D test angles directly on top of rest pose
-        const targetX = base.x + degToRad(testAngles?.x || 0);
-        const targetY = base.y + degToRad(testAngles?.y || 0);
-        const targetZ = base.z + degToRad(testAngles?.z || 0);
-        circleWrist.rotation.x = THREE.MathUtils.lerp(circleWrist.rotation.x, targetX, 0.25);
-        circleWrist.rotation.y = THREE.MathUtils.lerp(circleWrist.rotation.y, targetY, 0.25);
-        circleWrist.rotation.z = THREE.MathUtils.lerp(circleWrist.rotation.z, targetZ, 0.25);
+        applyCalibratedWristRotation(circleWrist, base, testAngles, 0.25);
+      } else if (sensorWristAngles && typeof sensorWristAngles === 'object') {
+        // Real-time sensor-driven GLB movement (Fix 4 shared logic)
+        applyCalibratedWristRotation(circleWrist, base, sensorWristAngles, 0.25);
       } else {
         // Standard runtime / sensor test mode
         const targetWristX = base.x + degToRad(activeControls?.wristAngle || 0);
@@ -249,7 +304,7 @@ function CameraController({ cameraAngle, controlsRef, targetBone }) {
       }
     } else if (cameraAngle === 'elbow') {
       targetPos = new THREE.Vector3(1.5, -0.4, 1.5);    // Zoomed on forearm/elbow
-      const elbowNode = scene.getObjectByName('right_forearm');
+      const elbowNode = scene.getObjectByName('right_forearm') || scene.getObjectByName('WristArm');
       if (elbowNode) {
         elbowNode.getWorldPosition(targetLookAt);
       }
@@ -286,9 +341,11 @@ export default function Trial3DVisualizer({
   targetBone = 'Circle',
   testAngles = { x: 0, y: 0, z: 0 },
   sensorFingerAngles = null,
+  sensorWristAngles = null,
   onRestAnglesCaptured
 }) {
   const controlsRef = useRef();
+  const isElbowModel = targetBone === 'WristArm';
 
   return (
     <div className="w-full h-full min-h-[380px] relative select-none">
@@ -303,16 +360,26 @@ export default function Trial3DVisualizer({
         <pointLight position={[0, 2, 3]} intensity={0.5} />
         
         <Center position={[0, 0, 0]}>
-          <FullBodyRig 
-            controls={controls} 
-            injuredArm={injuredArm} 
-            demoMode={demoMode} 
-            calibrationActive={calibrationActive}
-            targetBone={targetBone}
-            testAngles={testAngles}
-            sensorFingerAngles={sensorFingerAngles}
-            onRestAnglesCaptured={onRestAnglesCaptured}
-          />
+          {isElbowModel ? (
+            <ElbowStandaloneRig 
+              calibrationActive={calibrationActive}
+              targetBone={targetBone}
+              testAngles={testAngles}
+              onRestAnglesCaptured={onRestAnglesCaptured}
+            />
+          ) : (
+            <FullBodyRig 
+              controls={controls} 
+              injuredArm={injuredArm} 
+              demoMode={demoMode} 
+              calibrationActive={calibrationActive}
+              targetBone={targetBone}
+              testAngles={testAngles}
+              sensorFingerAngles={sensorFingerAngles}
+              sensorWristAngles={sensorWristAngles}
+              onRestAnglesCaptured={onRestAnglesCaptured}
+            />
+          )}
         </Center>
         
         {/* Dynamic camera transitions */}
@@ -348,5 +415,7 @@ export default function Trial3DVisualizer({
   );
 }
 
-// Preload full_rig.glb for smooth initial load
+// Preload models for smooth initial load
 useGLTF.preload('/models/full_rig.glb');
+useGLTF.preload('/models/elbow.glb');
+
