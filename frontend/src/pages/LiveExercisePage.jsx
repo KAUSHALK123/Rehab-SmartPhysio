@@ -102,6 +102,155 @@ const WristIcon = () => (
   </svg>
 );
 
+// Real-time Flex Sensor ↔ GLB Sync Panel for Main Finger Exercises
+const FingerSyncPanel = ({ 
+  computedFingerData, 
+  rawSensorPacket, 
+  deviceConnected, 
+  isFlexSynced, 
+  onToggleSync 
+}) => {
+  const fingerKeys = [
+    { key: 'thumb', label: 'Thumb' },
+    { key: 'index', label: 'Index' },
+    { key: 'middle', label: 'Mid' },
+    { key: 'ring', label: 'Ring' },
+    { key: 'little', label: 'Lit' }
+  ];
+
+  const getBarColor = (pct) => {
+    if (pct < 30) return 'bg-gradient-to-t from-emerald-500 to-green-400 shadow-[0_0_8px_rgba(16,185,129,0.4)]';
+    if (pct < 70) return 'bg-gradient-to-t from-amber-500 to-yellow-400 shadow-[0_0_8px_rgba(245,158,11,0.4)]';
+    return 'bg-gradient-to-t from-rose-500 to-pink-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]';
+  };
+
+  return (
+    <div className="w-full space-y-3">
+      {/* Top Header & Sync Status Badge */}
+      <div className="flex justify-between items-center bg-slate-100/70 p-2.5 px-3 rounded-xl border border-slate-200/60">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+            <Activity className="w-3.5 h-3.5 text-primary" />
+            Flex Sensor ↔ GLB Real-Time Sync
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className={`inline-flex items-center gap-1 text-[9px] font-extrabold px-2.5 py-1 rounded-full border ${
+            !deviceConnected
+              ? 'bg-amber-50 text-amber-600 border-amber-200'
+              : isFlexSynced
+                ? 'bg-emerald-50 text-emerald-600 border-emerald-200 animate-pulse'
+                : 'bg-slate-100 text-slate-500 border-slate-200'
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${
+              !deviceConnected ? 'bg-amber-500' : isFlexSynced ? 'bg-emerald-500' : 'bg-slate-400'
+            }`} />
+            {!deviceConnected
+              ? 'Waiting for Flex Sensor...'
+              : isFlexSynced
+                ? 'Real-Time Flex Active'
+                : 'Flex Sync Off'}
+          </span>
+        </div>
+      </div>
+
+      {/* Two Side-By-Side Cards */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* LEFT CARD: GLB FINGER BEND */}
+        <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 shadow-sm flex flex-col justify-between">
+          <div className="flex justify-between items-center mb-2 pb-1 border-b border-slate-200/60">
+            <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">
+              GLB FINGER BEND
+            </span>
+            <span className="text-[9px] font-bold text-slate-400">Target Angle</span>
+          </div>
+
+          <div className="flex items-end justify-between gap-1.5 h-24 pt-1">
+            {fingerKeys.map(({ key, label }) => {
+              const debugInfo = computedFingerData?.debug?.[key];
+              const angle = debugInfo?.glbAngle !== undefined ? debugInfo.glbAngle : 0;
+              const min = debugInfo?.min !== undefined ? debugInfo.min : 0;
+              const max = debugInfo?.max !== undefined ? debugInfo.max : 60;
+
+              const rangeSpan = Math.abs(max - min) || 60;
+              const pct = Math.max(0, Math.min(100, (Math.abs(angle - min) / rangeSpan) * 100));
+
+              return (
+                <div key={key} className="flex-1 flex flex-col items-center h-full justify-end min-w-0">
+                  <span className="text-[9px] font-black text-slate-800 mb-1">
+                    {isFlexSynced && deviceConnected && debugInfo ? `${Math.round(angle)}°` : '0°'}
+                  </span>
+                  <div className="w-2.5 bg-slate-200 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
+                    <div 
+                      className={`w-full rounded-full transition-all duration-150 ease-out ${getBarColor(pct)}`}
+                      style={{ height: `${isFlexSynced && deviceConnected && debugInfo ? pct : 0}%` }}
+                    />
+                  </div>
+                  <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
+                    {label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* RIGHT CARD: LIVE FLEX SENSORS */}
+        <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 shadow-sm flex flex-col justify-between">
+          <div className="flex justify-between items-center mb-2 pb-1 border-b border-slate-200/60">
+            <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">
+              LIVE FLEX SENSORS
+            </span>
+            <span className="text-[9px] font-bold text-slate-400">Raw &amp; Flex %</span>
+          </div>
+
+          <div className="flex items-end justify-between gap-1.5 h-24 pt-1">
+            {fingerKeys.map(({ key, label }) => {
+              const debugInfo = computedFingerData?.debug?.[key];
+              const flexPct = debugInfo?.normalized !== undefined ? debugInfo.normalized : 0;
+              const rawVal = debugInfo?.raw !== null && debugInfo?.raw !== undefined ? debugInfo.raw : (rawSensorPacket?.['raw_' + key] || null);
+
+              return (
+                <div key={key} className="flex-1 flex flex-col items-center h-full justify-end min-w-0">
+                  <span className="text-[8px] font-bold text-slate-400 leading-none mb-0.5">
+                    {isFlexSynced && deviceConnected && rawVal !== null ? `r:${rawVal}` : 'r:--'}
+                  </span>
+                  <span className="text-[9px] font-black text-slate-800 mb-1">
+                    {isFlexSynced && deviceConnected && debugInfo ? `${Math.round(flexPct)}%` : '0%'}
+                  </span>
+                  <div className="w-2.5 bg-slate-200 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
+                    <div 
+                      className={`w-full rounded-full transition-all duration-150 ease-out ${getBarColor(flexPct)}`}
+                      style={{ height: `${isFlexSynced && deviceConnected && debugInfo ? flexPct : 0}%` }}
+                    />
+                  </div>
+                  <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
+                    {label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* SYNC VALUES & SHOW REAL TIME FLEX BUTTON */}
+      <button
+        type="button"
+        onClick={onToggleSync}
+        className={`w-full py-2.5 px-4 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm ${
+          isFlexSynced
+            ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-900/10 ring-2 ring-emerald-500/30'
+            : 'bg-slate-800 hover:bg-slate-900 text-white shadow-slate-900/10'
+        }`}
+      >
+        <RefreshCw className={`w-3.5 h-3.5 ${isFlexSynced ? 'animate-spin' : ''}`} />
+        {isFlexSynced ? 'REAL TIME FLEX SYNC ACTIVE' : 'SYNC VALUES & SHOW REAL TIME FLEX'}
+      </button>
+    </div>
+  );
+};
+
 // 5 vertical volume-style bars for finger flexion values
 const FingerVolumeBars = ({ sensors }) => {
   const fingers = [
@@ -211,13 +360,19 @@ function LiveExercisePage() {
   const [calibTestAngles, setCalibTestAngles] = useState({ x: 0, y: 0, z: 0 });
   const [calibRestAngles, setCalibRestAngles] = useState({ x: 0, y: 0, z: 0 });
 
-  // Fix 2: Finger Sensor Telemetry & Movement states
   const [fingerTrialView, setFingerTrialView] = useState('sensor'); // 'sensor' | 'calibration'
   const [sensorFingerAngles, setSensorFingerAngles] = useState(null);
   const [sensorWristAngles, setSensorWristAngles] = useState(null);
   const [sensorElbowAngles, setSensorElbowAngles] = useState(null);
   const [rawSensorPacket, setRawSensorPacket] = useState({});
   const [lastPacketTime, setLastPacketTime] = useState(null);
+  const [isFlexSynced, setIsFlexSynced] = useState(true);
+  const [fingerTelemetryDetails, setFingerTelemetryDetails] = useState(null);
+
+  const isFlexSyncedRef = useRef(isFlexSynced);
+  useEffect(() => {
+    isFlexSyncedRef.current = isFlexSynced;
+  }, [isFlexSynced]);
 
   const handleCalibrationJointChange = ({ boneName }) => {
     if (boneName) setCalibTargetBone(boneName);
@@ -461,14 +616,16 @@ function LiveExercisePage() {
 
         // In main exercise mode, calculate calibrated finger, wrist, and elbow GLB angles from live telemetry
         if (!isTrial && !isPausedRef.current) {
-          if (isHardware) {
+          if (isHardware && isFlexSyncedRef.current) {
             const computed = processFingerTelemetry(data);
             if (computed && computed.angles) {
               setSensorFingerAngles(computed.angles);
+              setFingerTelemetryDetails(computed);
             }
           } else {
-            // When hardware is disconnected / telemetry is mock, do not fake finger angles
+            // When hardware is disconnected or sync off, do not fake finger angles
             setSensorFingerAngles(null);
+            setFingerTelemetryDetails(null);
           }
 
           const wristComputed = processWristTelemetry(data, activeExerciseRef.current || exerciseDetails);
@@ -1493,22 +1650,35 @@ function LiveExercisePage() {
                   <WristIcon />
                 </div>
                 
-                <div className="flex gap-3">
-                  {(exerciseDetails?.primary_sensor?.toLowerCase() === 'flex_avg' || 
-                    exerciseDetails?.target_joint?.toLowerCase()?.includes('finger') ||
-                    exerciseName.toLowerCase().includes('finger') || 
-                    exerciseName.toLowerCase().includes('hand')) ? (
-                    <FingerVolumeBars sensors={sensors} />
-                  ) : (exerciseDetails?.primary_sensor?.toLowerCase() === 'elbow' || 
+                {(exerciseDetails?.primary_sensor?.toLowerCase() === 'flex_avg' || 
+                  exerciseDetails?.target_joint?.toLowerCase()?.includes('finger') ||
+                  exerciseName.toLowerCase().includes('finger') || 
+                  exerciseName.toLowerCase().includes('hand')) ? (
+                  <div className="space-y-3">
+                    <FingerSyncPanel 
+                      computedFingerData={fingerTelemetryDetails}
+                      rawSensorPacket={rawSensorPacket}
+                      deviceConnected={deviceConnected}
+                      isFlexSynced={isFlexSynced}
+                      onToggleSync={() => setIsFlexSynced(prev => !prev)}
+                    />
+                    <div className="flex justify-center bg-slate-50 border border-slate-100 rounded-xl p-3 shadow-sm">
+                      <SVGGauge {...secondary} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-3">
+                    {(exerciseDetails?.primary_sensor?.toLowerCase() === 'elbow' || 
                        exerciseDetails?.target_joint?.toLowerCase()?.includes('elbow') ||
                        exerciseName.toLowerCase().includes('elbow') ||
                        exerciseName.toLowerCase().includes('curl')) ? (
-                    <ElbowVolumeBar sensors={sensors} target={exerciseDetails?.target_angle || 90} />
-                  ) : (
-                    <SVGGauge {...primary} />
-                  )}
-                  <SVGGauge {...secondary} />
-                </div>
+                      <ElbowVolumeBar sensors={sensors} target={exerciseDetails?.target_angle || 90} />
+                    ) : (
+                      <SVGGauge {...primary} />
+                    )}
+                    <SVGGauge {...secondary} />
+                  </div>
+                )}
               </div>
 
 

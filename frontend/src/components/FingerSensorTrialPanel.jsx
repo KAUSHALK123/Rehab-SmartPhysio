@@ -262,41 +262,82 @@ export default function FingerSensorTrialPanel({
           </div>
         )}
 
-        {/* Live Finger Volume Trackers */}
-        <div className="space-y-1.5 pt-1">
-          <div className="flex justify-between items-center text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-            <span>Normalized Finger Flexion</span>
-            <span>Target Axis</span>
-          </div>
-          <div className="grid grid-cols-5 gap-2">
-            {FINGER_KEYS.map((finger) => {
-              const pct = processedTelemetry.percentages[finger] || 0;
-              const rig = FINGER_RIG_MAP[finger];
-              const isSimActive = (activeMode === 'simulation' && simFinger === finger) || (activeMode === 'demo' && demoActiveFinger === finger);
+        {/* Two Side-By-Side Cards: GLB FINGER BEND & LIVE FLEX SENSORS */}
+        <div className="grid grid-cols-2 gap-3 pt-1">
+          {/* LEFT CARD: GLB FINGER BEND */}
+          <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex flex-col justify-between">
+            <div className="flex justify-between items-center mb-2 pb-1 border-b border-slate-100">
+              <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">
+                GLB FINGER BEND
+              </span>
+              <span className="text-[9px] font-bold text-slate-400">Target Angle</span>
+            </div>
 
-              return (
-                <div 
-                  key={finger}
-                  className={`bg-white border p-2 rounded-lg text-center space-y-1 transition-all ${
-                    isSimActive ? 'border-purple-400 ring-1 ring-purple-400 shadow-sm' : 'border-slate-200'
-                  }`}
-                >
-                  <span className="text-[10px] font-extrabold capitalize text-slate-700 block">
-                    {finger}
-                  </span>
-                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full transition-all duration-150"
-                      style={{ width: `${pct}%` }}
-                    />
+            <div className="flex items-end justify-between gap-1.5 h-24 pt-1">
+              {FINGER_KEYS.map((finger) => {
+                const info = processedTelemetry.debug[finger] || {};
+                const angle = info.glbAngle !== undefined ? info.glbAngle : 0;
+                const min = info.min !== undefined ? info.min : 0;
+                const max = info.max !== undefined ? info.max : 60;
+                const rangeSpan = Math.abs(max - min) || 60;
+                const pct = Math.max(0, Math.min(100, (Math.abs(angle - min) / rangeSpan) * 100));
+
+                return (
+                  <div key={finger} className="flex-1 flex flex-col items-center h-full justify-end min-w-0">
+                    <span className="text-[9px] font-black text-slate-800 mb-1">
+                      {Math.round(angle)}°
+                    </span>
+                    <div className="w-2.5 bg-slate-100 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
+                      <div 
+                        className="w-full rounded-full transition-all duration-150 ease-out bg-gradient-to-t from-purple-600 to-indigo-500 shadow-sm"
+                        style={{ height: `${pct}%` }}
+                      />
+                    </div>
+                    <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
+                      {finger.substring(0, 3)}
+                    </span>
                   </div>
-                  <div className="flex justify-between text-[9px] font-bold text-slate-500 pt-0.5">
-                    <span>{pct}%</span>
-                    <span className="text-purple-600 font-extrabold">{rig.axis.toUpperCase()}</span>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* RIGHT CARD: LIVE FLEX SENSORS */}
+          <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex flex-col justify-between">
+            <div className="flex justify-between items-center mb-2 pb-1 border-b border-slate-100">
+              <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">
+                LIVE FLEX SENSORS
+              </span>
+              <span className="text-[9px] font-bold text-slate-400">Raw &amp; Flex %</span>
+            </div>
+
+            <div className="flex items-end justify-between gap-1.5 h-24 pt-1">
+              {FINGER_KEYS.map((finger) => {
+                const info = processedTelemetry.debug[finger] || {};
+                const flexPct = processedTelemetry.percentages[finger] || 0;
+                const rawVal = info.raw !== null && info.raw !== undefined ? info.raw : '--';
+
+                return (
+                  <div key={finger} className="flex-1 flex flex-col items-center h-full justify-end min-w-0">
+                    <span className="text-[8px] font-bold text-slate-400 leading-none mb-0.5">
+                      r:{rawVal}
+                    </span>
+                    <span className="text-[9px] font-black text-slate-800 mb-1">
+                      {Math.round(flexPct)}%
+                    </span>
+                    <div className="w-2.5 bg-slate-100 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
+                      <div 
+                        className="w-full rounded-full transition-all duration-150 ease-out bg-gradient-to-t from-emerald-500 to-teal-400 shadow-sm"
+                        style={{ height: `${flexPct}%` }}
+                      />
+                    </div>
+                    <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
+                      {finger.substring(0, 3)}
+                    </span>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
@@ -306,7 +347,7 @@ export default function FingerSensorTrialPanel({
         <div className="flex justify-between items-center">
           <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <Sliders className="w-3.5 h-3.5 text-purple-600" />
-            Developer Sensor Simulation (Validation)
+            Manual Sensor Adjustment &amp; Test Presets
           </span>
           {activeMode !== 'live' && (
             <button
@@ -358,6 +399,31 @@ export default function FingerSensorTrialPanel({
               className="w-full accent-purple-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg"
             />
           </div>
+        </div>
+
+        {/* Manual Quick Presets (0%, 50%, 100%) */}
+        <div className="flex gap-2 pt-0.5">
+          <button
+            type="button"
+            onClick={() => handleSimSliderChange(0)}
+            className="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition text-[10px] cursor-pointer"
+          >
+            Rest (0%)
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSimSliderChange(50)}
+            className="flex-1 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold rounded-lg transition text-[10px] cursor-pointer border border-purple-200"
+          >
+            Half Flex (50%)
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSimSliderChange(100)}
+            className="flex-1 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg transition text-[10px] cursor-pointer shadow-sm"
+          >
+            Full Flex (100%)
+          </button>
         </div>
 
         {/* Automated Sequential Demo Button */}
