@@ -13,8 +13,7 @@ def test_patient(db, test_user):
         height_cm=175.0,
         weight_kg=78.5,
         dominant_hand="Right",
-        injured_arm="Left",
-        injury_type="Stroke Rehabilitation"
+        affected_side="Left"
     )
     db.add(patient)
     db.commit()
@@ -29,8 +28,7 @@ def test_create_patient_success(client, auth_headers):
         "height_cm": 165.0,
         "weight_kg": 60.0,
         "dominant_hand": "Right",
-        "injured_arm": "Right",
-        "injury_type": "Wrist Fracture"
+        "affected_side": "Right"
     }
     response = client.post(
         f"{settings.API_V1_STR}/patients",
@@ -50,8 +48,7 @@ def test_create_patient_unauthorized(client):
         "height_cm": 165.0,
         "weight_kg": 60.0,
         "dominant_hand": "Right",
-        "injured_arm": "Right",
-        "injury_type": "Wrist Fracture"
+        "affected_side": "Right"
     }
     response = client.post(
         f"{settings.API_V1_STR}/patients",
@@ -123,9 +120,8 @@ def test_patient_recommendations_and_injury_centric_fields(client, auth_headers,
         "height_cm": 170.0,
         "weight_kg": 65.0,
         "dominant_hand": "Left",
-        "injured_arm": "Both",
-        "body_part_id": bp.id,
-        "condition_id": cond.id,
+        "affected_side": "Bilateral",
+        "condition_ids": [cond.id],
         "rehabilitation_goal_id": goal.id
     }
     
@@ -145,10 +141,8 @@ def test_patient_recommendations_and_injury_centric_fields(client, auth_headers,
     )
     assert get_resp.status_code == status.HTTP_200_OK
     p_data = get_resp.json()
-    assert p_data["body_part_name"] == bp.name
-    assert p_data["condition_name"] == cond.name
+    assert p_data["affected_side"] == "Bilateral"
     assert p_data["rehabilitation_goal_name"] == goal.goal_name
-    assert p_data["injury_type"] == cond.name
     
     # Get recommendations
     rec_resp = client.get(

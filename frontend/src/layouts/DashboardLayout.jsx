@@ -46,9 +46,9 @@ function DashboardLayout() {
       <header className="h-20 bg-white border-b border-slate-100 flex items-center justify-between px-8 sticky top-0 z-50 shadow-sm shadow-slate-100">
         
         {/* Left: Brand Logo & Text */}
-        <div className="flex items-center gap-3">
-          <img src="/logo.png" alt="SmartPhysio Logo" className="w-10 h-10 object-contain shadow-md shadow-blue-100 rounded-lg" />
-          <span className="text-lg font-bold text-slate-800 tracking-tight">SmartPhysio</span>
+        <div className="flex items-center gap-3.5">
+          <img src="/logo.png" alt="SmartPhysio Logo" className="w-14 h-14 object-contain shadow-md shadow-blue-100/80 rounded-xl transition-all duration-200 hover:scale-105" />
+          <span className="text-xl font-extrabold text-slate-800 tracking-tight">SmartPhysio</span>
         </div>
 
         {/* Center: Tabs Navigation Pills */}

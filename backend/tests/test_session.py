@@ -14,8 +14,7 @@ def test_data(db, test_user):
         height_cm=180.0,
         weight_kg=85.0,
         dominant_hand="Right",
-        injured_arm="Left",
-        injury_type="Frozen Shoulder"
+        affected_side="Left"
     )
     db.add(patient)
     

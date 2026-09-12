@@ -22,8 +22,7 @@ def test_submit_calibration_pass(client, auth_headers, test_user, db):
         height_cm=170.0,
         weight_kg=70.0,
         dominant_hand="Left",
-        injured_arm="Right",
-        injury_type="Elbow surgery"
+        affected_side="Right"
     )
     db.add(patient)
     db.commit()

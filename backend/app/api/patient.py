@@ -192,18 +192,47 @@ def get_patient_recommendations(
             
     recommended_exercises = []
     for ex in exercises:
-        # Expunge from session so in-memory changes are never committed back to DB
-        db.expunge(ex)
+        # Extract supported conditions list while session is active
+        supp_conds = [c.name for c in ex.conditions]
+        
+        diff = ex.difficulty
+        reps = ex.repetitions
+        t_angle = ex.target_angle
+        t_press = ex.target_pressure
+        desc = ex.description
         
         if is_stiff:
-            ex.difficulty = "Easy"
-            ex.repetitions = max(5, ex.repetitions // 2)
-            if ex.target_angle > 45.0:
-                ex.target_angle = 45.0
-            if ex.target_pressure > 300.0:
-                ex.target_pressure = 300.0
-            ex.description = f"[Stiffness Relief Plan] Adjusted for your limited mobility: {ex.description}"
+            diff = "Easy"
+            reps = max(5, reps // 2)
+            if t_angle > 45.0:
+                t_angle = 45.0
+            if t_press > 300.0:
+                t_press = 300.0
+            desc = f"[Stiffness Relief Plan] Adjusted for your limited mobility: {desc}"
             
-        recommended_exercises.append(ex)
+        rec = ExerciseResponse(
+            id=ex.id,
+            exercise_name=ex.exercise_name,
+            description=desc,
+            body_part=ex.body_part,
+            target_joint=ex.target_joint,
+            rehabilitation_goal=ex.rehabilitation_goal,
+            minimum_angle=ex.minimum_angle,
+            maximum_angle=ex.maximum_angle,
+            hold_duration=ex.hold_duration,
+            rest_duration=ex.rest_duration,
+            required_sensors=ex.required_sensors,
+            supported_conditions=supp_conds,
+            camera_view=ex.camera_view or 'straight',
+            primary_sensor=ex.primary_sensor,
+            secondary_sensor=ex.secondary_sensor,
+            target_angle=t_angle,
+            target_pressure=t_press,
+            repetitions=reps,
+            hold_seconds=ex.hold_seconds,
+            rest_seconds=ex.rest_seconds,
+            difficulty=diff
+        )
+        recommended_exercises.append(rec)
         
     return recommended_exercises
