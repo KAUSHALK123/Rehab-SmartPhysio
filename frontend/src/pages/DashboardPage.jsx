@@ -48,13 +48,12 @@ import { getPatients, createPatient, getBodyParts, getConditions, getRehabilitat
 import apiClient from '../services/auth';
 import Arm3DVisualizer from '../components/Arm3DVisualizer';
 import SensorCard from '../components/SensorCard';
+import { useTheme } from '../context/ThemeContext';
 
 function DashboardPage() {
   const navigate = useNavigate();
-  
-  // Theme State: 'light' or 'dark'
-  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
-  const isDark = theme === 'dark';
+  const { isDark } = useTheme();
+  const theme = isDark ? 'dark' : 'light';
 
   // Local active states
   const [activePatientId, setActivePatientId] = useState(localStorage.getItem('activePatientId') || '');

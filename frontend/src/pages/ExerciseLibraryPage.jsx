@@ -17,8 +17,11 @@ import {
   ChevronRight
 } from 'lucide-react';
 
+import { useTheme } from '../context/ThemeContext';
+
 function ExerciseLibraryPage() {
   const navigate = useNavigate();
+  const { isDark } = useTheme();
   const [exercises, setExercises] = useState([]);
   const [recommendedExercises, setRecommendedExercises] = useState([]);
   const [patientDetails, setPatientDetails] = useState(null);
@@ -154,15 +157,19 @@ function ExerciseLibraryPage() {
       )}
 
       {/* Header Cards */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between gap-6">
+      <div className={`p-6 rounded-2xl border transition-colors duration-200 shadow-sm flex items-center justify-between gap-6 ${
+        isDark ? 'bg-slate-900 border-slate-800 text-slate-100 shadow-xl' : 'bg-white border-slate-200 text-slate-800'
+      }`}>
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-primary">
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+            isDark ? 'bg-blue-950/80 text-blue-400' : 'bg-blue-50 text-primary'
+          }`}>
             <BookOpen className="w-6 h-6" />
           </div>
           <div>
-            <h3 className="text-xl font-bold text-slate-800">Rehabilitation Exercise Library</h3>
-            <p className="text-sm text-slate-500">
-              Select an exercise routine below to review targets, setup wearable sensor nodes, and begin physical metrics logging.
+            <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Physical Therapy Exercise Library</h3>
+            <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+              Interactive motor assessment modules with automated range-of-motion limits and 3D digital-twin feedback.
             </p>
           </div>
         </div>
