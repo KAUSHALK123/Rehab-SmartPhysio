@@ -426,8 +426,42 @@ function DashboardPage() {
           : 'bg-gradient-to-br from-white via-slate-50 to-blue-50/40 border-slate-200/80 shadow-lg shadow-slate-100'
       }`}>
         {/* Ambient background glow accents */}
-        <div className="absolute -top-24 -right-24 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -top-24 -right-24 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none z-0" />
+        <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none z-0" />
+
+        {/* Video Background Layer (Right Side) */}
+        <div className="absolute right-0 top-0 bottom-0 w-full xl:w-7/12 h-full overflow-hidden pointer-events-none z-0">
+          <video
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="w-full h-full object-cover object-center opacity-85 dark:opacity-70 transition-opacity duration-700"
+          >
+            <source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4" />
+            <source src="https://media.w3.org/2010/05/sintel/trailer_hd.mp4" type="video/mp4" />
+          </video>
+
+          {/* Transparent Gradient Mask: Solid background on Left (text side), fading to Transparent on Right (video side) */}
+          <div className={`absolute inset-0 transition-colors duration-300 ${
+            isDark 
+              ? 'bg-gradient-to-r from-[#121722] via-[#0D1017]/95 via-40% to-transparent' 
+              : 'bg-gradient-to-r from-white via-slate-50/95 via-40% to-transparent'
+          }`} />
+
+          {/* Vertical edge blending */}
+          <div className={`absolute inset-0 ${
+            isDark 
+              ? 'bg-gradient-to-t from-[#0A0C12] via-transparent to-[#121722]/60' 
+              : 'bg-gradient-to-t from-blue-50/40 via-transparent to-white/60'
+          }`} />
+
+          {/* Telemetry Video Badge Overlay */}
+          <div className="absolute top-6 right-6 z-10 hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/70 backdrop-blur-md border border-white/20 text-white text-[11px] font-bold tracking-wide shadow-xl">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#10B981]" />
+            <span className="opacity-90">REHABILITATION VIDEO FEED</span>
+          </div>
+        </div>
 
         <div className="relative z-10 flex flex-col xl:flex-row xl:items-center justify-between gap-8">
           {/* Left Hero Title & Tagline */}
