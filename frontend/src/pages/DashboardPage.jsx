@@ -429,31 +429,31 @@ function DashboardPage() {
         <div className="absolute -top-24 -right-24 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none z-0" />
         <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none z-0" />
 
-        {/* Video Background Layer (Right Side Only - Starts from Middle) */}
+        {/* Video Background Layer (Right Half - Starts at Middle 50%) */}
         <div className="absolute right-0 top-0 bottom-0 w-full lg:w-1/2 xl:w-1/2 h-full overflow-hidden pointer-events-none z-0">
           <video
             autoPlay
             loop
             muted
             playsInline
-            className="w-full h-full object-cover object-center opacity-90 dark:opacity-75 transition-opacity duration-700"
+            className="w-full h-full object-cover object-center opacity-95 dark:opacity-80 transition-opacity duration-700"
           >
             <source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4" />
             <source src="https://media.w3.org/2010/05/sintel/trailer_hd.mp4" type="video/mp4" />
           </video>
 
-          {/* Transparent Gradient Mask: Solid background till Middle (50%), fading to Transparent on Right */}
+          {/* Smooth Left-Edge Gradient Blending at the Middle Line (50%) */}
           <div className={`absolute inset-0 transition-colors duration-300 ${
             isDark 
-              ? 'bg-gradient-to-r from-[#121722] via-[#0D1017]/95 via-50% to-transparent' 
-              : 'bg-gradient-to-r from-white via-slate-50/95 via-50% to-transparent'
+              ? 'bg-gradient-to-r from-[#121722] via-[#0D1017]/30 to-transparent' 
+              : 'bg-gradient-to-r from-white via-slate-50/30 to-transparent'
           }`} />
 
-          {/* Vertical edge blending */}
+          {/* Subtle Vertical edge blending */}
           <div className={`absolute inset-0 ${
             isDark 
-              ? 'bg-gradient-to-t from-[#0A0C12] via-transparent to-[#121722]/60' 
-              : 'bg-gradient-to-t from-blue-50/40 via-transparent to-white/60'
+              ? 'bg-gradient-to-t from-[#0A0C12]/80 via-transparent to-[#121722]/50' 
+              : 'bg-gradient-to-t from-blue-50/30 via-transparent to-white/50'
           }`} />
 
           {/* Telemetry Video Badge Overlay */}
