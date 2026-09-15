@@ -497,60 +497,71 @@ function PatientProfilePage() {
 
       {/* Create/Edit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl overflow-hidden border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+          <div className={`rounded-2xl shadow-2xl w-full max-w-lg max-h-[88vh] flex flex-col overflow-hidden border transition-all duration-200 ${
+            isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+          }`}>
             {/* Modal Header */}
-            <div className="bg-slate-50 px-8 py-5 border-b border-slate-200 flex justify-between items-center">
-              <h4 className="text-lg font-bold text-slate-800">
+            <div className={`px-5 py-3.5 border-b flex justify-between items-center ${
+              isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-slate-50 border-slate-100'
+            }`}>
+              <h4 className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                <User className="w-4 h-4 text-blue-500" />
                 {formMode === 'create' ? 'Create Patient Profile' : 'Edit Patient Profile'}
               </h4>
               <button 
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 font-bold text-xl cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 transition cursor-pointer text-lg leading-none"
               >
                 &times;
               </button>
             </div>
 
-            {/* Modal Form */}
-            <form onSubmit={handleSubmit} className="p-8 space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            {/* Modal Form Content */}
+            <form onSubmit={handleSubmit} className="p-4 sm:p-5 overflow-y-auto space-y-3.5 flex-1">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 {/* Full Name */}
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Full Name</label>
+                <div className="col-span-2 sm:col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Full Name</label>
                   <input 
                     type="text" 
                     name="full_name"
                     value={formData.full_name}
                     onChange={handleInputChange}
                     placeholder="e.g. John Doe" 
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800" 
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
                     required
                   />
                 </div>
 
                 {/* Age */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Age (years)</label>
+                <div className="col-span-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Age</label>
                   <input 
                     type="number" 
                     name="age"
                     value={formData.age}
                     onChange={handleInputChange}
-                    placeholder="e.g. 45" 
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800" 
+                    placeholder="45" 
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
                     required
                   />
                 </div>
 
                 {/* Gender */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Gender</label>
+                <div className="col-span-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Gender</label>
                   <select 
                     name="gender"
                     value={formData.gender}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800"
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
                   >
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
@@ -559,74 +570,84 @@ function PatientProfilePage() {
                 </div>
 
                 {/* Height */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Height (cm)</label>
+                <div className="col-span-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Height (cm)</label>
                   <input 
                     type="number" 
                     name="height_cm"
                     value={formData.height_cm}
                     onChange={handleInputChange}
-                    placeholder="e.g. 175" 
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800" 
+                    placeholder="175" 
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
                     required
                   />
                 </div>
 
                 {/* Weight */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Weight (kg)</label>
+                <div className="col-span-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Weight (kg)</label>
                   <input 
                     type="number" 
                     name="weight_kg"
                     value={formData.weight_kg}
                     onChange={handleInputChange}
-                    placeholder="e.g. 70" 
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800" 
+                    placeholder="70" 
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
                     required
                   />
                 </div>
 
                 {/* Dominant Hand */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Dominant Hand</label>
+                <div className="col-span-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Dominant</label>
                   <select 
                     name="dominant_hand"
                     value={formData.dominant_hand}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800"
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
                   >
-                    <option value="Right">Right Hand</option>
-                    <option value="Left">Left Hand</option>
+                    <option value="Right">Right</option>
+                    <option value="Left">Left</option>
                     <option value="Ambidextrous">Ambidextrous</option>
                   </select>
                 </div>
 
                 {/* Affected Side */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Affected Side</label>
+                <div className="col-span-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Affected Side</label>
                   <select 
                     name="affected_side"
                     value={formData.affected_side}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800"
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
                   >
-                    <option value="Left">Left Side</option>
-                    <option value="Right">Right Side</option>
-                    <option value="Bilateral">Bilateral (Both)</option>
+                    <option value="Left">Left</option>
+                    <option value="Right">Right</option>
+                    <option value="Bilateral">Both</option>
                   </select>
                 </div>
 
                 {/* Affected Body Part */}
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Affected Body Part</label>
+                <div className="col-span-2 sm:col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Affected Body Part</label>
                   <select 
                     name="body_part_id"
                     value={formData.body_part_id}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800"
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
                     required
                   >
-                    <option value="">Select affected area...</option>
+                    <option value="">Select body part...</option>
                     {bodyParts.map(bp => (
                       <option key={bp.id} value={bp.id}>{bp.name}</option>
                     ))}
@@ -634,18 +655,15 @@ function PatientProfilePage() {
                 </div>
 
                 {/* Diagnosed Injury / Condition */}
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                    Diagnosed Injury / Condition 
-                    <span className="text-[10px] text-slate-400 normal-case font-normal ml-2">
-                      (Select the condition diagnosed by your healthcare professional)
-                    </span>
-                  </label>
+                <div className="col-span-2 sm:col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Diagnosed Injury / Condition</label>
                   <select 
                     name="condition_id"
                     value={formData.condition_id}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800"
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
                     required
                   >
                     <option value="">Select condition...</option>
@@ -656,13 +674,15 @@ function PatientProfilePage() {
                 </div>
 
                 {/* Rehabilitation Goal */}
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Rehabilitation Goal</label>
+                <div className="col-span-2 sm:col-span-4">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Rehabilitation Goal</label>
                   <select 
                     name="rehabilitation_goal_id"
                     value={formData.rehabilitation_goal_id}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-800"
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
                     required
                   >
                     <option value="">Select rehabilitation goal...</option>
@@ -673,27 +693,31 @@ function PatientProfilePage() {
                 </div>
               </div>
 
-              {/* Form Actions */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+              {/* Medical Disclaimer Note */}
+              <div className={`p-2.5 rounded-lg border text-[9px] leading-tight ${
+                isDark ? 'bg-slate-950/40 border-slate-800/60 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-500'
+              }`}>
+                <span className="font-bold block mb-0.5">Medical Disclaimer</span>
+                SmartPhysio is an assistive monitoring tool for tracking physical therapy progress and range of motion. Consult a qualified clinician for diagnostic advice.
+              </div>
+
+              {/* Form Actions Footer */}
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <button 
                   type="button" 
                   onClick={() => setIsModalOpen(false)}
-                  className="px-5 py-2.5 border border-slate-200 text-slate-600 text-sm font-semibold rounded-xl hover:bg-slate-50 transition cursor-pointer"
+                  className={`px-4 py-2 border text-xs font-semibold rounded-lg transition cursor-pointer ${
+                    isDark ? 'border-slate-800 text-slate-400 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit"
-                  className="px-6 py-2.5 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-blue-600 transition cursor-pointer shadow-sm shadow-blue-200"
+                  className="px-5 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition cursor-pointer shadow-sm shadow-blue-500/20"
                 >
                   {formMode === 'create' ? 'Create Profile' : 'Save Changes'}
                 </button>
-              </div>
-
-              {/* Medical Disclaimer */}
-              <div className="mt-4 p-3 bg-slate-50 border border-slate-200 rounded-xl text-[10px] text-slate-500 leading-normal">
-                <span className="font-bold text-slate-700 block mb-0.5">Medical Disclaimer</span>
-                SmartPhysio is an assistive monitoring tool for tracking physical therapy progress and range of motion. It does not provide medical diagnoses, treatment plans, or clinical validation. Please consult a qualified healthcare professional before beginning any routine.
               </div>
             </form>
           </div>

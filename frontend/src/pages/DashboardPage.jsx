@@ -1134,69 +1134,73 @@ function DashboardPage() {
 
       {/* QUICK PATIENT REGISTRATION MODAL */}
       {showRegisterModal && (
-        <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${
-          isDark ? 'bg-slate-950/70 backdrop-blur-sm' : 'bg-slate-900/40 backdrop-blur-sm'
-        }`}>
-          <div className={`rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border transition-colors ${
-            isDark ? 'card-neumorphic-dark text-white' : 'card-neumorphic-light text-slate-800'
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+          <div className={`rounded-2xl shadow-2xl w-full max-w-lg max-h-[88vh] flex flex-col overflow-hidden border transition-all duration-200 ${
+            isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
           }`}>
-            <div className={`px-6 py-4 border-b flex justify-between items-center ${
-              isDark ? 'border-slate-850' : 'border-slate-100'
+            {/* Modal Header */}
+            <div className={`px-5 py-3.5 border-b flex justify-between items-center ${
+              isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-slate-50 border-slate-100'
             }`}>
               <h4 className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'} font-syne`}>
                 <User className="w-4 h-4 text-blue-500" />
                 Add New Patient Profile
               </h4>
-              <button onClick={() => setShowRegisterModal(false)} className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 transition cursor-pointer">
+              <button onClick={() => setShowRegisterModal(false)} className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
             
-            <form onSubmit={handleRegisterSubmit} className="p-6 space-y-4">
+            {/* Modal Form Content */}
+            <form onSubmit={handleRegisterSubmit} className="p-4 sm:p-5 overflow-y-auto space-y-3.5 flex-1">
               {regError && (
-                <div className="p-2.5 bg-red-950/40 border border-red-900/30 text-red-400 text-xs font-semibold rounded-lg text-center">
+                <div className="p-2 bg-red-950/40 border border-red-900/30 text-red-400 text-xs font-semibold rounded-lg text-center">
                   {regError}
                 </div>
               )}
 
-              <div>
-                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Full Name</label>
-                <input
-                  type="text"
-                  name="full_name"
-                  value={regForm.full_name}
-                  onChange={handleRegisterInputChange}
-                  placeholder="Leslie Alexander"
-                  className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
-                    isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200 text-slate-800'
-                  }`}
-                  required
-                />
-              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                {/* Full Name */}
+                <div className="col-span-2 sm:col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Full Name</label>
+                  <input
+                    type="text"
+                    name="full_name"
+                    value={regForm.full_name}
+                    onChange={handleRegisterInputChange}
+                    placeholder="e.g. Leslie Alexander"
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
+                    required
+                  />
+                </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Age</label>
+                {/* Age */}
+                <div className="col-span-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Age</label>
                   <input
                     type="number"
                     name="age"
                     value={regForm.age}
                     onChange={handleRegisterInputChange}
                     placeholder="22"
-                    className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
-                      isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200 text-slate-800'
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
                     }`}
                     required
                   />
                 </div>
-                <div>
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Gender</label>
+
+                {/* Gender */}
+                <div className="col-span-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Gender</label>
                   <select
                     name="gender"
                     value={regForm.gender}
                     onChange={handleRegisterInputChange}
-                    className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
-                      isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200 text-slate-800'
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
                     }`}
                   >
                     <option value="Male">Male</option>
@@ -1204,150 +1208,155 @@ function DashboardPage() {
                     <option value="Other">Other</option>
                   </select>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Height (cm)</label>
+                {/* Height */}
+                <div className="col-span-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Height (cm)</label>
                   <input
                     type="number"
                     name="height_cm"
                     value={regForm.height_cm}
                     onChange={handleRegisterInputChange}
                     placeholder="175"
-                    className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
-                      isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200 text-slate-800'
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
                     }`}
                     required
                   />
                 </div>
-                <div>
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Weight (kg)</label>
+
+                {/* Weight */}
+                <div className="col-span-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Weight (kg)</label>
                   <input
                     type="number"
                     name="weight_kg"
                     value={regForm.weight_kg}
                     onChange={handleRegisterInputChange}
                     placeholder="70"
-                    className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
-                      isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200 text-slate-800'
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
                     }`}
                     required
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Dominant Hand</label>
+                {/* Dominant Hand */}
+                <div className="col-span-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Dominant</label>
                   <select
                     name="dominant_hand"
                     value={regForm.dominant_hand}
                     onChange={handleRegisterInputChange}
-                    className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
-                      isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200'
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
                     }`}
                   >
                     <option value="Right">Right</option>
                     <option value="Left">Left</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Injured Side</label>
+
+                {/* Injured Side */}
+                <div className="col-span-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Injured Side</label>
                   <select
                     name="injured_arm"
                     value={regForm.injured_arm}
                     onChange={handleRegisterInputChange}
-                    className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
-                      isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200'
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
                     }`}
                   >
-                    <option value="Left">Left Side</option>
-                    <option value="Right">Right Side</option>
-                    <option value="Both">Both Sides</option>
+                    <option value="Left">Left</option>
+                    <option value="Right">Right</option>
+                    <option value="Both">Both</option>
+                  </select>
+                </div>
+
+                {/* Affected Body Part */}
+                <div className="col-span-2 sm:col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Affected Body Part</label>
+                  <select
+                    name="body_part_id"
+                    value={regForm.body_part_id}
+                    onChange={handleRegisterInputChange}
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
+                    required
+                  >
+                    <option value="">Select body part...</option>
+                    {bodyParts.map(bp => (
+                      <option key={bp.id} value={bp.id}>{bp.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Diagnosed Injury / Condition */}
+                <div className="col-span-2 sm:col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Diagnosed Injury / Condition</label>
+                  <select
+                    name="condition_id"
+                    value={regForm.condition_id}
+                    onChange={handleRegisterInputChange}
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
+                    required
+                  >
+                    <option value="">Select condition...</option>
+                    {filteredConditions.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Rehabilitation Goal */}
+                <div className="col-span-2 sm:col-span-4">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Rehabilitation Goal</label>
+                  <select
+                    name="rehabilitation_goal_id"
+                    value={regForm.rehabilitation_goal_id}
+                    onChange={handleRegisterInputChange}
+                    className={`w-full px-3 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
+                    required
+                  >
+                    <option value="">Select goal...</option>
+                    {rehabGoals.map(g => (
+                      <option key={g.id} value={g.id}>{g.goal_name}</option>
+                    ))}
                   </select>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Affected Body Part</label>
-                <select
-                  name="body_part_id"
-                  value={regForm.body_part_id}
-                  onChange={handleRegisterInputChange}
-                  className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
-                    isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200'
-                  }`}
-                  required
-                >
-                  <option value="">Select affected area...</option>
-                  {bodyParts.map(bp => (
-                    <option key={bp.id} value={bp.id}>{bp.name}</option>
-                  ))}
-                </select>
+              {/* Medical Disclaimer Note */}
+              <div className={`p-2.5 rounded-lg border text-[9px] leading-tight ${
+                isDark ? 'bg-slate-950/40 border-slate-800/60 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-500'
+              }`}>
+                <span className="font-bold block mb-0.5">Medical Disclaimer</span>
+                SmartPhysio is an assistive monitoring tool for tracking physical therapy progress and range of motion. Consult a qualified clinician for diagnostic advice.
               </div>
 
-              <div>
-                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">
-                  Diagnosed Injury / Condition 
-                  <span className="text-[8px] text-slate-400 normal-case font-normal ml-2">
-                    (Select diagnosed by healthcare professional)
-                  </span>
-                </label>
-                <select
-                  name="condition_id"
-                  value={regForm.condition_id}
-                  onChange={handleRegisterInputChange}
-                  className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
-                    isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200'
-                  }`}
-                  required
-                >
-                  <option value="">Select condition...</option>
-                  {filteredConditions.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Rehabilitation Goal</label>
-                <select
-                  name="rehabilitation_goal_id"
-                  value={regForm.rehabilitation_goal_id}
-                  onChange={handleRegisterInputChange}
-                  className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
-                    isDark ? 'bg-[#121620] border-slate-800 text-white' : 'bg-[#F1F5F9] border-slate-200'
-                  }`}
-                  required
-                >
-                  <option value="">Select goal...</option>
-                  {rehabGoals.map(g => (
-                    <option key={g.id} value={g.id}>{g.goal_name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex gap-3 pt-3">
+              {/* Form Actions Footer */}
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setShowRegisterModal(false)}
-                  className="w-1/2 py-2.5 border border-slate-800 text-slate-400 hover:text-white rounded-xl text-xs font-semibold hover:bg-slate-800 transition cursor-pointer"
+                  className={`px-4 py-2 border text-xs font-semibold rounded-lg transition cursor-pointer ${
+                    isDark ? 'border-slate-800 text-slate-400 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition cursor-pointer"
+                  className="px-5 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition cursor-pointer shadow-sm shadow-blue-500/20"
                 >
                   Save Profile
                 </button>
-              </div>
-
-              {/* Medical Disclaimer */}
-              <div className="mt-4 p-3 bg-slate-900/30 border border-slate-800/40 rounded-xl text-[9px] text-slate-455 leading-normal">
-                <span className="font-bold text-slate-400 block mb-0.5">Medical Disclaimer</span>
-                SmartPhysio is an assistive monitoring tool for tracking physical therapy progress and range of motion. It does not provide medical diagnoses, treatment plans, or clinical validation. Please consult a qualified healthcare professional before beginning any routine.
               </div>
             </form>
           </div>
