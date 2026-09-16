@@ -186,10 +186,11 @@ export function applyCalibratedElbowRotation(forearmNode, base, testAngles, lerp
   if (!forearmNode || !testAngles) return;
 
   const baseRot = base || { x: 0, y: 0, z: 0 };
+  const angles = testAngles.angles || testAngles;
 
   // Elbow bending uses LOCAL X axis ONLY.
   // Negative X rotation bends forearm forward/upward (-X deg).
-  const targetX = baseRot.x + degToRad(testAngles?.x || 0);
+  const targetX = baseRot.x + degToRad(angles?.x || 0);
 
   forearmNode.rotation.x = THREE.MathUtils.lerp(forearmNode.rotation.x, targetX, lerpFactor);
   forearmNode.rotation.y = THREE.MathUtils.lerp(forearmNode.rotation.y, baseRot.y, lerpFactor);

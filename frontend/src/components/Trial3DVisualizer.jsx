@@ -15,6 +15,7 @@ function ElbowStandaloneRig({
   calibrationActive = false,
   targetBone = 'WristArm',
   testAngles = { x: 0, y: 0, z: 0 },
+  sensorElbowAngles = null,
   onRestAnglesCaptured
 }) {
   const { scene } = useGLTF('/models/elbow.glb');
@@ -53,6 +54,8 @@ function ElbowStandaloneRig({
       const base = baseRotationsRef.current.WristArm || { x: 0, y: 0, z: 0 };
       if (calibrationActive) {
         applyCalibratedElbowRotation(forearmNode, base, testAngles, 0.25);
+      } else if (sensorElbowAngles && typeof sensorElbowAngles === 'object') {
+        applyCalibratedElbowRotation(forearmNode, base, sensorElbowAngles, 0.25);
       }
     }
   });
@@ -74,6 +77,7 @@ function FullBodyRig({
   testAngles = { x: 0, y: 0, z: 0 },
   sensorFingerAngles = null,
   sensorWristAngles = null,
+  sensorElbowAngles = null,
   onRestAnglesCaptured
 }) {
   // Load full_rig GLB from public/models directory
@@ -184,9 +188,15 @@ function FullBodyRig({
     const rightForearm = getNode('right_forearm');
     if (rightForearm) {
       const base = bases.right_forearm || { x: 0, y: 0, z: 0 };
-      const bendDeg = 180 - (activeControls?.elbowAngle || 180); // 180 = straight -> 0 bend
-      const targetElbowZ = base.z - degToRad(bendDeg);
-      rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, targetElbowZ, 0.15);
+      if (calibrationActive && (targetBone === 'right_forearm' || targetBone === 'WristArm')) {
+        applyCalibratedElbowRotation(rightForearm, base, testAngles, 0.25);
+      } else if (sensorElbowAngles && typeof sensorElbowAngles === 'object') {
+        applyCalibratedElbowRotation(rightForearm, base, sensorElbowAngles, 0.25);
+      } else {
+        const bendDeg = 180 - (activeControls?.elbowAngle || 180); // 180 = straight -> 0 bend
+        const targetElbowZ = base.z - degToRad(bendDeg);
+        rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, targetElbowZ, 0.15);
+      }
     }
 
     // 3. Wrist Joint ('Circle' - Hand/Wrist assembly)
@@ -342,6 +352,7 @@ export default function Trial3DVisualizer({
   testAngles = { x: 0, y: 0, z: 0 },
   sensorFingerAngles = null,
   sensorWristAngles = null,
+  sensorElbowAngles = null,
   onRestAnglesCaptured
 }) {
   const controlsRef = useRef();
@@ -365,6 +376,7 @@ export default function Trial3DVisualizer({
               calibrationActive={calibrationActive}
               targetBone={targetBone}
               testAngles={testAngles}
+              sensorElbowAngles={sensorElbowAngles}
               onRestAnglesCaptured={onRestAnglesCaptured}
             />
           ) : (
@@ -377,6 +389,7 @@ export default function Trial3DVisualizer({
               testAngles={testAngles}
               sensorFingerAngles={sensorFingerAngles}
               sensorWristAngles={sensorWristAngles}
+              sensorElbowAngles={sensorElbowAngles}
               onRestAnglesCaptured={onRestAnglesCaptured}
             />
           )}
