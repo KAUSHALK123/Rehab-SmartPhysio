@@ -1,9 +1,73 @@
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #3B82F6;
+  --color-primary: var(--theme-accent, #10b981);
   --color-secondary: #10B981;
-  --color-accent: #06B6D4;
+  --color-accent: var(--theme-accent, #06B6D4);
+}
+
+/* ===================================================
+   OLED PITCH BLACK & OBSIDIAN THEME ARCHITECTURE
+   Eliminates all cheap AI-generated blue tints
+   =================================================== */
+
+:root {
+  --theme-accent: #10b981;
+  --theme-accent-glow: rgba(16, 185, 129, 0.25);
+  --theme-bg-main: #f8fafc;
+  --theme-bg-nav: #ffffff;
+  --theme-bg-card: #ffffff;
+  --theme-bg-elevated: #f1f5f9;
+  --theme-border-main: #e2e8f0;
+  --theme-border-subtle: #f1f5f9;
+}
+
+html.dark {
+  --theme-bg-main: #000000;
+  --theme-bg-nav: #070709;
+  --theme-bg-card: #0c0d10;
+  --theme-bg-elevated: #14151a;
+  --theme-border-main: rgba(255, 255, 255, 0.08);
+  --theme-border-subtle: rgba(255, 255, 255, 0.04);
+}
+
+html.dark body {
+  background-color: var(--theme-bg-main, #000000) !important;
+  color: #f4f4f5 !important;
+}
+
+/* Global Dark Mode Overrides: Replace blueish Slate-900 / Slate-950 with deep Pitch Black & Charcoal */
+html.dark .bg-slate-950 {
+  background-color: var(--theme-bg-main, #000000) !important;
+}
+
+html.dark .bg-slate-900 {
+  background-color: var(--theme-bg-card, #0c0d10) !important;
+}
+
+html.dark .bg-slate-850 {
+  background-color: var(--theme-bg-elevated, #14151a) !important;
+}
+
+html.dark .bg-slate-800 {
+  background-color: var(--theme-bg-elevated, #16171d) !important;
+}
+
+html.dark .bg-slate-800\/80,
+html.dark .bg-slate-800\/60,
+html.dark .bg-slate-800\/50,
+html.dark .bg-slate-800\/40 {
+  background-color: rgba(20, 21, 26, 0.8) !important;
+}
+
+html.dark .border-slate-800,
+html.dark .border-slate-850,
+html.dark .border-slate-700 {
+  border-color: var(--theme-border-main, rgba(255, 255, 255, 0.08)) !important;
+}
+
+html.dark .border-slate-700\/60 {
+  border-color: var(--theme-border-subtle, rgba(255, 255, 255, 0.04)) !important;
 }
 
 /* Custom App Globals */

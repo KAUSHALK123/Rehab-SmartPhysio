@@ -123,7 +123,7 @@ function AnalyticsPage() {
               <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Rehabilitation Recovery Progress</h3>
               <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                 Track clinical flexibility improvements, grip force output, and movement accuracy profiles for patient:{' '}
-                <span className="text-primary font-bold">{activePatientName}</span>
+                <span className="font-extrabold" style={{ color: "var(--theme-accent, #10b981)" }}>{activePatientName}</span>
               </p>
             </div>
           </div>
@@ -156,7 +156,7 @@ function AnalyticsPage() {
             <div className={`border p-16 rounded-2xl shadow-sm text-center max-w-xl mx-auto space-y-6 transition-colors duration-200 ${
               isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
             }`}>
-              <div className="w-16 h-16 rounded-full bg-blue-50/50 dark:bg-blue-950/40 flex items-center justify-center mx-auto text-primary animate-pulse">
+              <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto animate-pulse" style={{ backgroundColor: "rgba(255,255,255,0.05)", color: "var(--theme-accent, #10b981)" }}>
                 <Activity className="w-8 h-8" />
               </div>
               <div className="space-y-2">
@@ -167,7 +167,8 @@ function AnalyticsPage() {
               </div>
               <Link 
                 to="/exercises"
-                className="px-6 py-3 bg-primary text-white font-medium rounded-xl hover:bg-blue-600 transition inline-block text-sm"
+                style={{ backgroundColor: "var(--theme-accent, #10b981)", boxShadow: "0 0 20px var(--theme-accent-glow, rgba(16,185,129,0.25))" }}
+                className="px-6 py-3 text-white font-semibold rounded-xl hover:opacity-90 transition inline-block text-sm cursor-pointer"
               >
                 Go to Exercise Library
               </Link>

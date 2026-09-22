@@ -9,14 +9,17 @@ import {
   Sliders, 
   TrendingUp, 
   BookOpen, 
-  LogOut 
+  LogOut,
+  Palette
 } from 'lucide-react';
+import ThemeCustomizerModal from '../components/ThemeCustomizerModal';
 
 function DashboardLayout() {
   const location = useLocation();
   const { user, logout } = useAuth();
   const { isDark, toggleTheme } = useTheme();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showThemeModal, setShowThemeModal] = useState(false);
 
   // Exclude Device Calibration (/calibration) from dark layout styling as requested
   const isCalibrationPage = location.pathname === '/calibration';
@@ -67,9 +70,13 @@ function DashboardLayout() {
               <Link
                 key={item.name}
                 to={item.path}
+                style={isActive && isDarkLayout ? {
+                  backgroundColor: 'var(--theme-accent, #10b981)',
+                  boxShadow: '0 0 16px var(--theme-accent-glow, rgba(16, 185, 129, 0.35))'
+                } : {}}
                 className={`px-5 py-2 rounded-full text-xs font-semibold tracking-wide transition-all duration-200 ${
                   isActive 
-                    ? (isDarkLayout ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20' : 'bg-slate-900 text-white shadow-sm') 
+                    ? (isDarkLayout ? 'text-white' : 'bg-slate-900 text-white shadow-sm') 
                     : (isDarkLayout ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100/50')
                 }`}
               >
@@ -81,8 +88,29 @@ function DashboardLayout() {
 
         {/* Right: Search, Notification Bell, User Avatar Dropdown */}
         <div className="flex items-center gap-5">
+          {/* Theme Customizer Palette Button */}
+          {isDarkLayout && (
+            <button
+              type="button"
+              onClick={() => setShowThemeModal(true)}
+              className="relative p-2.5 rounded-full transition-all duration-200 border cursor-pointer hover:scale-105 group"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                borderColor: 'var(--theme-border-main, rgba(255, 255, 255, 0.1))',
+                color: 'var(--theme-accent, #10b981)'
+              }}
+              title="Theme Studio: Darkness & Bespoke Color Picker"
+            >
+              <Palette className="w-4 h-4 transition-transform group-hover:rotate-45" />
+              <span 
+                className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-black animate-pulse"
+                style={{ backgroundColor: 'var(--theme-accent, #10b981)' }}
+              />
+            </button>
+          )}
+
           {/* Theme Switch */}
-          <label className="theme-switch mt-1 mr-4 cursor-pointer">
+          <label className="theme-switch mt-1 mr-2 cursor-pointer">
             <input type="checkbox" className="theme-switch__checkbox" checked={isDark} onChange={toggleTheme} />
             <div className="theme-switch__container">
               <div className="theme-switch__clouds"></div>
@@ -158,6 +186,9 @@ function DashboardLayout() {
       <main className="flex-1 p-8">
         <Outlet />
       </main>
+
+      {/* Bespoke Dark Theme & Color Customizer Modal */}
+      <ThemeCustomizerModal isOpen={showThemeModal} onClose={() => setShowThemeModal(false)} />
     </div>
   );
 }
