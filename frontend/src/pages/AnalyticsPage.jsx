@@ -22,19 +22,82 @@ import {
   ChevronRight,
   Calendar,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Users,
+  UserCheck
 } from 'lucide-react';
 import { getDashboardAnalytics } from '../services/analytics';
+import { getPatients } from '../services/patient';
 import { useTheme } from '../context/ThemeContext';
 
 function AnalyticsPage() {
   const { isDark } = useTheme();
-  const activePatientId = localStorage.getItem('activePatientId') || '';
-  const activePatientName = localStorage.getItem('activePatientName') || '';
+  const [activePatientId, setActivePatientId] = useState(
+    () => localStorage.getItem('activePatientId') || ''
+  );
+  const [activePatientName, setActivePatientName] = useState(
+    () => localStorage.getItem('activePatientName') || ''
+  );
+  const [patientList, setPatientList] = useState([]);
+  const [loadingPatients, setLoadingPatients] = useState(false);
 
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Load available patients for switching
+  useEffect(() => {
+    let isMounted = true;
+    const loadPatients = async () => {
+      try {
+        setLoadingPatients(true);
+        const data = await getPatients();
+        if (isMounted && Array.isArray(data)) {
+          setPatientList(data);
+          if (activePatientId) {
+            const match = data.find((p) => p.id === activePatientId);
+            if (match && match.full_name !== activePatientName) {
+              setActivePatientName(match.full_name);
+              localStorage.setItem('activePatientName', match.full_name);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load patient list for analytics switcher:', err);
+      } finally {
+        if (isMounted) setLoadingPatients(false);
+      }
+    };
+    loadPatients();
+    return () => { isMounted = false; };
+  }, []);
+
+  // Sync if patient changed from another tab or window
+  useEffect(() => {
+    const handleSync = () => {
+      const storedId = localStorage.getItem('activePatientId') || '';
+      const storedName = localStorage.getItem('activePatientName') || '';
+      if (storedId !== activePatientId) {
+        setActivePatientId(storedId);
+        setActivePatientName(storedName);
+      }
+    };
+    window.addEventListener('patientChange', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('patientChange', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, [activePatientId]);
+
+  const handleSwitchPatient = (patient) => {
+    if (!patient || patient.id === activePatientId) return;
+    localStorage.setItem('activePatientId', patient.id);
+    localStorage.setItem('activePatientName', patient.full_name);
+    setActivePatientId(patient.id);
+    setActivePatientName(patient.full_name);
+    window.dispatchEvent(new Event('patientChange'));
+  };
 
   const fetchAnalytics = async () => {
     if (!activePatientId) {
@@ -112,33 +175,117 @@ function AnalyticsPage() {
           </Link>
         </div>
       ) : (
-        <div className={`p-6 rounded-2xl border shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6 transition-colors duration-200 ${
-          isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
-        }`}>
-          <div className="flex items-center gap-4">
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isDark ? 'bg-blue-950/60 text-blue-400' : 'bg-blue-50 text-primary'}`}>
-              <TrendingUp className="w-6 h-6" />
+        <div className="space-y-4">
+          <div className={`p-6 rounded-2xl border shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6 transition-colors duration-200 ${
+            isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+          }`}>
+            <div className="flex items-center gap-4">
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isDark ? 'bg-blue-950/60 text-blue-400' : 'bg-blue-50 text-primary'}`}>
+                <TrendingUp className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Rehabilitation Recovery Progress</h3>
+                <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Track clinical flexibility improvements, grip force output, and movement accuracy profiles for patient:{' '}
+                  <span className="font-extrabold" style={{ color: "var(--theme-accent, #10b981)" }}>{activePatientName}</span>
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Rehabilitation Recovery Progress</h3>
-              <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                Track clinical flexibility improvements, grip force output, and movement accuracy profiles for patient:{' '}
-                <span className="font-extrabold" style={{ color: "var(--theme-accent, #10b981)" }}>{activePatientName}</span>
-              </p>
+            
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Switchable Patient Selector Dropdown */}
+              {patientList.length > 0 && (
+                <div 
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold shadow-inner transition"
+                  style={{
+                    backgroundColor: isDark ? 'var(--theme-bg-elevated, #14151a)' : '#f8fafc',
+                    borderColor: isDark ? 'var(--theme-border-main, rgba(255,255,255,0.1))' : '#e2e8f0'
+                  }}
+                >
+                  <UserCheck className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-accent, #10b981)' }} />
+                  <span className={`text-[11px] uppercase tracking-wider font-extrabold ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>Patient:</span>
+                  <select
+                    value={activePatientId}
+                    onChange={(e) => {
+                      const chosen = patientList.find((p) => p.id === e.target.value);
+                      if (chosen) handleSwitchPatient(chosen);
+                    }}
+                    className="bg-transparent font-extrabold text-xs outline-none cursor-pointer pr-1"
+                    style={{
+                      color: isDark ? '#ffffff' : '#0f172a'
+                    }}
+                  >
+                    {patientList.map((p) => (
+                      <option key={p.id} value={p.id} className="bg-slate-900 text-white">
+                        {p.full_name} {p.injury_type ? `• ${p.injury_type}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <button 
+                onClick={fetchAnalytics}
+                className={`p-2.5 border rounded-xl transition flex items-center gap-1.5 text-xs font-semibold cursor-pointer ${
+                  isDark 
+                    ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200' 
+                    : 'border-slate-200 hover:bg-slate-50 text-slate-600'
+                }`}
+              >
+                <RefreshCw className="w-4 h-4" />
+                Refresh Data
+              </button>
             </div>
           </div>
-          
-          <button 
-            onClick={fetchAnalytics}
-            className={`p-2.5 border rounded-xl transition flex items-center gap-1.5 text-xs font-semibold cursor-pointer ${
-              isDark 
-                ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200' 
-                : 'border-slate-200 hover:bg-slate-50 text-slate-600'
-            }`}
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh Data
-          </button>
+
+          {/* Quick Horizontal Patient Switcher Chips */}
+          {patientList.length > 1 && (
+            <div 
+              className="p-3 px-4 rounded-2xl border flex items-center gap-2 overflow-x-auto transition-colors"
+              style={{
+                backgroundColor: isDark ? 'var(--theme-bg-card, #0c0d10)' : '#ffffff',
+                borderColor: isDark ? 'var(--theme-border-main, rgba(255,255,255,0.08))' : '#e2e8f0'
+              }}
+            >
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5 whitespace-nowrap mr-2">
+                <Users className="w-3.5 h-3.5" style={{ color: 'var(--theme-accent, #10b981)' }} />
+                Patients:
+              </span>
+              <div className="flex items-center gap-2 overflow-x-auto py-0.5">
+                {patientList.map((p) => {
+                  const isSelected = p.id === activePatientId;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handleSwitchPatient(p)}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 border ${
+                        isSelected
+                          ? 'text-white shadow-sm'
+                          : isDark 
+                            ? 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800' 
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      }`}
+                      style={isSelected ? {
+                        backgroundColor: 'var(--theme-accent, #10b981)',
+                        borderColor: 'var(--theme-accent, #10b981)',
+                        boxShadow: '0 0 12px var(--theme-accent-glow, rgba(16, 185, 129, 0.35))'
+                      } : {}}
+                    >
+                      <span>{p.full_name}</span>
+                      {p.injury_type && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${
+                          isSelected ? 'bg-black/25 text-white' : isDark ? 'bg-zinc-800 text-zinc-400' : 'bg-slate-200/80 text-slate-600'
+                        }`}>
+                          {p.injury_type}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
