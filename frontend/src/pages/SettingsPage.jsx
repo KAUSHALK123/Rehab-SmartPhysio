@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
+import FirmwareCodeCard from '../components/FirmwareCodeCard';
 import { 
   Moon, 
   Sun, 
@@ -322,6 +323,9 @@ function SettingsPage() {
               </div>
               <span className="text-xs font-bold text-slate-400">115,200 Baud</span>
             </div>
+
+            {/* Embedded Pop Open / Close Firmware Source Code Card */}
+            <FirmwareCodeCard />
           </div>
         </div>
 
