@@ -37,19 +37,58 @@ import { processFingerTelemetry } from '../services/fingerSensorMapper';
 import { processWristTelemetry } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
 
-// Speedometer-style circular gauge component with rotating needle
-const SVGGauge = ({ value, min = 0, max = 180, title, aimText, currentText, feedbackText }) => {
-  // Map value to angle from -90 to 90 degrees
-  const angle = ((value - min) / (max - min)) * 180 - 90;
-  // Ensure angle is bounded
-  const boundedAngle = Math.max(-90, Math.min(90, angle));
-  
+// Speedometer / Center-zero circular gauge component with rotating needle
+const SVGGauge = ({ 
+  value = 0, 
+  min = 0, 
+  max = 180, 
+  centerZero = false,
+  title, 
+  aimText, 
+  currentText, 
+  feedbackText 
+}) => {
+  const isCenterZero = centerZero || min < 0;
+
+  let boundedAngle = 0;
+  let arcD = null;
+  let arcStroke = '#3b82f6';
+
+  if (isCenterZero) {
+    // Range is symmetric around 0° (center top at 12 o'clock)
+    // Left (negative degrees): needle rotates counter-clockwise (up to -80°)
+    // Right (positive degrees): needle rotates clockwise (up to +80°)
+    const maxBound = Math.max(Math.abs(min), Math.abs(max)) || 60;
+    const clampedVal = Math.max(-maxBound, Math.min(maxBound, Number(value) || 0));
+    boundedAngle = (clampedVal / maxBound) * 80;
+
+    if (boundedAngle > 1.5) {
+      // Arc clockwise from top center (50, 15) towards the right
+      const rad = (boundedAngle * Math.PI) / 180;
+      const endX = 50 + 35 * Math.sin(rad);
+      const endY = 50 - 35 * Math.cos(rad);
+      arcD = `M 50 15 A 35 35 0 0 1 ${endX.toFixed(2)} ${endY.toFixed(2)}`;
+      arcStroke = '#10b981'; // Emerald for right deflection
+    } else if (boundedAngle < -1.5) {
+      // Arc counter-clockwise from top center (50, 15) towards the left
+      const rad = (Math.abs(boundedAngle) * Math.PI) / 180;
+      const endX = 50 - 35 * Math.sin(rad);
+      const endY = 50 - 35 * Math.cos(rad);
+      arcD = `M 50 15 A 35 35 0 0 0 ${endX.toFixed(2)} ${endY.toFixed(2)}`;
+      arcStroke = '#3b82f6'; // Blue for left deflection
+    }
+  } else {
+    // Standard left-to-right (min to max) gauge
+    const angle = ((value - min) / (max - min)) * 180 - 90;
+    boundedAngle = Math.max(-90, Math.min(90, angle));
+  }
+
   return (
     <div className="flex flex-col items-center text-center space-y-1 bg-slate-50 border border-slate-100 rounded-xl p-3 flex-1 min-w-0 shadow-sm transition hover:shadow duration-200">
       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{title}</span>
       
-      <div className="relative w-24 h-14 flex items-center justify-center mt-1">
-        <svg viewBox="0 0 100 60" className="w-20 h-12">
+      <div className="relative w-28 h-16 flex items-center justify-center mt-1">
+        <svg viewBox="0 0 100 65" className="w-24 h-14">
           {/* Background gray arc */}
           <path
             d="M 15 50 A 35 35 0 0 1 85 50"
@@ -58,17 +97,42 @@ const SVGGauge = ({ value, min = 0, max = 180, title, aimText, currentText, feed
             strokeWidth="7"
             strokeLinecap="round"
           />
+
           {/* Active progress arc */}
-          <path
-            d="M 15 50 A 35 35 0 0 1 85 50"
-            fill="none"
-            stroke="url(#gauge-grad)"
-            strokeWidth="7"
-            strokeLinecap="round"
-            strokeDasharray={110}
-            strokeDashoffset={110 - (110 * Math.max(0, Math.min(value - min, max - min))) / (max - min)}
-            className="transition-all duration-300 ease-out"
-          />
+          {isCenterZero ? (
+            arcD && (
+              <path
+                d={arcD}
+                fill="none"
+                stroke={arcStroke}
+                strokeWidth="7"
+                strokeLinecap="round"
+                className="transition-all duration-150 ease-out"
+              />
+            )
+          ) : (
+            <path
+              d="M 15 50 A 35 35 0 0 1 85 50"
+              fill="none"
+              stroke="url(#gauge-grad)"
+              strokeWidth="7"
+              strokeLinecap="round"
+              strokeDasharray={110}
+              strokeDashoffset={110 - (110 * Math.max(0, Math.min(value - min, max - min))) / (max - min)}
+              className="transition-all duration-300 ease-out"
+            />
+          )}
+
+          {/* Center Zero ticks & Labels */}
+          {isCenterZero && (
+            <g>
+              <line x1="50" y1="10" x2="50" y2="16" stroke="#0284c7" strokeWidth="2.5" strokeLinecap="round" />
+              <text x="50" y="8" textAnchor="middle" fontSize="6" fontWeight="bold" fill="#0284c7">0°</text>
+              <text x="16" y="58" textAnchor="middle" fontSize="5.5" fontWeight="bold" fill="#94a3b8">◀ L</text>
+              <text x="84" y="58" textAnchor="middle" fontSize="5.5" fontWeight="bold" fill="#94a3b8">R ▶</text>
+            </g>
+          )}
+
           {/* Gradient definitions */}
           <defs>
             <linearGradient id="gauge-grad" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -76,10 +140,12 @@ const SVGGauge = ({ value, min = 0, max = 180, title, aimText, currentText, feed
               <stop offset="100%" stopColor="#10b981" />
             </linearGradient>
           </defs>
+
           {/* Needle pin */}
-          <g transform={`translate(50, 50) rotate(${boundedAngle})`}>
-            <line x1="0" y1="0" x2="0" y2="-38" stroke="#1e293b" strokeWidth="2.5" strokeLinecap="round" />
-            <circle cx="0" cy="0" r="4.5" fill="#1e293b" />
+          <g transform={`translate(50, 50) rotate(${boundedAngle})`} className="transition-transform duration-100 ease-out">
+            <line x1="0" y1="0" x2="0" y2="-38" stroke="#0f172a" strokeWidth="2.5" strokeLinecap="round" />
+            <circle cx="0" cy="0" r="4.5" fill="#0f172a" />
+            <circle cx="0" cy="0" r="2" fill="#38bdf8" />
           </g>
         </svg>
       </div>
@@ -103,6 +169,45 @@ const WristIcon = () => (
     <path d="M40 18 L42 18 L42 20" fill="none" stroke="#3b82f6" strokeWidth="2" />
   </svg>
 );
+
+// Format AI guidance text with bold highlighted physical angles, percentages, and directions
+const renderFormattedAiText = (text) => {
+  if (!text) return null;
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      const content = part.slice(2, -2);
+      return (
+        <span 
+          key={idx} 
+          className="font-black text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/70 px-1.5 py-0.5 rounded-md border border-blue-200 dark:border-blue-800/80 mx-0.5 text-xs shadow-xs inline-block"
+        >
+          {content}
+        </span>
+      );
+    }
+    return <span key={idx}>{part}</span>;
+  });
+};
+
+const renderFormattedWarningText = (text) => {
+  if (!text) return null;
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      const content = part.slice(2, -2);
+      return (
+        <span 
+          key={idx} 
+          className="font-black text-amber-900 dark:text-amber-200 bg-amber-100 dark:bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800 mx-0.5 text-xs shadow-xs inline-block"
+        >
+          {content}
+        </span>
+      );
+    }
+    return <span key={idx}>{part}</span>;
+  });
+};
 
 // Real-time Flex Sensor ↔ GLB Sync Panel for Main Finger Exercises
 const FingerSyncPanel = ({ 
@@ -253,6 +358,107 @@ const FingerSyncPanel = ({
   );
 };
 
+// Developer & Diagnostic Panel for Wrist Validation (Category 1: Step 2)
+const WristDebugPanel = ({
+  sensors,
+  exercise,
+  repState,
+  repsCompleted,
+  holdCountdown,
+  wristComputed,
+  deviceConnected
+}) => {
+  const targetAngle = exercise?.target_angle || 60;
+  const isExtension = (exercise?.exercise_name || '').toLowerCase().includes('extension');
+  const currentAngle = isExtension ? -sensors.wrist_pitch : sensors.wrist_pitch;
+  const startThreshold = 0 + targetAngle * 0.25;
+  const returnThreshold = 0 + targetAngle * 0.15;
+  
+  const stateColor = 
+    repState === 'target_hold' ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' :
+    repState === 'moving' ? 'bg-blue-500/20 text-blue-300 border-blue-500/40' :
+    repState === 'returning' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' :
+    'bg-slate-700/40 text-slate-300 border-slate-600';
+
+  return (
+    <div className="bg-slate-900/95 border border-slate-700 rounded-xl p-3 text-slate-200 text-xs space-y-2.5 shadow-md">
+      <div className="flex justify-between items-center pb-2 border-b border-slate-800">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-[10px] font-black uppercase tracking-wider text-slate-100">
+            Wrist Validation Telemetry (Step 2 Testing)
+          </span>
+        </div>
+        <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded border uppercase ${
+          deviceConnected ? 'bg-emerald-950 text-emerald-400 border-emerald-800' : 'bg-red-950 text-red-400 border-red-800'
+        }`}>
+          {deviceConnected ? 'Sensor Connected' : 'Sensor Offline'}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {/* 1. MPU6050 Readings */}
+        <div className="bg-slate-950/70 p-2 rounded-lg border border-slate-800 space-y-1">
+          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">MPU-6050</span>
+          <div className="text-sm font-black text-white">
+            Pitch: <span className={sensors.wrist_pitch >= 0 ? 'text-emerald-400' : 'text-blue-400'}>{sensors.wrist_pitch?.toFixed(1) ?? '0.0'}°</span>
+          </div>
+          <div className="text-[10px] text-slate-400">
+            Roll: <span className="text-slate-200">{sensors.wrist_roll?.toFixed(1) ?? '0.0'}°</span>
+          </div>
+          <div className="text-[9px] text-slate-400 truncate">
+            Dir: {sensors.wrist_pitch >= 0 ? 'Flex (Down +)' : 'Ext (Up -)'}
+          </div>
+        </div>
+
+        {/* 2. Target & Thresholds */}
+        <div className="bg-slate-950/70 p-2 rounded-lg border border-slate-800 space-y-1">
+          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Target & Bounds</span>
+          <div className="text-sm font-black text-white">
+            Angle: <span className={currentAngle >= targetAngle ? 'text-emerald-400' : 'text-amber-400'}>{currentAngle?.toFixed(1) ?? '0.0'}°</span>
+          </div>
+          <div className="text-[10px] text-slate-400">
+            Target: <span className="text-white font-bold">{targetAngle}°</span>
+          </div>
+          <div className="text-[9px] text-slate-400 truncate">
+            Start &gt;{startThreshold.toFixed(0)}° | Ret &le;{returnThreshold.toFixed(0)}°
+          </div>
+        </div>
+
+        {/* 3. State Machine */}
+        <div className="bg-slate-950/70 p-2 rounded-lg border border-slate-800 space-y-1">
+          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Rep State</span>
+          <div className="pt-0.5">
+            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border ${stateColor}`}>
+              {repState}
+            </span>
+          </div>
+          <div className="text-[10px] text-slate-400 pt-0.5">
+            Reps: <span className="text-white font-bold">{repsCompleted}</span> / {exercise?.repetitions || 10}
+          </div>
+          <div className="text-[9px] text-slate-400">
+            Hold: <span className={holdCountdown > 0 ? 'text-emerald-400 font-bold animate-pulse' : 'text-slate-400'}>{holdCountdown > 0 ? `${holdCountdown}s` : 'Inactive'}</span>
+          </div>
+        </div>
+
+        {/* 4. GLB Output */}
+        <div className="bg-slate-950/70 p-2 rounded-lg border border-slate-800 space-y-1">
+          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">GLB Bone ('Circle')</span>
+          <div className="text-xs font-black text-purple-300">
+            X: {(wristComputed?.angles?.x ?? 0).toFixed(1)}°
+          </div>
+          <div className="text-[10px] text-slate-400">
+            Y: {(wristComputed?.angles?.y ?? 0).toFixed(1)}° | Z: {(wristComputed?.angles?.z ?? 0).toFixed(1)}°
+          </div>
+          <div className="text-[9px] text-slate-400 truncate">
+            Mode: {wristComputed?.movementId || 'upDown'} ({wristComputed?.normalized ?? 0}%)
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // 5 vertical volume-style bars for finger flexion values
 const FingerVolumeBars = ({ sensors }) => {
   const fingers = [
@@ -372,6 +578,7 @@ function LiveExercisePage() {
   const [lastPacketTime, setLastPacketTime] = useState(null);
   const [isFlexSynced, setIsFlexSynced] = useState(true);
   const [fingerTelemetryDetails, setFingerTelemetryDetails] = useState(null);
+  const [wristTelemetryDetails, setWristTelemetryDetails] = useState(null);
 
   const isFlexSyncedRef = useRef(isFlexSynced);
   useEffect(() => {
@@ -414,6 +621,8 @@ function LiveExercisePage() {
   const [repsFailed, setRepsFailed] = useState(0);
   const [holdCountdown, setHoldCountdown] = useState(0);
   const [accuracy, setAccuracy] = useState(100);
+  const [showMilestonePopup, setShowMilestonePopup] = useState(false);
+  const milestoneShownRef = useRef(false);
 
   // Live Telemetry states
   const [deviceConnected, setDeviceConnected] = useState(false);
@@ -451,6 +660,12 @@ function LiveExercisePage() {
   const holdTimerIntervalRef = useRef(null);
   const activeExerciseRef = useRef(null);
   const evaluateRepetitionStateRef = useRef();
+
+  // Synchronous State Machine & Repetition Anti-Race Refs
+  const repStateRef = useRef('rest');
+  const lastRepTimeRef = useRef(0);
+  const repsCompletedRef = useRef(0);
+  const repsFailedRef = useRef(0);
 
   // AI Feedback specific refs
   const lastProgressRef = useRef({ pct: 0, time: Date.now() });
@@ -632,9 +847,11 @@ function LiveExercisePage() {
             setFingerTelemetryDetails(null);
           }
 
-          const wristComputed = processWristTelemetry(data, activeExerciseRef.current || exerciseDetails);
+          const currentWristEx = activeExerciseRef.current || exerciseDetails || { exercise_name: exerciseName, primary_sensor: 'wrist_pitch', target_angle: 60 };
+          const wristComputed = processWristTelemetry(data, currentWristEx);
           if (wristComputed && wristComputed.angles) {
             setSensorWristAngles(wristComputed.angles);
+            setWristTelemetryDetails(wristComputed);
           }
 
           const elbowComputed = processElbowTelemetry(data, activeExerciseRef.current || exerciseDetails);
@@ -758,6 +975,9 @@ function LiveExercisePage() {
     
     // Extract current value we are tracking
     let currentValue = getSensorValue(ex.primary_sensor, data);
+    if (primaryLower === 'wrist_pitch' && nameLower.includes('extension')) {
+      currentValue = -data.wrist_pitch;
+    }
     let targetValue = isForceBased ? (ex.target_pressure || 200) : (ex.target_angle || 0);
     
     // Determine restValue
@@ -776,18 +996,26 @@ function LiveExercisePage() {
     
     const isAscending = targetValue > restValue;
 
-    // STATE MACHINE TRANSITIONS
-    let nextState = repState;
-    if (repState === 'rest') {
-      const hasInitiated = isAscending 
-        ? currentValue > restValue + (targetValue - restValue) * 0.25 
-        : currentValue < restValue - (restValue - targetValue) * 0.25;
+    // STATE MACHINE TRANSITIONS (Synchronous ref-based to eliminate packet race conditions)
+    const currentState = repStateRef.current;
+    let nextState = currentState;
 
-      if (hasInitiated) {
-        setGuidance(isForceBased ? 'Grip force detected. Squeeze harder!' : 'Movement detected. Bend toward target!');
-        nextState = 'moving';
+    if (currentState === 'rest') {
+      const now = Date.now();
+      // Debounce: must be at least 1000ms after previous rep completion
+      if (now - lastRepTimeRef.current >= 1000) {
+        const hasInitiated = isAscending 
+          ? currentValue > restValue + (targetValue - restValue) * 0.25 
+          : currentValue < restValue - (restValue - targetValue) * 0.25;
+
+        if (hasInitiated) {
+          setGuidance(isForceBased ? 'Grip force detected. Squeeze harder!' : 'Movement detected. Bend toward target!');
+          nextState = 'moving';
+          repStateRef.current = 'moving';
+          setRepState('moving');
+        }
       }
-    } else if (repState === 'moving') {
+    } else if (currentState === 'moving') {
       const targetReached = isAscending 
         ? currentValue >= targetValue 
         : currentValue <= targetValue;
@@ -798,9 +1026,13 @@ function LiveExercisePage() {
           startHoldTimer(holdSecs);
           setGuidance(`Target reached! HOLD position for ${holdSecs} seconds.`);
           nextState = 'target_hold';
+          repStateRef.current = 'target_hold';
+          setRepState('target_hold');
         } else {
           setGuidance('Target reached! Return to starting rest position.');
           nextState = 'returning';
+          repStateRef.current = 'returning';
+          setRepState('returning');
         }
       } else {
         if (isForceBased) {
@@ -809,7 +1041,7 @@ function LiveExercisePage() {
           setGuidance(`Moving... Current: ${currentValue.toFixed(0)}° / Target: ${targetValue}°`);
         }
       }
-    } else if (repState === 'target_hold') {
+    } else if (currentState === 'target_hold') {
       const letGo = isAscending 
         ? currentValue < targetValue * 0.8
         : currentValue > targetValue + (restValue - targetValue) * 0.2;
@@ -818,32 +1050,44 @@ function LiveExercisePage() {
         // User released hold early -> mark failed rep
         clearInterval(holdTimerIntervalRef.current);
         setHoldCountdown(0);
-        setRepsFailed(f => {
-          const nextFailed = f + 1;
-          updateAccuracyScore(repsCompleted, nextFailed);
-          return nextFailed;
-        });
+        repsFailedRef.current += 1;
+        const nextFailed = repsFailedRef.current;
+        setRepsFailed(nextFailed);
+        updateAccuracyScore(repsCompletedRef.current, nextFailed);
         setGuidance('Target released too early! Return to starting rest position.');
         nextState = 'returning';
+        repStateRef.current = 'returning';
+        setRepState('returning');
       }
-    } else if (repState === 'returning') {
+    } else if (currentState === 'returning') {
       const returnedToRest = isAscending 
         ? currentValue <= restValue + (targetValue - restValue) * 0.15
         : currentValue >= restValue - (restValue - targetValue) * 0.15;
 
       if (returnedToRest) {
-        setRepsCompleted(c => {
-          const updated = c + 1;
-          updateAccuracyScore(updated, repsFailed);
-          return updated;
-        });
-        setGuidance('Repetition complete! Relax and prepare for next.');
-        nextState = 'rest';
-      }
-    }
+        const now = Date.now();
+        // Prevent double counting: enforce at least 1200ms between completed reps
+        if (now - lastRepTimeRef.current >= 1200) {
+          lastRepTimeRef.current = now;
+          // Synchronously transition immediately so subsequent packets in this 20-50ms window cannot trigger again
+          repStateRef.current = 'rest';
+          setRepState('rest');
+          nextState = 'rest';
 
-    if (nextState !== repState) {
-      setRepState(nextState);
+          repsCompletedRef.current += 1;
+          const updated = repsCompletedRef.current;
+          setRepsCompleted(updated);
+          updateAccuracyScore(updated, repsFailedRef.current);
+          setGuidance('Repetition complete! Relax and prepare for next.');
+
+          // Milestone target popup (when prescribed goal e.g. 10 reps is reached)
+          const prescribedGoal = activeExerciseRef.current?.repetitions || 10;
+          if (updated >= prescribedGoal && !milestoneShownRef.current) {
+            milestoneShownRef.current = true;
+            setShowMilestonePopup(true);
+          }
+        }
+      }
     }
 
     // AI CLINICAL TARGET TRACKER & DEVIATION CALCULATION
@@ -882,44 +1126,52 @@ function LiveExercisePage() {
     let suggestionText = '';
     let statusVal = 'info';
 
+    const isWristExercise = nameLower.includes('wrist') || primaryLower.includes('wrist');
+    const rollVal = data.wrist_roll ?? 0;
+    const pitchVal = data.wrist_pitch ?? 0;
+
     // 1. Posture checks & stabilizers
     const secondaryLower = (ex.secondary_sensor || '').toLowerCase();
-    if (secondaryLower === 'wrist_pitch') {
-      const pitchVal = data.wrist_pitch;
-      if (pitchVal > 15) {
-        warningText = `Lower your wrist! Tilted down by ${Math.round(pitchVal - 15)}°`;
-      } else if (pitchVal < -15) {
-        warningText = `Raise your wrist! Tilted up by ${Math.round(-15 - pitchVal)}°`;
+    
+    // Check lateral tilt (left vs right) on wrist:
+    if (isWristExercise || secondaryLower === 'wrist_roll') {
+      const rollThreshold = 12;
+      // If doing flexion / extension, wrist should stay level (not tilted left or right)
+      if (primaryLower === 'wrist_pitch' || nameLower.includes('flexion') || nameLower.includes('extension')) {
+        if (rollVal > rollThreshold) {
+          warningText = `Straighten your wrist! Tilted too far **right** — move your wrist **left** by **${Math.round(rollVal)}°** to align.`;
+        } else if (rollVal < -rollThreshold) {
+          warningText = `Straighten your wrist! Tilted too far **left** — move your wrist **right** by **${Math.round(Math.abs(rollVal))}°** to align.`;
+        }
       }
-    } else if (secondaryLower === 'wrist_roll') {
-      const rollVal = data.wrist_roll;
-      const threshold = nameLower.includes('rotation') ? 10 : 15;
-      if (Math.abs(rollVal) > threshold) {
-        warningText = `Keep wrist stable! Twisting by ${Math.round(Math.abs(rollVal))}°`;
+    } else if (secondaryLower === 'wrist_pitch') {
+      if (pitchVal > 15) {
+        warningText = `Lower your wrist! Move wrist **upward** by **${Math.round(pitchVal - 15)}°**.`;
+      } else if (pitchVal < -15) {
+        warningText = `Raise your wrist! Move wrist **downward** by **${Math.round(-15 - pitchVal)}°**.`;
       }
     } else if (secondaryLower === 'elbow') {
       const elbowFlex = 180 - data.elbow;
       if (nameLower.includes('rotation')) {
         if (elbowFlex < 75) {
-          warningText = `Keep your elbow still! Bend more to 90°! Currently: ${Math.round(elbowFlex)}°`;
+          warningText = `Keep your elbow steady! Bend more to **90°** (currently: **${Math.round(elbowFlex)}°**).`;
         } else if (elbowFlex > 105) {
-          warningText = `Keep your elbow still! Straighten slightly to 90°! Currently: ${Math.round(elbowFlex)}°`;
+          warningText = `Keep your elbow steady! Straighten slightly to **90°** (currently: **${Math.round(elbowFlex)}°**).`;
         }
       } else {
         if (elbowFlex > 20) {
-          warningText = `Straighten your elbow! Flexed by ${Math.round(elbowFlex)}°`;
+          warningText = `Keep elbow still! Flexed by **${Math.round(elbowFlex)}°**.`;
         }
       }
     } else if (secondaryLower === 'flex_avg') {
       const flexAvg = (data.thumb + data.index + data.middle + data.ring + data.little) / 5;
       if (nameLower.includes('squeeze') || nameLower.includes('ball')) {
-        const pitchVal = data.wrist_pitch;
         if (pitchVal > 15) {
-          warningText = `Lower your wrist! Tilted down by ${Math.round(pitchVal - 15)}°`;
+          warningText = `Lower your wrist! Move wrist **up** by **${Math.round(pitchVal - 15)}°**.`;
         } else if (pitchVal < -15) {
-          warningText = `Raise your wrist! Tilted up by ${Math.round(-15 - pitchVal)}°`;
+          warningText = `Raise your wrist! Move wrist **down** by **${Math.round(-15 - pitchVal)}°**.`;
         } else if (flexAvg < 40 && currentValue > restValue + 15) {
-          warningText = `Finger Form: Bend fingers more while squeezing!`;
+          warningText = `Finger Form: Bend fingers more firmly while squeezing!`;
         }
       } else {
         if (flexAvg < 40 && currentValue > restValue + 15) {
@@ -936,24 +1188,59 @@ function LiveExercisePage() {
 
     // 2. Compute dynamic action guidance text based on nextState
     if (nextState === 'rest') {
-      suggestionText = isAscending 
-        ? `Ready to begin. Move your injured ${injuredArm} Arm to initiate the repetition.`
-        : `Ready to begin. Release your injured ${injuredArm} Arm to initiate.`;
+      if (nameLower.includes('flexion')) {
+        suggestionText = `Ready to begin. Bend your wrist **downward** toward **${targetValue}°** to start repetition.`;
+      } else if (nameLower.includes('extension')) {
+        suggestionText = `Ready to begin. Bend your wrist **upward** toward **${targetValue}°** to start repetition.`;
+      } else if (nameLower.includes('rotation') || nameLower.includes('twist') || nameLower.includes('pronation') || nameLower.includes('supination')) {
+        suggestionText = `Ready to begin. Rotate your wrist **left or right** toward **${targetValue}°** to start repetition.`;
+      } else if (nameLower.includes('radial') || nameLower.includes('ulnar') || nameLower.includes('waving') || nameLower.includes('hi movement')) {
+        suggestionText = `Ready to begin. Move your wrist **left or right** toward **${targetValue}°** to start repetition.`;
+      } else if (isWristExercise) {
+        suggestionText = `Ready to begin. Move your wrist toward **${targetValue}°** to start repetition.`;
+      } else {
+        suggestionText = isAscending 
+          ? `Ready to begin. Move your injured ${injuredArm} Arm to initiate the repetition.`
+          : `Ready to begin. Release your injured ${injuredArm} Arm to initiate.`;
+      }
       statusVal = 'info';
     } else if (nextState === 'moving') {
       statusVal = warningText ? 'warning' : 'info';
       if (isForceBased) {
         const remaining = Math.max(0, Math.round(targetValue - currentValue));
-        suggestionText = `Squeezing... reached ${progressPct}% of target force. Apply ${remaining} N more force.`;
+        suggestionText = `Squeezing... reached **${progressPct}%** of target force. Apply **${remaining} N** more force.`;
       } else {
         const remaining = Math.max(0, Math.round(Math.abs(targetValue - currentValue)));
         
-        if (nameLower.includes('rotation')) {
-          suggestionText = `Rotate your wrist further outwards. You are at ${Math.round(currentValue)}°, target is ${Math.round(targetValue)}°.`;
+        if (nameLower.includes('flexion')) {
+          let lateralHint = '';
+          if (rollVal > 8) {
+            lateralHint = ` — move wrist **left** by **${Math.round(rollVal)}°**`;
+          } else if (rollVal < -8) {
+            lateralHint = ` — move wrist **right** by **${Math.round(Math.abs(rollVal))}°**`;
+          }
+          suggestionText = `Bend your wrist **downward** by **${remaining}°** more (**${progressPct}%** completed)${lateralHint}.`;
+        } else if (nameLower.includes('extension')) {
+          let lateralHint = '';
+          if (rollVal > 8) {
+            lateralHint = ` — move wrist **left** by **${Math.round(rollVal)}°**`;
+          } else if (rollVal < -8) {
+            lateralHint = ` — move wrist **right** by **${Math.round(Math.abs(rollVal))}°**`;
+          }
+          suggestionText = `Bend your wrist **upward** by **${remaining}°** more (**${progressPct}%** completed)${lateralHint}.`;
+        } else if (nameLower.includes('rotation') || nameLower.includes('twist') || nameLower.includes('supination') || nameLower.includes('pronation')) {
+          const dir = currentValue < targetValue ? 'right' : 'left';
+          suggestionText = `Rotate your wrist more **${dir}** by **${remaining}°** more (**${progressPct}%** completed).`;
+        } else if (nameLower.includes('radial') || nameLower.includes('ulnar') || nameLower.includes('waving') || nameLower.includes('hi movement')) {
+          const dir = currentValue < targetValue ? 'right' : 'left';
+          suggestionText = `Move your wrist more **${dir}** by **${remaining}°** more (**${progressPct}%** completed).`;
         } else if (nameLower.includes('elbow')) {
-          suggestionText = `Bend your elbow more towards your shoulder. Move ${remaining}° more.`;
+          suggestionText = `Bend your elbow more towards your shoulder by **${remaining}°** more (**${progressPct}%** completed).`;
+        } else if (isWristExercise) {
+          const dir = rollVal < 0 ? 'right' : 'left';
+          suggestionText = `Move your wrist more **${dir}** by **${remaining}°** more (**${progressPct}%** completed).`;
         } else {
-          suggestionText = `Moving... reached ${progressPct}% of target angle. Move ${remaining}° more.`;
+          suggestionText = `Moving... reached **${progressPct}%** of target angle. Move **${remaining}°** more.`;
         }
       }
     } else if (nextState === 'target_hold') {
@@ -962,14 +1249,14 @@ function LiveExercisePage() {
         : (currentValue > targetValue + (restValue - targetValue) * 0.1);
         
       if (isSlipping && !warningText) {
-        warningText = `Hold steady! Don't let your arm drop yet.`;
+        warningText = `Hold steady! Don't let your wrist drop.`;
         statusVal = 'warning';
       } else {
         statusVal = 'success';
       }
-      suggestionText = `Target reached! Keep holding for ${holdCountdown > 0 ? holdCountdown : holdSecs}s.`;
+      suggestionText = `Target reached! Keep holding position for **${holdCountdown > 0 ? holdCountdown : holdSecs}s**.`;
     } else if (nextState === 'returning') {
-      suggestionText = `Rep completed successfully! Slowly return your arm to the rest position.`;
+      suggestionText = `Repetition completed! Slowly return your wrist to **starting rest position (0°)**.`;
       statusVal = 'info';
     }
 
@@ -991,6 +1278,7 @@ function LiveExercisePage() {
       if (current <= 0) {
         clearInterval(holdTimerIntervalRef.current);
         setGuidance('Hold complete! Return to rest position.');
+        repStateRef.current = 'returning';
         setRepState('returning');
       }
     }, 1000);
@@ -1007,6 +1295,7 @@ function LiveExercisePage() {
   const [summaryData, setSummaryData] = useState(null);
 
   const handleStopSession = async () => {
+    setShowMilestonePopup(false);
     cleanupSession();
     setSessionActive(false);
 
@@ -1081,10 +1370,10 @@ function LiveExercisePage() {
     : (deviceConnected ? sensors : defaultSensors);
 
   const activeControls = {
-    shoulderAngle: activeSensors.wrist_pitch,
+    shoulderAngle: 0, // LOCKED: Shoulder must remain stationary; sleeve has no shoulder sensor
     shoulderAngleX: 0,
     elbowAngle: 180 - activeSensors.elbow,
-    wristAngle: activeSensors.wrist_roll,
+    wristAngle: activeSensors.wrist_pitch,
     thumb: activeSensors.thumb,
     index: activeSensors.index,
     middle: activeSensors.middle,
@@ -1146,38 +1435,57 @@ function LiveExercisePage() {
     } else if (primaryLower === 'wrist_pitch') {
       const target = ex.target_angle || 60;
       const isExtension = nameLower.includes('extension');
-      const currentVal = isExtension ? -sensors.wrist_pitch : sensors.wrist_pitch;
-      let feedback = isExtension ? 'Bend wrist upward.' : 'Bend wrist downward.';
+      const pitchVal = sensors.wrist_pitch;
+      const currentVal = isExtension ? -pitchVal : pitchVal;
+      let feedback = 'Wrist centered at 0°.';
+      if (pitchVal > 10) {
+        feedback = `Moved right (flexion) by ${pitchVal.toFixed(0)}°.`;
+      } else if (pitchVal < -10) {
+        feedback = `Moved left (extension) by ${Math.abs(pitchVal).toFixed(0)}°.`;
+      }
       if (currentVal >= target) {
         feedback = 'Target angle reached! Hold it.';
-      } else if (currentVal > 10) {
-        feedback = isExtension ? 'Continue extending wrist upward.' : 'Continue flexing wrist downward.';
       }
+      
+      const dirText = Math.abs(pitchVal) <= 1 
+        ? '0° (Centered)' 
+        : `${Math.abs(pitchVal).toFixed(0)}° ${pitchVal < 0 ? 'Left' : 'Right'}`;
+
       primary = {
-        value: Math.max(0, currentVal),
-        min: 0,
-        max: 90,
+        value: pitchVal,
+        min: -60,
+        max: 60,
+        centerZero: true,
         title: isExtension ? 'Wrist Extension' : 'Wrist Pitch',
-        aimText: `Aim: ${target}° ${isExtension ? 'Ext' : 'Flex'}`,
-        currentText: `Current: ${Math.max(0, currentVal).toFixed(0)}°`,
+        aimText: `Target: ${target}° | Center: 0°`,
+        currentText: `Current: ${dirText}`,
         feedbackText: feedback
       };
     } else if (primaryLower === 'wrist_roll') {
-      const target = ex.target_angle || 90;
-      const currentVal = Math.abs(sensors.wrist_roll);
-      let feedback = 'Rotate your wrist.';
-      if (currentVal >= target) {
-        feedback = 'Target rotation reached! Hold it.';
-      } else if (currentVal > 15) {
-        feedback = 'Continue rotating wrist.';
+      const target = ex.target_angle || 45;
+      const rollVal = sensors.wrist_roll;
+      let feedback = 'Wrist centered at 0°.';
+      if (rollVal > 10) {
+        feedback = `Moved right by ${rollVal.toFixed(0)}°.`;
+      } else if (rollVal < -10) {
+        feedback = `Moved left by ${Math.abs(rollVal).toFixed(0)}°.`;
       }
+      if (Math.abs(rollVal) >= target) {
+        feedback = 'Target rotation reached! Hold it.';
+      }
+
+      const dirText = Math.abs(rollVal) <= 1 
+        ? '0° (Centered)' 
+        : `${Math.abs(rollVal).toFixed(0)}° ${rollVal < 0 ? 'Left' : 'Right'}`;
+
       primary = {
-        value: currentVal,
-        min: 0,
-        max: 120,
-        title: 'Wrist Rotation',
-        aimText: `Aim: ${target}° CCW`,
-        currentText: `Current: ${sensors.wrist_roll.toFixed(0)}° ${sensors.wrist_roll >= 0 ? 'CCW' : 'CW'}`,
+        value: rollVal,
+        min: -60,
+        max: 60,
+        centerZero: true,
+        title: 'Wrist Roll / Tilt',
+        aimText: `Target: ${target}° | Center: 0°`,
+        currentText: `Current: ${dirText}`,
         feedbackText: feedback
       };
     } else if (primaryLower === 'flex_avg') {
@@ -1232,32 +1540,42 @@ function LiveExercisePage() {
     // --- Resolve Secondary Gauge (Form Indicator) ---
     if (secondaryLower === 'wrist_pitch') {
       const pitchVal = sensors.wrist_pitch;
-      let secFeedback = 'Wrist is straight.';
-      if (pitchVal > 15) secFeedback = 'Lower your wrist.';
-      else if (pitchVal < -15) secFeedback = 'Raise your wrist.';
+      let secFeedback = 'Wrist is centered.';
+      if (pitchVal > 15) secFeedback = `Lower wrist (moved right by ${pitchVal.toFixed(0)}°).`;
+      else if (pitchVal < -15) secFeedback = `Raise wrist (moved left by ${Math.abs(pitchVal).toFixed(0)}°).`;
+
+      const dirText = Math.abs(pitchVal) <= 1 
+        ? '0° (Centered)' 
+        : `${Math.abs(pitchVal).toFixed(0)}° ${pitchVal < 0 ? 'Left (Up)' : 'Right (Down)'}`;
 
       secondary = {
         value: pitchVal,
         min: -45,
         max: 45,
+        centerZero: true,
         title: 'Wrist Pitch',
-        aimText: 'Aim: 0° (Neutral)',
-        currentText: `Current: ${pitchVal.toFixed(0)}°`,
+        aimText: 'Center: 0° (Neutral)',
+        currentText: `Current: ${dirText}`,
         feedbackText: secFeedback
       };
     } else if (secondaryLower === 'wrist_roll') {
       const rollVal = sensors.wrist_roll;
-      let secFeedback = 'Wrist is stable.';
-      if (rollVal > 10) secFeedback = 'Align wrist (tilt left).';
-      else if (rollVal < -10) secFeedback = 'Align wrist (tilt right).';
+      let secFeedback = 'Wrist is centered.';
+      if (rollVal > 10) secFeedback = `Align wrist (move left by ${rollVal.toFixed(0)}°).`;
+      else if (rollVal < -10) secFeedback = `Align wrist (move right by ${Math.abs(rollVal).toFixed(0)}°).`;
+
+      const dirText = Math.abs(rollVal) <= 1 
+        ? '0° (Centered)' 
+        : `${Math.abs(rollVal).toFixed(0)}° ${rollVal < 0 ? 'Left' : 'Right'}`;
 
       secondary = {
         value: rollVal,
         min: -45,
         max: 45,
+        centerZero: true,
         title: 'Wrist Stability',
-        aimText: 'Aim: 0° (Aligned)',
-        currentText: `Current: ${rollVal.toFixed(0)}°`,
+        aimText: 'Center: 0° (Aligned)',
+        currentText: `Current: ${dirText}`,
         feedbackText: secFeedback
       };
     } else if (secondaryLower === 'elbow') {
@@ -1459,16 +1777,30 @@ function LiveExercisePage() {
                 Use the camera angle buttons to toggle viewpoints.
               </div>
 
-              {/* Floating Time Elapsed Overlay (Bottom-Right of 3D GLB Viewport) */}
+              {/* Floating Rep Count & Time Elapsed HUD (Bottom-Right of 3D GLB Viewport) */}
               {!isTrial && (
-                <div className="absolute bottom-4 right-4 z-10 bg-slate-950/85 backdrop-blur border border-slate-800 rounded-xl p-2.5 px-3.5 shadow-xl flex flex-col items-center min-w-[120px]">
-                  <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block mb-0.5">
-                    TIME ELAPSED
-                  </span>
-                  <p className="text-xl font-black text-slate-100 flex items-center justify-center gap-1.5">
-                    <Clock className="w-4 h-4 text-slate-400" />
-                    {formatTime(secondsElapsed)}
-                  </p>
+                <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2 min-w-[130px]">
+                  {/* Repetition Count Card (Positioned directly above Time Elapsed) */}
+                  <div className="bg-slate-950/90 backdrop-blur border border-blue-500/40 rounded-xl p-2.5 px-3.5 shadow-2xl flex flex-col items-center">
+                    <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest block mb-0.5">
+                      REPETITIONS
+                    </span>
+                    <p className="text-xl font-black text-white flex items-center justify-center gap-1">
+                      <span className="text-blue-400 text-2xl font-black">{repsCompleted}</span>
+                      <span className="text-slate-400 text-xs font-bold">/ {exerciseDetails?.repetitions || activeExerciseRef.current?.repetitions || 10}</span>
+                    </p>
+                  </div>
+
+                  {/* Time Elapsed Card */}
+                  <div className="bg-slate-950/85 backdrop-blur border border-slate-800 rounded-xl p-2 px-3.5 shadow-xl flex flex-col items-center">
+                    <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block mb-0.5">
+                      TIME ELAPSED
+                    </span>
+                    <p className="text-lg font-black text-slate-100 flex items-center justify-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-slate-400" />
+                      {formatTime(secondsElapsed)}
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
@@ -1661,15 +1993,15 @@ function LiveExercisePage() {
 
                 {/* Guidance Text */}
                 <div className="mt-3 space-y-2">
-                  <p className="text-xs font-semibold leading-relaxed">
-                    {aiFeedback.suggestion}
-                  </p>
+                  <div className="text-xs font-semibold leading-relaxed text-slate-800">
+                    {renderFormattedAiText(aiFeedback.suggestion)}
+                  </div>
                   
                   {/* Active Posture Warnings */}
                   {aiFeedback.warning && (
                     <div className="flex items-start gap-1.5 p-2 bg-red-100/70 border border-red-200 text-red-700 rounded-lg text-[11px] font-bold animate-pulse">
-                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                      <span>{aiFeedback.warning}</span>
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-red-600" />
+                      <div className="flex-1">{renderFormattedWarningText(aiFeedback.warning)}</div>
                     </div>
                   )}
                 </div>
@@ -1727,16 +2059,34 @@ function LiveExercisePage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex gap-3">
-                    {(exerciseDetails?.primary_sensor?.toLowerCase() === 'elbow' || 
-                       exerciseDetails?.target_joint?.toLowerCase()?.includes('elbow') ||
-                       exerciseName.toLowerCase().includes('elbow') ||
-                       exerciseName.toLowerCase().includes('curl')) ? (
-                      <ElbowVolumeBar sensors={sensors} target={exerciseDetails?.target_angle || 90} />
-                    ) : (
-                      <SVGGauge {...primary} />
+                  <div className="space-y-3">
+                    {(!isTrial && (
+                      exerciseDetails?.primary_sensor?.toLowerCase() === 'wrist_pitch' || 
+                      exerciseDetails?.primary_sensor?.toLowerCase() === 'wrist_roll' ||
+                      (exerciseDetails?.body_part || '').toLowerCase() === 'wrist' ||
+                      exerciseName.toLowerCase().includes('wrist')
+                    )) && (
+                      <WristDebugPanel 
+                        sensors={sensors}
+                        exercise={exerciseDetails || activeExerciseRef.current}
+                        repState={repState}
+                        repsCompleted={repsCompleted}
+                        holdCountdown={holdCountdown}
+                        wristComputed={wristTelemetryDetails}
+                        deviceConnected={deviceConnected}
+                      />
                     )}
-                    <SVGGauge {...secondary} />
+                    <div className="flex gap-3">
+                      {(exerciseDetails?.primary_sensor?.toLowerCase() === 'elbow' || 
+                         exerciseDetails?.target_joint?.toLowerCase()?.includes('elbow') ||
+                         exerciseName.toLowerCase().includes('elbow') ||
+                         exerciseName.toLowerCase().includes('curl')) ? (
+                        <ElbowVolumeBar sensors={sensors} target={exerciseDetails?.target_angle || 90} />
+                      ) : (
+                        <SVGGauge {...primary} />
+                      )}
+                      <SVGGauge {...secondary} />
+                    </div>
                   </div>
                 )}
               </div>
@@ -1776,6 +2126,80 @@ function LiveExercisePage() {
 
           </div>
         </>
+      )}
+
+      {/* 10 Reps Milestone Completed Popup (User can close to perform more reps) */}
+      {showMilestonePopup && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-200">
+            {/* Top Banner */}
+            <div className="bg-gradient-to-r from-emerald-500 via-teal-500 to-blue-600 p-6 text-white text-center relative">
+              <button
+                type="button"
+                onClick={() => setShowMilestonePopup(false)}
+                className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition cursor-pointer text-sm font-bold"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+              <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-2xl mx-auto flex items-center justify-center mb-3 shadow-inner ring-4 ring-white/10">
+                <Award className="w-9 h-9 text-amber-300 drop-shadow" />
+              </div>
+              <h3 className="text-2xl font-black tracking-tight">
+                10 Repetitions Completed!
+              </h3>
+              <p className="text-xs text-emerald-100 font-semibold mt-1">
+                Prescribed goal of {activeExerciseRef.current?.repetitions || 10} reps reached
+              </p>
+            </div>
+
+            {/* Content & Stats */}
+            <div className="p-6 space-y-5">
+              <div className="grid grid-cols-3 gap-2.5">
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Completed</span>
+                  <span className="text-xl font-black text-slate-800">{repsCompleted} reps</span>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Accuracy</span>
+                  <span className="text-xl font-black text-emerald-600">{accuracy}%</span>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Duration</span>
+                  <span className="text-xl font-black text-slate-800">{formatTime(secondsElapsed)}</span>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-blue-50/70 border border-blue-150 rounded-xl text-blue-950 text-xs font-medium leading-relaxed">
+                <span className="font-bold block mb-0.5 text-blue-900">🌟 Target Prescription Met!</span>
+                You have reached your goal of 10 repetitions. You can close this to <strong>perform more reps</strong> at your own pace, or finish and save your session.
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowMilestonePopup(false)}
+                  className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition text-xs flex items-center justify-center gap-1.5 shadow-sm shadow-emerald-200 cursor-pointer"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  Perform More Reps
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMilestonePopup(false);
+                    handleStopSession();
+                  }}
+                  className="flex-1 py-3 px-4 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl transition text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                >
+                  <Square className="w-3.5 h-3.5 fill-current" />
+                  Finish & Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Session Success Summary Overlay */}

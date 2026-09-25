@@ -22,7 +22,7 @@ export default function WristSensorTrialPanel({
   onToggleCalibrationMode
 }) {
   const glbConfig = useRef(loadCalibrationConfig());
-  const [selectedMovement, setSelectedMovement] = useState('upDown'); // 'upDown' | 'hiMovement' | 'twist'
+  const [selectedMovement, setSelectedMovement] = useState('allAxis'); // 'allAxis' | 'upDown' | 'hiMovement' | 'twist'
   const [activeMode, setActiveMode] = useState('live'); // 'live' | 'simulation'
   const [isWristSynced, setIsWristSynced] = useState(true);
   const [simAngle, setSimAngle] = useState(0);
@@ -60,6 +60,7 @@ export default function WristSensorTrialPanel({
   };
 
   const getMovementLimits = (movId) => {
+    if (movId === 'allAxis') return { min: -45, max: 45, label: 'All-Axis 3D Motion (Pitch & Roll)', axis: 'x' };
     if (movId === 'upDown') return { min: -45, max: 45, label: 'Up / Down Flexion (X)', axis: 'x' };
     if (movId === 'hiMovement') return { min: -35, max: 35, label: 'Left / Right Waving (Z)', axis: 'z' };
     if (movId === 'twist') return { min: -60, max: 60, label: 'Pronation / Supination (Y)', axis: 'y' };
@@ -318,6 +319,7 @@ export default function WristSensorTrialPanel({
             onChange={(e) => handleMovementChange(e.target.value)}
             className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 cursor-pointer focus:outline-none focus:ring-1 focus:ring-purple-500"
           >
+            <option value="allAxis">⭐ All-Axis 3D Motion (Pitch + Roll Full Freedom)</option>
             <option value="upDown">1. Up / Down Waving (Flexion / Extension - Axis X)</option>
             <option value="hiMovement">2. Hi Movement (Left / Right Waving - Axis Z)</option>
             <option value="twist">3. Left / Right Twist (Pronation / Supination - Axis Y)</option>

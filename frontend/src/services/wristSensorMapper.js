@@ -31,12 +31,14 @@ import { degToRad } from './fingerSensorMapper';
 export { degToRad };
 
 export const WRIST_MOVEMENT_KEYS = {
+  ALL_AXIS: 'allAxis',
   HI_MOVEMENT: 'hiMovement',
   UP_DOWN: 'upDown',
   TWIST: 'twist'
 };
 
 export const WRIST_SENSOR_DEFAULTS = {
+  allAxis: { min: -45, max: 45, sensor: 'all_axis' },
   hiMovement: { min: -45, max: 45, sensor: 'wrist_roll' },
   upDown: { min: -45, max: 45, sensor: 'wrist_pitch' },
   twist: { min: -60, max: 60, sensor: 'wrist_roll' }
@@ -46,14 +48,14 @@ export const WRIST_SENSOR_DEFAULTS = {
  * Identify the appropriate calibrated wrist movement ID for an exercise.
  * 
  * @param {Object|string} exercise - Exercise object or exercise name
- * @returns {'hiMovement' | 'upDown' | 'twist' | null}
+ * @returns {'allAxis' | 'hiMovement' | 'upDown' | 'twist' | null}
  */
 export const resolveWristMovementId = (exercise) => {
   if (!exercise) return null;
 
   if (typeof exercise === 'object') {
     if (exercise.wrist_movement_id) return exercise.wrist_movement_id;
-    if (exercise.movement_id && (exercise.movement_id === 'hiMovement' || exercise.movement_id === 'upDown' || exercise.movement_id === 'twist')) {
+    if (exercise.movement_id && (exercise.movement_id === 'allAxis' || exercise.movement_id === 'hiMovement' || exercise.movement_id === 'upDown' || exercise.movement_id === 'twist')) {
       return exercise.movement_id;
     }
   }
@@ -62,6 +64,10 @@ export const resolveWristMovementId = (exercise) => {
     ? exercise 
     : (exercise.exercise_name || exercise.name || '');
   const nameLower = name.toLowerCase();
+
+  if (nameLower.includes('all axis') || nameLower.includes('all-axis') || nameLower.includes('freeform') || nameLower.includes('full freedom')) {
+    return 'allAxis';
+  }
 
   const primarySensor = typeof exercise === 'object' 
     ? (exercise.primary_sensor || '').toLowerCase() 
@@ -162,6 +168,20 @@ export const normalizeWristSensor = (value, sensorMin = -45, sensorMax = 45) => 
 export const mapWristSensorToGLBAngles = (normalized, movementId = 'upDown', glbConfig = null) => {
   const norm = Math.max(0, Math.min(1, normalized ?? 0.5));
   const activeConfig = glbConfig || loadCalibrationConfig();
+
+  if (movementId === 'allAxis') {
+    const xLimits = activeConfig?.wrist?.upDown?.x || { min: -45, max: 45 };
+    const yLimits = activeConfig?.wrist?.twist?.y || { min: -60, max: 60 };
+    const zLimits = activeConfig?.wrist?.hiMovement?.z || { min: -35, max: 35 };
+    return {
+      x: Number((xLimits.min + norm * (xLimits.max - xLimits.min)).toFixed(2)),
+      y: Number((yLimits.min + norm * (yLimits.max - yLimits.min)).toFixed(2)),
+      z: Number((zLimits.min + norm * (zLimits.max - zLimits.min)).toFixed(2)),
+      movementId: 'allAxis',
+      targetBone: 'Circle'
+    };
+  }
+
   const wristData = activeConfig?.wrist?.[movementId] || {
     x: { min: -40, max: 40 },
     y: { min: -15, max: 15 },
@@ -201,6 +221,40 @@ export const processWristTelemetry = (telemetry = null, exercise = null, glbConf
   if (!movementId) return null;
 
   const activeConfig = glbConfig || loadCalibrationConfig();
+
+  // Multi-axis free motion: pitch drives X, roll drives Y & Z within their respective locked ranges
+  if (movementId === 'allAxis') {
+    const rawPitch = telemetry.wrist_pitch ?? telemetry.pitch ?? 0.0;
+    const rawRoll = telemetry.wrist_roll ?? telemetry.roll ?? 0.0;
+    
+    // Pitch (-45 to +45) -> X axis
+    const normPitch = normalizeWristSensor(rawPitch, -45, 45);
+    const xLimits = activeConfig?.wrist?.upDown?.x || { min: -45, max: 45 };
+    const angleX = xLimits.min + normPitch * (xLimits.max - xLimits.min);
+
+    // Roll (-60 to +60) -> Y axis (twist / pronation)
+    const normRoll = normalizeWristSensor(rawRoll, -60, 60);
+    const yLimits = activeConfig?.wrist?.twist?.y || { min: -60, max: 60 };
+    const angleY = yLimits.min + normRoll * (yLimits.max - yLimits.min);
+
+    // Roll (-45 to +45) -> Z axis (waving / deviation)
+    const zLimits = activeConfig?.wrist?.hiMovement?.z || { min: -35, max: 35 };
+    const normZ = normalizeWristSensor(rawRoll, -45, 45);
+    const angleZ = zLimits.min + normZ * (zLimits.max - zLimits.min);
+
+    return {
+      movementId: 'allAxis',
+      angles: {
+        x: Number(angleX.toFixed(2)),
+        y: Number(angleY.toFixed(2)),
+        z: Number(angleZ.toFixed(2))
+      },
+      raw: rawPitch,
+      normalized: Number((normPitch * 100).toFixed(1)),
+      normalizedRatio: normPitch,
+      targetBone: 'Circle'
+    };
+  }
 
   // Determine physical sensor range based on exercise target_angle if provided
   const targetAngle = Math.abs(exercise.target_angle || 45);

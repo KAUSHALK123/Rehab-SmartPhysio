@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { getExercises } from '../services/exercise';
 import { getRecommendedExercises, getPatient } from '../services/patient';
@@ -14,10 +14,84 @@ import {
   CheckCircle2, 
   RefreshCw,
   Sliders,
-  ChevronRight
+  ChevronRight,
+  ChevronLeft,
+  Columns3,
+  LayoutGrid
 } from 'lucide-react';
 
 import { useTheme } from '../context/ThemeContext';
+
+const CATEGORIES = [
+  {
+    id: 'wrist',
+    title: 'Wrist & Forearm',
+    subtitle: 'MPU-6050 pitch, roll, deviation & rotation tracking',
+    icon: '⌚',
+    badgeClass: 'bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800',
+    iconBg: 'bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-300',
+    match: (ex) => {
+      const bp = (ex.body_part || '').toLowerCase();
+      const name = (ex.exercise_name || '').toLowerCase();
+      const joint = (ex.target_joint || '').toLowerCase();
+      return bp.includes('wrist') || name.includes('wrist') || name.includes('pronation') || name.includes('supination') || name.includes('deviation') || joint.includes('wrist');
+    },
+    trialType: 'wrist',
+    trialTitle: 'Wrist Sensor Test',
+    trialDesc: 'Test MPU6050 3D pitch, roll & deviation in real-time.'
+  },
+  {
+    id: 'hand',
+    title: 'Hand & Finger Flex',
+    subtitle: 'Finger curl flex sensors & grip squeeze resistance',
+    icon: '✋',
+    badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800',
+    iconBg: 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-300',
+    match: (ex) => {
+      const bp = (ex.body_part || '').toLowerCase();
+      const name = (ex.exercise_name || '').toLowerCase();
+      const joint = (ex.target_joint || '').toLowerCase();
+      return bp.includes('hand') || bp.includes('finger') || name.includes('finger') || name.includes('grip') || name.includes('squeeze') || name.includes('pinch') || joint.includes('finger');
+    },
+    trialType: 'fingers',
+    trialTitle: 'Finger Sensor Test',
+    trialDesc: 'Test all 5 analog flex resistors & grip pressure in 3D.'
+  },
+  {
+    id: 'elbow',
+    title: 'Elbow & Arm Flexion',
+    subtitle: 'Elbow flexion, extension and curl resistance tracking',
+    icon: '💪',
+    badgeClass: 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800',
+    iconBg: 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300',
+    match: (ex) => {
+      const bp = (ex.body_part || '').toLowerCase();
+      const name = (ex.exercise_name || '').toLowerCase();
+      const joint = (ex.target_joint || '').toLowerCase();
+      return bp.includes('elbow') || name.includes('elbow') || name.includes('curl') || joint.includes('elbow');
+    },
+    trialType: 'elbow',
+    trialTitle: 'Elbow Sensor Test',
+    trialDesc: 'Test elbow flex sensor bend angle in 3D.'
+  },
+  {
+    id: 'shoulder',
+    title: 'Shoulder & Full Arm',
+    subtitle: 'Multi-joint kinetic arm elevation and reaching',
+    icon: '🎯',
+    badgeClass: 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800',
+    iconBg: 'bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-300',
+    match: (ex) => {
+      const bp = (ex.body_part || '').toLowerCase();
+      const name = (ex.exercise_name || '').toLowerCase();
+      const joint = (ex.target_joint || '').toLowerCase();
+      return bp.includes('shoulder') || bp.includes('full') || name.includes('shoulder') || name.includes('reach') || joint.includes('shoulder');
+    },
+    trialType: null,
+    trialTitle: null,
+    trialDesc: null
+  }
+];
 
 function ExerciseLibraryPage() {
   const navigate = useNavigate();
@@ -27,6 +101,19 @@ function ExerciseLibraryPage() {
   const [patientDetails, setPatientDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // View Mode: 'horizontal' (Category Rows by Muscle) vs 'grid' (All Routines Grid)
+  const [viewMode, setViewMode] = useState(() => {
+    return localStorage.getItem('exercise_view_mode') || 'horizontal';
+  });
+  const rowRefs = useRef({});
+
+  const scrollRow = (categoryId, offset) => {
+    const container = rowRefs.current[categoryId];
+    if (container) {
+      container.scrollBy({ left: offset, behavior: 'smooth' });
+    }
+  };
 
   // Active Patient info from localStorage
   const activePatientId = localStorage.getItem('activePatientId') || '';
@@ -105,6 +192,110 @@ function ExerciseLibraryPage() {
     return ['Flex Sensors', 'MPU6050 Orientation Sensor'];
   };
 
+  // Set of recommended exercise IDs for quick lookup
+  const recIds = new Set(recommendedExercises.map(r => r.id));
+
+  // Exercises that don't match standard wrist/hand/elbow/shoulder categories
+  const otherExercises = exercises.filter(ex => !CATEGORIES.some(cat => cat.match(ex)));
+
+  // Render a compact, small exercise card box for horizontal category rows
+  const renderCompactExerciseCard = (ex, isRecommended = false) => {
+    return (
+      <div 
+        key={`compact-${ex.id}`}
+        className={`w-[285px] sm:w-[310px] flex-shrink-0 rounded-2xl border transition-all duration-200 flex flex-col justify-between overflow-hidden group hover:scale-[1.01] hover:shadow-md ${
+          isDark 
+            ? 'bg-slate-900/90 border-slate-800 hover:border-slate-700 text-slate-100' 
+            : 'bg-white border-slate-200/90 hover:border-slate-300 shadow-xs text-slate-800'
+        } ${isRecommended ? (isDark ? 'ring-1 ring-emerald-500/40 border-emerald-500/30' : 'ring-2 ring-emerald-500/20 border-emerald-500/40') : ''}`}
+      >
+        <div className="p-4 space-y-3">
+          <div className="flex justify-between items-center gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold truncate ${
+                isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'
+              }`}>
+                {ex.body_part || 'Arm'}
+              </span>
+              {isRecommended && (
+                <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  Recommended
+                </span>
+              )}
+            </div>
+            <span className={`px-2 py-0.5 text-[9px] font-black rounded-full uppercase tracking-wider flex-shrink-0 ${
+              ex.difficulty === 'Easy' ? 'bg-green-50 dark:bg-green-950/50 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800' :
+              ex.difficulty === 'Medium' ? 'bg-orange-50 dark:bg-orange-950/50 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-800' :
+              'bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800'
+            }`}>
+              {ex.difficulty}
+            </span>
+          </div>
+
+          <div className="space-y-1">
+            <h4 className={`text-sm font-bold truncate ${
+              isDark ? 'text-white group-hover:text-blue-400' : 'text-slate-800 group-hover:text-primary'
+            } transition`}>
+              {ex.exercise_name}
+            </h4>
+            <p className={`text-[11px] line-clamp-2 h-8 leading-snug ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+              {ex.description}
+            </p>
+          </div>
+
+          <div className={`p-2.5 rounded-xl border grid grid-cols-2 gap-2 text-[10px] font-semibold ${
+            isDark ? 'bg-slate-800/60 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-100 text-slate-600'
+          }`}>
+            <div className="flex items-center gap-1.5 truncate">
+              <Award className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+              <span>Reps: {ex.repetitions}</span>
+            </div>
+            <div className="flex items-center gap-1.5 truncate">
+              <Clock className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+              <span>Hold: {ex.hold_seconds}s</span>
+            </div>
+          </div>
+        </div>
+
+        <div className={`px-4 py-3 border-t flex items-center justify-between gap-2 ${
+          isDark ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50/80 border-slate-100'
+        }`}>
+          <button 
+            type="button"
+            onClick={() => setSelectedExercise(ex)}
+            className={`px-3 py-1.5 border text-[11px] font-bold rounded-lg transition flex items-center gap-1 cursor-pointer ${
+              isDark 
+                ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200' 
+                : 'border-slate-200 bg-white hover:bg-slate-100 text-slate-700'
+            }`}
+          >
+            <Info className="w-3 h-3 text-slate-400" />
+            Details
+          </button>
+
+          <button 
+            type="button"
+            onClick={() => {
+              if (activePatientId) {
+                handleStartExercise(ex);
+              } else {
+                setSelectedExercise(ex);
+              }
+            }}
+            className={`px-3.5 py-1.5 text-[11px] font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-xs ${
+              activePatientId 
+                ? 'bg-primary text-white hover:bg-blue-600 shadow-blue-500/20' 
+                : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+            }`}
+          >
+            <Play className="w-3 h-3 fill-current" />
+            Start
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {errorMsg && (
@@ -157,11 +348,11 @@ function ExerciseLibraryPage() {
       )}
 
       {/* Header Cards */}
-      <div className={`p-6 rounded-2xl border transition-colors duration-200 shadow-sm flex items-center justify-between gap-6 ${
+      <div className={`p-5 md:p-6 rounded-2xl border transition-colors duration-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 ${
         isDark ? 'bg-slate-900 border-slate-800 text-slate-100 shadow-xl' : 'bg-white border-slate-200 text-slate-800'
       }`}>
         <div className="flex items-center gap-4">
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
             isDark ? 'bg-blue-950/80 text-blue-400' : 'bg-blue-50 text-primary'
           }`}>
             <BookOpen className="w-6 h-6" />
@@ -172,6 +363,43 @@ function ExerciseLibraryPage() {
               Interactive motor assessment modules with automated range-of-motion limits and 3D digital-twin feedback.
             </p>
           </div>
+        </div>
+
+        {/* Small & Simple View Toggle Button */}
+        <div className="flex items-center bg-slate-100 dark:bg-slate-800/90 p-1 rounded-xl border border-slate-200 dark:border-slate-700/80 shadow-xs self-start md:self-auto flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              setViewMode('horizontal');
+              localStorage.setItem('exercise_view_mode', 'horizontal');
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              viewMode === 'horizontal'
+                ? (isDark ? 'bg-slate-700 text-white shadow-sm' : 'bg-white text-slate-900 shadow-xs border border-slate-200/80')
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+            title="Show exercises arranged horizontally by target muscle / category"
+          >
+            <Columns3 className="w-3.5 h-3.5 text-primary" />
+            <span>Category Rows</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setViewMode('grid');
+              localStorage.setItem('exercise_view_mode', 'grid');
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              viewMode === 'grid'
+                ? (isDark ? 'bg-slate-700 text-white shadow-sm' : 'bg-white text-slate-900 shadow-xs border border-slate-200/80')
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+            title="Show all exercises in standard grid view"
+          >
+            <LayoutGrid className="w-3.5 h-3.5 text-slate-400" />
+            <span>Standard Grid</span>
+          </button>
         </div>
       </div>
 
@@ -186,6 +414,209 @@ function ExerciseLibraryPage() {
           <BookOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
           <h4 className="text-lg font-bold text-slate-700">No Exercises Found</h4>
           <p className="text-sm text-slate-500">The exercise database is currently empty.</p>
+        </div>
+      ) : viewMode === 'horizontal' ? (
+        <div className="space-y-8">
+          {/* Recommended Category Row (if active patient has prescribed exercises) */}
+          {recommendedExercises.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-sm shadow-xs font-bold">
+                    ⭐
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className={`text-base font-extrabold ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                        Recommended for Your Rehabilitation
+                      </h4>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">
+                        {recommendedExercises.length} {recommendedExercises.length === 1 ? 'Exercise' : 'Exercises'}
+                      </span>
+                    </div>
+                    <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      Targeted routines for active patient: {activePatientName}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button 
+                    type="button"
+                    onClick={() => scrollRow('rec', -320)}
+                    aria-label="Scroll left"
+                    className={`w-7 h-7 rounded-lg border flex items-center justify-center transition shadow-xs cursor-pointer ${
+                      isDark ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => scrollRow('rec', 320)}
+                    aria-label="Scroll right"
+                    className={`w-7 h-7 rounded-lg border flex items-center justify-center transition shadow-xs cursor-pointer ${
+                      isDark ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div 
+                ref={el => rowRefs.current['rec'] = el}
+                className="flex gap-4 overflow-x-auto pb-3 pt-1 px-1 scroll-smooth scrollbar-thin"
+              >
+                {recommendedExercises.map(ex => renderCompactExerciseCard(ex, true))}
+              </div>
+            </div>
+          )}
+
+          {/* Target Muscle / Body Part Categories (Wrist, Hand/Flex, Elbow, Shoulder) */}
+          {CATEGORIES.map(cat => {
+            const catExercises = exercises.filter(cat.match);
+            if (catExercises.length === 0 && !cat.trialType) return null;
+
+            return (
+              <div key={cat.id} className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <span className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm shadow-xs font-bold ${cat.iconBg}`}>
+                      {cat.icon}
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className={`text-base font-extrabold ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                          {cat.title}
+                        </h4>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${cat.badgeClass}`}>
+                          {catExercises.length} {catExercises.length === 1 ? 'Exercise' : 'Exercises'}
+                        </span>
+                      </div>
+                      <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {cat.subtitle}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button 
+                      type="button"
+                      onClick={() => scrollRow(cat.id, -320)}
+                      aria-label={`Scroll ${cat.title} left`}
+                      className={`w-7 h-7 rounded-lg border flex items-center justify-center transition shadow-xs cursor-pointer ${
+                        isDark ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => scrollRow(cat.id, 320)}
+                      aria-label={`Scroll ${cat.title} right`}
+                      className={`w-7 h-7 rounded-lg border flex items-center justify-center transition shadow-xs cursor-pointer ${
+                        isDark ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div 
+                  ref={el => rowRefs.current[cat.id] = el}
+                  className="flex gap-4 overflow-x-auto pb-3 pt-1 px-1 scroll-smooth scrollbar-thin"
+                >
+                  {catExercises.map(ex => renderCompactExerciseCard(ex, recIds.has(ex.id)))}
+
+                  {/* Diagnostic Trial Test Card inside each relevant category */}
+                  {cat.trialType && (
+                    <div className={`w-[260px] flex-shrink-0 rounded-2xl border-2 border-dashed p-4 flex flex-col justify-between transition-all duration-200 ${
+                      isDark
+                        ? 'border-purple-900/60 bg-purple-950/20 hover:border-purple-700 hover:bg-purple-950/30'
+                        : 'border-purple-200 bg-purple-50/40 hover:border-purple-300 hover:bg-purple-50/70'
+                    }`}>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300">
+                            Diagnostic Trial
+                          </span>
+                          <Sliders className="w-3.5 h-3.5 text-purple-500" />
+                        </div>
+                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                          {cat.trialTitle}
+                        </h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">
+                          {cat.trialDesc}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/exercise-session?mode=trial&type=${cat.trialType}`)}
+                        className="mt-3 w-full py-1.5 px-3 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold rounded-lg transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                      >
+                        <Play className="w-3 h-3 fill-current" />
+                        Test Sensor in 3D
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Fallback for other exercises if any */}
+          {otherExercises.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center text-sm shadow-xs font-bold">
+                    📋
+                  </span>
+                  <div>
+                    <h4 className={`text-base font-extrabold ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                      Additional Rehabilitation Routines
+                    </h4>
+                    <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      General motor assessment and flexibility modules
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button 
+                    type="button"
+                    onClick={() => scrollRow('other', -320)}
+                    aria-label="Scroll left"
+                    className={`w-7 h-7 rounded-lg border flex items-center justify-center transition shadow-xs cursor-pointer ${
+                      isDark ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => scrollRow('other', 320)}
+                    aria-label="Scroll right"
+                    className={`w-7 h-7 rounded-lg border flex items-center justify-center transition shadow-xs cursor-pointer ${
+                      isDark ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div 
+                ref={el => rowRefs.current['other'] = el}
+                className="flex gap-4 overflow-x-auto pb-3 pt-1 px-1 scroll-smooth scrollbar-thin"
+              >
+                {otherExercises.map(ex => renderCompactExerciseCard(ex, recIds.has(ex.id)))}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-10">

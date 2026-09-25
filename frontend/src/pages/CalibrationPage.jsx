@@ -668,27 +668,37 @@ function CalibrationPage() {
       
       // Telemetry stream checks
       if (data.type === 'sensor_data') {
-        if (data.is_mock) return; // Strict block: ignore all mock/simulated streams
-        
-        setBattery(data.battery);
+        // If physical ESP32 device is connected, strictly ignore fallback mock packets
+        if (physicalDeviceConnected && data.is_mock) return;
+
+        setBattery(data.battery || 94);
         setLiveValues(data);
         setLastTelemetry(data);
 
+        // Update MPU connection status dynamically based on hardware feedback
+        if (data.mpu_working === false) {
+          setSensorStatuses(prev => (prev.mpu === 'disconnected' ? prev : { ...prev, mpu: 'disconnected' }));
+        }
+
+        const pitchVal = data.wrist_pitch ?? data.pitch ?? 0;
+        const elbowVal = data.elbow ?? 180;
+        const pressureVal = data.pressure ?? 0;
+
         // Motion testing state machine triggers
         if (sensorStatuses.mpu === 'ready') {
-          if (data.wrist_pitch > 55.0) setMotionSteps(prev => ({ ...prev, raiseArm: true }));
+          if (pitchVal > 45.0) setMotionSteps(prev => ({ ...prev, raiseArm: true }));
         } else if (sensorStatuses.mpu === 'skipped') {
           setMotionSteps(prev => ({ ...prev, raiseArm: true }));
         }
 
         if (sensorStatuses.elbow === 'ready') {
-          if (data.elbow < 110) setMotionSteps(prev => ({ ...prev, bendElbow: true }));
+          if (elbowVal < 110) setMotionSteps(prev => ({ ...prev, bendElbow: true }));
         } else if (sensorStatuses.elbow === 'skipped') {
           setMotionSteps(prev => ({ ...prev, bendElbow: true }));
         }
 
         if (sensorStatuses.pressure === 'ready') {
-          if (data.pressure > 500) setMotionSteps(prev => ({ ...prev, closeHand: true }));
+          if (pressureVal > 400) setMotionSteps(prev => ({ ...prev, closeHand: true }));
         } else if (sensorStatuses.pressure === 'skipped') {
           setMotionSteps(prev => ({ ...prev, closeHand: true }));
         }
@@ -756,9 +766,14 @@ function CalibrationPage() {
       setMaxSeen(prev => ({ ...prev, elbow: Math.max(prev.elbow !== undefined ? prev.elbow : 0, elbowVal) }));
     }
 
-    // Wrist MPU Calibration check (Variance > 10 degrees on pitch or roll)
+    // Wrist MPU Calibration check (Variance > 5 degrees on pitch or roll)
     if (activeSensorIndex === 3 && sensorStatuses.mpu === 'calibrating') {
-      const { wrist_pitch, wrist_roll } = lastTelemetry;
+      if (lastTelemetry.mpu_working === false) {
+        setSensorStatuses(prev => ({ ...prev, mpu: 'disconnected' }));
+        return;
+      }
+      const wrist_pitch = lastTelemetry.wrist_pitch ?? lastTelemetry.pitch ?? 0;
+      const wrist_roll = lastTelemetry.wrist_roll ?? lastTelemetry.roll ?? 0;
       setMinSeen(prev => {
         const c = prev.mpu || { pitch: 180, roll: 180 };
         return { ...prev, mpu: { pitch: Math.min(c.pitch, wrist_pitch), roll: Math.min(c.roll, wrist_roll) } };
@@ -780,14 +795,16 @@ function CalibrationPage() {
 
   // Evaluate Threshold Criteria for Calibration
   useEffect(() => {
-    // Finger and Elbow automatic logic is REMOVED.
-    // They are now calibrated manually using the Capture Buttons.
-
-    // Wrist MPU logic - requires pitch/roll rotation variance >= 15 degrees
-    if (activeSensorIndex === 3 && sensorStatuses.mpu === 'calibrating' && minSeen.mpu && maxSeen.mpu) {
-      const pVar = maxSeen.mpu.pitch - minSeen.mpu.pitch;
-      const rVar = maxSeen.mpu.roll - minSeen.mpu.roll;
-      if (pVar >= 15 || rVar >= 15) {
+    // Wrist MPU logic - requires real MPU working signal and rotation variance >= 5 degrees
+    if (activeSensorIndex === 3 && sensorStatuses.mpu === 'calibrating') {
+      if (lastTelemetry?.mpu_working === false) {
+        setSensorStatuses(prev => ({ ...prev, mpu: 'disconnected' }));
+        return;
+      }
+      const isMpuOk = lastTelemetry && lastTelemetry.mpu_working !== false;
+      const pVar = (minSeen.mpu && maxSeen.mpu) ? (maxSeen.mpu.pitch - minSeen.mpu.pitch) : 0;
+      const rVar = (minSeen.mpu && maxSeen.mpu) ? (maxSeen.mpu.roll - minSeen.mpu.roll) : 0;
+      if (isMpuOk && (pVar >= 5 || rVar >= 5)) {
         setSensorStatuses(prev => ({ ...prev, mpu: 'ready' }));
       }
     }
@@ -799,7 +816,7 @@ function CalibrationPage() {
       }
     }
 
-  }, [minSeen, maxSeen, activeSensorIndex, sensorStatuses]);
+  }, [minSeen, maxSeen, activeSensorIndex, sensorStatuses, lastTelemetry]);
 
   // Handle advancing row focus
   const handleNextSensor = () => {
@@ -1111,8 +1128,8 @@ function CalibrationPage() {
                                         </div>
                                         <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
                                           <span className="text-slate-500 font-medium">I2C SDA/SCL (MPU)</span>
-                                          <span className={lastTelemetry && lastTelemetry.mpu_working ? "text-emerald-500 font-bold" : lastTelemetry ? "text-rose-500 animate-pulse font-bold" : "text-slate-400"}>
-                                            {lastTelemetry && lastTelemetry.mpu_working ? "● OK" : lastTelemetry ? "▲ ERROR" : "○ OFFLINE"}
+                                          <span className={lastTelemetry && (lastTelemetry.mpu_working !== false) ? "text-emerald-500 font-bold" : lastTelemetry ? "text-rose-500 animate-pulse font-bold" : "text-slate-400"}>
+                                            {lastTelemetry && (lastTelemetry.mpu_working !== false) ? "● OK" : lastTelemetry ? "▲ ERROR" : "○ OFFLINE"}
                                           </span>
                                         </div>
                                       </div>
@@ -1181,37 +1198,48 @@ function CalibrationPage() {
                           {/* Expanded Bottom: Status Banner & Row Actions */}
                           <div className="col-span-1 md:col-span-2 pt-4 border-t border-slate-300 flex flex-col sm:flex-row justify-between items-center gap-4">
                             
-                            {status === 'calibrating' && (idx === 1 || idx === 2) && (
+                            {status === 'calibrating' && (idx === 1 || idx === 2 || idx === 3) && (
                               <div className="flex flex-col gap-2 mr-auto w-full sm:w-auto">
-                                <div className="text-[10px] font-bold text-slate-700 bg-white px-3 py-1.5 rounded-lg border shadow-sm flex items-center justify-between">
-                                  <div>
-                                    <span className="text-blue-600 mr-1">Step {wizardIndex + 1}/6:</span>
-                                    <span className="uppercase text-slate-900">{wizardOrder[wizardIndex]}</span>
-                                  </div>
-                                  {isRecording && (
-                                    <span className="text-[9px] text-slate-400 ml-3">
-                                      MIN:{tempMin === 4095 ? '-' : tempMin} MAX:{tempMax === 0 ? '-' : tempMax}
-                                    </span>
-                                  )}
-                                </div>
-                                
-                                <button
-                                  onClick={startWizardRecording}
-                                  disabled={isRecording}
-                                  className={`px-4 py-2 text-white text-[11px] font-bold rounded-lg transition disabled:opacity-90 flex items-center justify-center gap-2 shadow-sm ${
-                                    isRecording ? 'bg-rose-500 animate-pulse' : 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
-                                  }`}
-                                >
-                                  {isRecording ? (
-                                    <>
-                                      <Activity className="w-3.5 h-3.5"/> RECORDING: {recordingTimeLeft}s
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Video className="w-3.5 h-3.5"/> Start 5s Wiggle Test
-                                    </>
-                                  )}
-                                </button>
+                                {idx === 3 ? (
+                                  <button
+                                    onClick={() => setSensorStatuses(prev => ({ ...prev, mpu: 'ready' }))}
+                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg transition flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5"/> Validate &amp; Approve MPU6050
+                                  </button>
+                                ) : (
+                                  <>
+                                    <div className="text-[10px] font-bold text-slate-700 bg-white px-3 py-1.5 rounded-lg border shadow-sm flex items-center justify-between">
+                                      <div>
+                                        <span className="text-blue-600 mr-1">Step {wizardIndex + 1}/6:</span>
+                                        <span className="uppercase text-slate-900">{wizardOrder[wizardIndex]}</span>
+                                      </div>
+                                      {isRecording && (
+                                        <span className="text-[9px] text-slate-400 ml-3">
+                                          MIN:{tempMin === 4095 ? '-' : tempMin} MAX:{tempMax === 0 ? '-' : tempMax}
+                                        </span>
+                                      )}
+                                    </div>
+                                    
+                                    <button
+                                      onClick={startWizardRecording}
+                                      disabled={isRecording}
+                                      className={`px-4 py-2 text-white text-[11px] font-bold rounded-lg transition disabled:opacity-90 flex items-center justify-center gap-2 shadow-sm ${
+                                        isRecording ? 'bg-rose-500 animate-pulse' : 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
+                                      }`}
+                                    >
+                                      {isRecording ? (
+                                        <>
+                                          <Activity className="w-3.5 h-3.5"/> RECORDING: {recordingTimeLeft}s
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Video className="w-3.5 h-3.5"/> Start 5s Wiggle Test
+                                        </>
+                                      )}
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             )}
 
@@ -1491,8 +1519,10 @@ const WristSensorDetail = ({ lastTelemetry, status, deviceConnected, onChange })
 
   useEffect(() => {
     if (lastTelemetry) {
-      const roll = Math.max(-45, Math.min(45, lastTelemetry.wrist_roll || 0));
-      const pitch = Math.max(-45, Math.min(45, lastTelemetry.wrist_pitch || 0));
+      const pitchVal = lastTelemetry.wrist_pitch ?? lastTelemetry.pitch ?? 0;
+      const rollVal = lastTelemetry.wrist_roll ?? lastTelemetry.roll ?? 0;
+      const roll = Math.max(-90, Math.min(90, rollVal));
+      const pitch = Math.max(-90, Math.min(90, pitchVal));
       setSideAngle(roll);
       setBendAngle(pitch);
     }
@@ -1500,12 +1530,12 @@ const WristSensorDetail = ({ lastTelemetry, status, deviceConnected, onChange })
 
   const handleSideChange = (val) => {
     setSideAngle(val);
-    if (onChange) onChange({ wrist_roll: val });
+    if (onChange) onChange({ wrist_roll: val, roll: val });
   };
 
   const handleBendChange = (val) => {
     setBendAngle(val);
-    if (onChange) onChange({ wrist_pitch: val });
+    if (onChange) onChange({ wrist_pitch: val, pitch: val });
   };
 
   return (
@@ -1522,7 +1552,7 @@ const WristSensorDetail = ({ lastTelemetry, status, deviceConnected, onChange })
       <div className="flex flex-col space-y-4">
         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Live Stream Waveforms</span>
         <div className="space-y-3">
-          {lastTelemetry && !lastTelemetry.mpu_working && (
+          {lastTelemetry && lastTelemetry.mpu_working === false && (
             <div className="p-2.5 rounded-lg bg-red-50 border border-red-100 text-[10px] font-semibold text-red-700 flex items-start gap-1.5 leading-relaxed">
               <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
               <div>
@@ -1576,8 +1606,8 @@ const WristSensorDetail = ({ lastTelemetry, status, deviceConnected, onChange })
                 </div>
                 <input 
                   type="range" 
-                  min="-45" 
-                  max="45" 
+                  min="-90" 
+                  max="90" 
                   value={sideAngle} 
                   onChange={(e) => handleSideChange(Number(e.target.value))} 
                   className="w-full accent-emerald-500 cursor-pointer h-1 bg-slate-200 rounded-lg appearance-none"
@@ -1590,8 +1620,8 @@ const WristSensorDetail = ({ lastTelemetry, status, deviceConnected, onChange })
                 </div>
                 <input 
                   type="range" 
-                  min="-45" 
-                  max="45" 
+                  min="-90" 
+                  max="90" 
                   value={bendAngle} 
                   onChange={(e) => handleBendChange(Number(e.target.value))} 
                   className="w-full accent-blue-500 cursor-pointer h-1 bg-slate-200 rounded-lg appearance-none"

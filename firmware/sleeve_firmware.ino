@@ -62,6 +62,7 @@ WebSocketsClient webSocket;
 bool wsConnected = false;
 bool mpuFound = false;
 unsigned long lastStreamTime = 0;
+unsigned long lastMpuRetryTime = 0;
 const int streamInterval = 100; // 100ms = 10Hz sample rate
 
 // Finger and Elbow calibration storage variables (Loaded from NVS)
@@ -161,6 +162,62 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   }
 }
 
+// Helper to probe I2C bus and initialize MPU6050 on address 0x68 or 0x69 (or full bus scan)
+bool detectAndInitMPU(bool fullCalib) {
+  byte mpuAddress = 0;
+  
+  Wire.beginTransmission(0x68);
+  byte err68 = Wire.endTransmission();
+  
+  Wire.beginTransmission(0x69);
+  byte err69 = Wire.endTransmission();
+  
+  if (err68 == 0) {
+    mpuAddress = 0x68;
+  } else if (err69 == 0) {
+    mpuAddress = 0x69;
+  } else {
+    // If standard addresses fail, scan full 1-127 I2C bus to see if anything is connected
+    byte anyFound = 0;
+    for (byte addr = 1; addr < 127; addr++) {
+      Wire.beginTransmission(addr);
+      if (Wire.endTransmission() == 0) {
+        anyFound = addr;
+        break;
+      }
+    }
+    
+    if (anyFound != 0) {
+      Serial.printf("[I2C SCAN] Found unknown I2C device at 0x%02X (Expected MPU at 0x68 or 0x69)!\n", anyFound);
+      mpuAddress = anyFound;
+    } else {
+      if (fullCalib) {
+        Serial.printf("[I2C SCAN] No I2C response on GPIO 21 (SDA) & 22 (SCL). (Err: 0x68=%d, 0x69=%d)\n", err68, err69);
+        if (err68 == 4 || err68 == 5) {
+          Serial.println("--> I2C bus is STUCK or SHORTED. Check if SDA and SCL are touching or shorted to GND.");
+        } else {
+          Serial.println("--> Check wires: SDA must be on GPIO 21, SCL on GPIO 22. Connect AD0 to GND.");
+        }
+      }
+    }
+  }
+
+  if (mpuAddress != 0) {
+    Serial.printf("[MPU] Found chip on I2C address 0x%02X! Initializing...\n", mpuAddress);
+    mpu.begin();
+    if (fullCalib) {
+      Serial.println("[MPU] Calibrating gyro offsets (keep sleeve still for 3s)...");
+      mpu.calcGyroOffsets(true);
+    } else {
+      mpu.calcGyroOffsets(false);
+    }
+    mpuFound = true;
+    Serial.println("[MPU] Sensor successfully initialized and ready!");
+    return true;
+  }
+  return false;
+}
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -247,30 +304,18 @@ void setup() {
     Serial.println(WiFi.localIP());
   }
 
-  // 2. Initialize I2C and MPU6050
-  Wire.begin();
+  // 2. Initialize I2C and MPU6050 with explicit ESP32 pins
+  Wire.begin(21, 22); // GPIO 21 = SDA, GPIO 22 = SCL
   delay(200); // Allow I2C bus pins to settle
-  Serial.println("Initializing MPU6050 Accelerometer...");
+  Serial.println("Scanning I2C bus for MPU6050 on GPIO 21 (SDA) / GPIO 22 (SCL)...");
   
-  // Try to detect MPU6050 on address 0x68 (up to 3 retries)
-  byte error = 1;
-  for (int i = 0; i < 3; i++) {
-    Wire.beginTransmission(0x68);
-    error = Wire.endTransmission();
-    if (error == 0) {
-      break;
-    }
-    delay(50);
-  }
-  
-  if (error != 0) {
-    Serial.println("Warning: MPU6050 chip not found! Check SDA/SCL wire connections.");
+  if (!detectAndInitMPU(true)) {
+    Serial.println("Warning: MPU6050 chip not detected at 0x68 or 0x69 on boot!");
+    Serial.println("--> 1. Check if SDA is on GPIO 21 and SCL is on GPIO 22.");
+    Serial.println("--> 2. Check if AD0 pin is floating; connect AD0 to GND for address 0x68.");
+    Serial.println("--> 3. Power LED on MPU only indicates VCC/GND power, NOT I2C communication.");
+    Serial.println("--> 4. Auto-reconnect is active: will automatically connect as soon as wires are seated!");
     mpuFound = false;
-  } else {
-    mpu.begin();
-    Serial.println("MPU6050 initialized successfully. Calibrating gyro offsets (Keep sleeve static)...");
-    mpu.calcGyroOffsets(true);
-    mpuFound = true;
   }
 
   // 3. Initialize WebSocket client connection
@@ -323,8 +368,15 @@ void loop() {
     }
   }
 
-  // Stream data at 10Hz interval
   unsigned long currentTime = millis();
+
+  // Background auto-reconnect for MPU if it was disconnected or plugged after boot
+  if (!mpuFound && (currentTime - lastMpuRetryTime >= 3000)) {
+    lastMpuRetryTime = currentTime;
+    detectAndInitMPU(false);
+  }
+
+  // Stream data at 10Hz interval
   if (currentTime - lastStreamTime >= streamInterval) {
     lastStreamTime = currentTime;
 
@@ -388,9 +440,10 @@ void loop() {
     }
 
     // D. Always print readings to serial for user debugging/wiring tests
-    Serial.printf("[TELEMETRY] status=%s | elbow=%.1f pressure=%d N | wrist_pitch=%.1f wrist_roll=%.1f\n",
+    Serial.printf("[TELEMETRY] ServerWS=%s | MPU_I2C=%s | elbow=%.1f | wrist_pitch=%.1f wrist_roll=%.1f\n",
                   wsConnected ? "CONNECTED" : "OFFLINE",
-                  a_elbow, gripForce, wristPitch, wristRoll);
+                  mpuFound ? "CONNECTED (OK)" : "DISCONNECTED (No I2C Ack)",
+                  a_elbow, wristPitch, wristRoll);
     Serial.printf("[FLEX]\nThumb raw=%d filtered=%.0f angle=%.1f\nIndex raw=%d filtered=%.0f angle=%.1f\nMiddle raw=%d filtered=%.0f angle=%.1f\nRing raw=%d filtered=%.0f angle=%.1f\nLittle raw=%d filtered=%.0f angle=%.1f\n",
                   rawThumb, f_thumb, a_thumb,
                   rawIndex, f_index, a_index,

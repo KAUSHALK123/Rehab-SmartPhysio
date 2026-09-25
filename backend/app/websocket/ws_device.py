@@ -150,8 +150,9 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                             "elbow": 180 + random.randint(-3, 3) if step != "bend_elbow" else 90 + random.randint(-2, 2),
                             "pressure": 5 + random.randint(-1, 2) if step != "close_hand" else 650 + random.randint(-10, 10),
                             
-                            "wrist_pitch": 5.0 + random.uniform(-0.5, 0.5) if step != "raise_arm" else 65.0 + random.uniform(-1.0, 1.0),
-                            "wrist_roll": 0.0 + random.uniform(-0.5, 0.5) if step != "raise_arm" else 12.0 + random.uniform(-1.0, 1.0),
+                            "wrist_pitch": 0.0 if step == "raise_arm" else 0.0,
+                            "wrist_roll": 0.0 if step == "raise_arm" else 0.0,
+                            "mpu_working": False,
                         }
                         await websocket.send_text(json.dumps(packet))
                     await asyncio.sleep(0.1) # 10Hz stream
