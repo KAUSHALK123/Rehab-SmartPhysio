@@ -17,7 +17,8 @@ function FullBodyRig({
   demoMode = false, 
   sensorFingerAngles = null,
   sensorWristAngles = null,
-  sensorElbowAngles = null
+  sensorElbowAngles = null,
+  resetKey = null
 }) {
   // Load full_rig GLB from public/models directory
   const { scene } = useGLTF('/models/full_rig.glb');
@@ -29,6 +30,21 @@ function FullBodyRig({
 
   const groupRef = useRef();
   const baseRotationsRef = useRef({ initialized: false });
+  const lastControlsRef = useRef({});
+
+  // Reset all bones immediately to initial neutral GLB rest pose
+  const resetBonesToRest = () => {
+    if (!clonedScene || !baseRotationsRef.current.initialized) return;
+    const bases = baseRotationsRef.current;
+    const jointNames = ['bicep_right', 'right_forearm', 'Circle', 'right_thumb', 'right_index', 'right_middle', 'right_ring', 'right_little'];
+    jointNames.forEach((name) => {
+      const node = typeof clonedScene.getObjectByName === 'function' ? clonedScene.getObjectByName(name) : null;
+      if (node && bases[name]) {
+        node.rotation.set(bases[name].x, bases[name].y, bases[name].z);
+      }
+    });
+    lastControlsRef.current = {};
+  };
 
   // Capture initial/base GLB joint rotations once to prevent snapping
   useEffect(() => {
@@ -55,26 +71,26 @@ function FullBodyRig({
           y: node.rotation.y,
           z: node.rotation.z,
         };
+        // Ensure starting orientation matches exact clean base rest pose
+        node.rotation.set(node.rotation.x, node.rotation.y, node.rotation.z);
       } else {
         initialBases[name] = { x: 0, y: 0, z: 0 };
       }
     });
 
     baseRotationsRef.current = initialBases;
+    resetBonesToRest();
   }, [clonedScene]);
 
-  // Frame loop for smooth real-time joint rotations
-  const lastControlsRef = useRef({});
-
-  // Refresh controls cache whenever controls or sensorWristAngles changes
+  // Refresh controls cache whenever controls, resetKey, or sensorWristAngles changes
   useEffect(() => {
     lastControlsRef.current = controls || {};
   }, [controls, sensorWristAngles]);
 
-  // Refresh controls cache whenever controls or sensorWristAngles changes
+  // Force reset whenever resetKey changes (new exercise opened)
   useEffect(() => {
-    lastControlsRef.current = controls || {};
-  }, [controls, sensorWristAngles]);
+    resetBonesToRest();
+  }, [resetKey]);
 
   useFrame(({ clock }) => {
     if (!clonedScene || !baseRotationsRef.current.initialized) return;
@@ -270,7 +286,8 @@ export default function Arm3DVisualizer({
   demoMode = false,
   sensorFingerAngles = null,
   sensorWristAngles = null,
-  sensorElbowAngles = null
+  sensorElbowAngles = null,
+  resetKey = null
 }) {
   const controlsRef = useRef();
 
@@ -294,6 +311,7 @@ export default function Arm3DVisualizer({
             sensorFingerAngles={sensorFingerAngles} 
             sensorWristAngles={sensorWristAngles}
             sensorElbowAngles={sensorElbowAngles}
+            resetKey={resetKey}
           />
         </Center>
         

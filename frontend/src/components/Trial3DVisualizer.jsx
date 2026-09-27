@@ -16,7 +16,8 @@ function ElbowStandaloneRig({
   targetBone = 'WristArm',
   testAngles = { x: 0, y: 0, z: 0 },
   sensorElbowAngles = null,
-  onRestAnglesCaptured
+  onRestAnglesCaptured,
+  resetKey = null
 }) {
   const { scene } = useGLTF('/models/elbow.glb');
   const clonedScene = React.useMemo(() => {
@@ -38,10 +39,26 @@ function ElbowStandaloneRig({
 
     baseRotationsRef.current = { initialized: true, WristArm: base };
 
+    if (forearmNode) {
+      forearmNode.rotation.set(base.x, base.y, base.z);
+    }
+
     if (onRestAnglesCaptured) {
       onRestAnglesCaptured(base);
     }
   }, [clonedScene]);
+
+  // Reset elbow model to neutral rest pose on resetKey change
+  useEffect(() => {
+    if (!clonedScene || !baseRotationsRef.current.initialized) return;
+    const forearmNode = typeof clonedScene.getObjectByName === 'function'
+      ? clonedScene.getObjectByName('WristArm')
+      : null;
+    const base = baseRotationsRef.current.WristArm;
+    if (forearmNode && base) {
+      forearmNode.rotation.set(base.x, base.y, base.z);
+    }
+  }, [resetKey]);
 
   useFrame(() => {
     if (!clonedScene || !baseRotationsRef.current.initialized) return;
@@ -78,7 +95,8 @@ function FullBodyRig({
   sensorFingerAngles = null,
   sensorWristAngles = null,
   sensorElbowAngles = null,
-  onRestAnglesCaptured
+  onRestAnglesCaptured,
+  resetKey = null
 }) {
   // Load full_rig GLB from public/models directory
   const { scene } = useGLTF('/models/full_rig.glb');
@@ -90,6 +108,21 @@ function FullBodyRig({
 
   const groupRef = useRef();
   const baseRotationsRef = useRef({ initialized: false });
+  const lastControlsRef = useRef({});
+
+  // Reset all bones immediately to initial neutral GLB rest pose
+  const resetBonesToRest = () => {
+    if (!clonedScene || !baseRotationsRef.current.initialized) return;
+    const bases = baseRotationsRef.current;
+    const jointNames = ['bicep_right', 'right_forearm', 'Circle', 'right_thumb', 'right_index', 'right_middle', 'right_ring', 'right_little'];
+    jointNames.forEach((name) => {
+      const node = typeof clonedScene.getObjectByName === 'function' ? clonedScene.getObjectByName(name) : null;
+      if (node && bases[name]) {
+        node.rotation.set(bases[name].x, bases[name].y, bases[name].z);
+      }
+    });
+    lastControlsRef.current = {};
+  };
 
   // Capture initial/base GLB joint rotations once to prevent snapping and accumulation
   useEffect(() => {
@@ -116,12 +149,15 @@ function FullBodyRig({
           y: node.rotation.y,
           z: node.rotation.z,
         };
+        // Reset to base rest pose
+        node.rotation.set(node.rotation.x, node.rotation.y, node.rotation.z);
       } else {
         initialBases[name] = { x: 0, y: 0, z: 0 };
       }
     });
 
     baseRotationsRef.current = initialBases;
+    resetBonesToRest();
 
     if (onRestAnglesCaptured && targetBone && initialBases[targetBone]) {
       onRestAnglesCaptured(initialBases[targetBone]);
@@ -136,18 +172,15 @@ function FullBodyRig({
     }
   }, [targetBone]);
 
-  // Frame loop for smooth real-time joint rotations
-  const lastControlsRef = useRef({});
-
   // Refresh controls cache whenever targetBone, controls, or sensorWristAngles changes
   useEffect(() => {
     lastControlsRef.current = controls || {};
   }, [controls, targetBone, sensorWristAngles]);
 
-  // Refresh controls cache whenever targetBone, controls, or sensorWristAngles changes
+  // Force reset when resetKey changes
   useEffect(() => {
-    lastControlsRef.current = controls || {};
-  }, [controls, targetBone, sensorWristAngles]);
+    resetBonesToRest();
+  }, [resetKey]);
 
   useFrame(({ clock }) => {
     if (!clonedScene || !baseRotationsRef.current.initialized) return;
@@ -363,7 +396,8 @@ export default function Trial3DVisualizer({
   sensorFingerAngles = null,
   sensorWristAngles = null,
   sensorElbowAngles = null,
-  onRestAnglesCaptured
+  onRestAnglesCaptured,
+  resetKey = null
 }) {
   const controlsRef = useRef();
   const isElbowModel = targetBone === 'WristArm';
@@ -388,6 +422,7 @@ export default function Trial3DVisualizer({
               testAngles={testAngles}
               sensorElbowAngles={sensorElbowAngles}
               onRestAnglesCaptured={onRestAnglesCaptured}
+              resetKey={resetKey}
             />
           ) : (
             <FullBodyRig 
@@ -397,10 +432,11 @@ export default function Trial3DVisualizer({
               calibrationActive={calibrationActive}
               targetBone={targetBone}
               testAngles={testAngles}
-              sensorFingerAngles={sensorFingerAngles}
+              sensorFingerAngles={sensorFingerAngles} 
               sensorWristAngles={sensorWristAngles}
               sensorElbowAngles={sensorElbowAngles}
               onRestAnglesCaptured={onRestAnglesCaptured}
+              resetKey={resetKey}
             />
           )}
         </Center>

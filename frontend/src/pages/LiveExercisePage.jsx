@@ -831,8 +831,11 @@ function LiveExercisePage() {
   const isWristExercise = isTrial 
     ? trialType === 'wrist'
     : Boolean(
+        exerciseDetails?.body_part?.toLowerCase().includes('wrist') ||
+        exerciseDetails?.target_joint?.toLowerCase().includes('wrist') ||
         exerciseDetails?.target_muscle?.toLowerCase().includes('wrist') ||
         exerciseDetails?.primary_sensor?.toLowerCase().includes('wrist') ||
+        exerciseDetails?.secondary_sensor?.toLowerCase().includes('wrist') ||
         exerciseName?.toLowerCase().includes('wrist') ||
         activeExerciseRef.current?.primary_sensor?.toLowerCase().includes('wrist')
       );
@@ -840,20 +843,30 @@ function LiveExercisePage() {
   const isFingerExercise = isTrial
     ? trialType === 'fingers'
     : Boolean(
+        exerciseDetails?.body_part?.toLowerCase().includes('finger') ||
+        exerciseDetails?.body_part?.toLowerCase().includes('hand') ||
+        exerciseDetails?.target_joint?.toLowerCase().includes('finger') ||
         exerciseDetails?.target_muscle?.toLowerCase().includes('finger') ||
         exerciseDetails?.target_muscle?.toLowerCase().includes('hand') ||
         exerciseDetails?.primary_sensor?.toLowerCase().includes('flex') ||
+        exerciseDetails?.primary_sensor?.toLowerCase().includes('pressure') ||
         exerciseName?.toLowerCase().includes('finger') ||
         exerciseName?.toLowerCase().includes('grip') ||
-        activeExerciseRef.current?.primary_sensor?.toLowerCase().includes('flex')
+        exerciseName?.toLowerCase().includes('squeeze') ||
+        activeExerciseRef.current?.primary_sensor?.toLowerCase().includes('flex') ||
+        activeExerciseRef.current?.primary_sensor?.toLowerCase().includes('pressure')
       );
 
   const isElbowExercise = isTrial
     ? trialType === 'elbow'
     : Boolean(
+        exerciseDetails?.body_part?.toLowerCase().includes('elbow') ||
+        exerciseDetails?.target_joint?.toLowerCase().includes('elbow') ||
         exerciseDetails?.target_muscle?.toLowerCase().includes('elbow') ||
+        exerciseDetails?.target_muscle?.toLowerCase().includes('bicep') ||
         exerciseDetails?.primary_sensor?.toLowerCase().includes('elbow') ||
         exerciseName?.toLowerCase().includes('elbow') ||
+        exerciseName?.toLowerCase().includes('curl') ||
         activeExerciseRef.current?.primary_sensor?.toLowerCase().includes('elbow')
       );
 
@@ -1075,12 +1088,18 @@ function LiveExercisePage() {
     const nameLower = ex.exercise_name.toLowerCase();
     const primaryLower = (ex.primary_sensor || '').toLowerCase();
 
-    const isWristBilateral = primaryLower === 'wrist_pitch' || primaryLower === 'wrist_roll' || nameLower.includes('wrist');
+    const isWristBilateral = primaryLower.includes('wrist') || 
+      nameLower.includes('wrist') || 
+      isWristExercise ||
+      (ex.body_part || '').toLowerCase().includes('wrist') ||
+      (ex.target_joint || '').toLowerCase().includes('wrist');
 
     if (isWristBilateral) {
       // BILATERAL WRIST REPETITION ENGINE:
       // A complete repetition requires ONE FULL LEFT + ONE FULL RIGHT (in either sequence) + RETURN TO CENTER (0°)
-      const angle = primaryLower === 'wrist_roll' ? (data.wrist_roll ?? 0) : (data.wrist_pitch ?? 0);
+      const angle = (primaryLower === 'wrist_roll' || nameLower.includes('rotation')) 
+        ? (data.wrist_roll ?? 0) 
+        : (data.wrist_pitch ?? 0);
       const targetAngle = Math.max(25, Math.abs(ex.target_angle || 45));
       // 70% threshold allows solid physiological deflection without causing excessive joint strain
       const leftTargetThreshold = -targetAngle * 0.70;
@@ -1603,29 +1622,29 @@ function LiveExercisePage() {
   const activeControls = {
     shoulderAngle: 0, // LOCKED: Shoulder must remain stationary; sleeve has no shoulder sensor
     shoulderAngleX: 0,
-    elbowAngle: 180 - activeSensors.elbow,
-    wristAngle: activeSensors.wrist_pitch,
-    thumb: activeSensors.thumb,
-    index: activeSensors.index,
-    middle: activeSensors.middle,
-    ring: activeSensors.ring,
-    little: activeSensors.little
+    elbowAngle: isElbowExercise ? (180 - activeSensors.elbow) : 180,
+    wristAngle: isWristExercise ? activeSensors.wrist_pitch : 0,
+    thumb: isFingerExercise ? activeSensors.thumb : 0,
+    index: isFingerExercise ? activeSensors.index : 0,
+    middle: isFingerExercise ? activeSensors.middle : 0,
+    ring: isFingerExercise ? activeSensors.ring : 0,
+    little: isFingerExercise ? activeSensors.little : 0
   };
 
-  // Resolve active calibrated finger angles for 3D visualizer
+  // Resolve active calibrated finger angles for 3D visualizer (lock to 0 neutral if not finger exercise)
   const activeSensorFingerAngles = (isTrial && trialType === 'fingers' && fingerTrialView === 'calibration')
     ? null
-    : sensorFingerAngles;
+    : (isFingerExercise ? sensorFingerAngles : { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 });
 
-  // Resolve active calibrated wrist angles for 3D visualizer
+  // Resolve active calibrated wrist angles for 3D visualizer (lock to 0 neutral if not wrist exercise)
   const activeSensorWristAngles = (isTrial && trialType === 'wrist' && wristTrialView === 'calibration')
     ? null
-    : sensorWristAngles;
+    : (isWristExercise ? sensorWristAngles : { x: 0, y: 0, z: 0 });
 
-  // Resolve active calibrated elbow angles for 3D visualizer
+  // Resolve active calibrated elbow angles for 3D visualizer (lock to null/straight if not elbow exercise)
   const activeSensorElbowAngles = (isTrial && trialType === 'elbow' && elbowTrialView === 'calibration')
     ? null
-    : (sensorElbowAngles?.angles || sensorElbowAngles);
+    : (isElbowExercise ? (sensorElbowAngles?.angles || sensorElbowAngles) : null);
 
   // Build the dynamic gauge configurations for the selected exercise
   const getExerciseFeedback = () => {
@@ -1943,6 +1962,8 @@ function LiveExercisePage() {
                         Straight View
                       </div>
                       <VisualizerComponent 
+                        key={`${exerciseId || trialType || 'main'}-straight`}
+                        resetKey={exerciseId || trialType || 'main'}
                         controls={activeControls} 
                         cameraAngle="straight" 
                         disableOrbit={isTrial ? false : true} 
@@ -1961,6 +1982,8 @@ function LiveExercisePage() {
                         Side View
                       </div>
                       <VisualizerComponent 
+                        key={`${exerciseId || trialType || 'main'}-side`}
+                        resetKey={exerciseId || trialType || 'main'}
                         controls={activeControls} 
                         cameraAngle="side" 
                         disableOrbit={isTrial ? false : true} 
@@ -1977,6 +2000,8 @@ function LiveExercisePage() {
                   </div>
                 ) : (
                   <VisualizerComponent 
+                    key={`${exerciseId || trialType || 'main'}-${cameraAngle}`}
+                    resetKey={exerciseId || trialType || 'main'}
                     controls={activeControls} 
                     cameraAngle={cameraAngle} 
                     disableOrbit={isTrial ? false : true} 
