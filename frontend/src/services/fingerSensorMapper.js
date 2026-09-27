@@ -35,6 +35,24 @@ export const FINGER_RIG_MAP = {
 const SENSOR_CALIB_STORAGE_KEY = 'smartphysio_sensor_calibration';
 
 /**
+ * Real-time dynamic auto-range tracker.
+ * Adapts to physical flex sensor ADC output on-the-fly even before manual calibration.
+ */
+const dynamicRanges = {
+  thumb:  { min: null, max: null },
+  index:  { min: null, max: null },
+  middle: { min: null, max: null },
+  ring:   { min: null, max: null },
+  little: { min: null, max: null }
+};
+
+export const resetDynamicRanges = () => {
+  FINGER_KEYS.forEach((f) => {
+    dynamicRanges[f] = { min: null, max: null };
+  });
+};
+
+/**
  * Default hardware ADC sensor bounds for each finger.
  * (Typical 12-bit ESP32 pull-down: ~1200 straight to ~2900 bent)
  */
@@ -138,7 +156,10 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
   const resolveSensorBounds = (finger) => {
     const strKey = finger + 'Str';
     const bntKey = finger + 'Bnt';
-    if (packetBounds[strKey] !== undefined && packetBounds[bntKey] !== undefined) {
+    // Ignore default uncalibrated firmware values (0 and 4095)
+    if (packetBounds[strKey] !== undefined && packetBounds[bntKey] !== undefined &&
+        !(packetBounds[strKey] === 0 && packetBounds[bntKey] === 4095) &&
+        Math.abs(packetBounds[bntKey] - packetBounds[strKey]) > 60) {
       return { straight: packetBounds[strKey], bent: packetBounds[bntKey] };
     }
     return sensorBounds[finger] || DEFAULT_SENSOR_BOUNDS[finger];
@@ -160,15 +181,34 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     let filteredVal = 0;
     let rawReading = rawVal !== undefined ? rawVal : null;
 
-    if (rawVal !== undefined && rawVal !== null) {
+    // Track dynamic physical sensor min/max if reading valid signal (> 30 ADC counts)
+    if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
+      if (dynamicRanges[finger].min === null || rawVal < dynamicRanges[finger].min) {
+        dynamicRanges[finger].min = rawVal;
+      }
+      if (dynamicRanges[finger].max === null || rawVal > dynamicRanges[finger].max) {
+        dynamicRanges[finger].max = rawVal;
+      }
+    }
+
+    if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
       // Raw 12-bit ADC reading available
       const bounds = resolveSensorBounds(finger);
+      let effectiveStraight = bounds.straight;
+      let effectiveBent = bounds.bent;
+
+      // If user has bent the physical sensor dynamically across an active range (span >= 80)
+      const dynSpan = (dynamicRanges[finger].max || 0) - (dynamicRanges[finger].min || 0);
+      if (dynSpan >= 80) {
+        effectiveStraight = dynamicRanges[finger].min;
+        effectiveBent = dynamicRanges[finger].max;
+      }
+
       filteredVal = rawVal;
-      normalized = normalizeFlexValue(rawVal, bounds.straight, bounds.bent);
-    } else if (angleVal !== undefined && angleVal !== null) {
+      normalized = normalizeFlexValue(rawVal, effectiveStraight, effectiveBent);
+    } else if (angleVal !== undefined && angleVal !== null && Number(angleVal) > 0) {
       // Pre-filtered angle value from firmware or backend mock (0 - 90 deg)
-      filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : angleVal;
-      // Pre-filtered values in SmartPhysio ESP32 are 0° (straight) to 90° (bent)
+      filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
       normalized = Math.max(0, Math.min(1, filteredVal / 90.0));
       if (rawReading === null) {
         rawReading = Math.round(normalized * 4095);

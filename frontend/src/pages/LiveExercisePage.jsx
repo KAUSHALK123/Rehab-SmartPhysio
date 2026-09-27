@@ -792,7 +792,62 @@ function LiveExercisePage() {
       isMounted.current = false;
       cleanupSession();
     };
-  }, []);
+  }, [location.pathname, location.search, exerciseId]);
+
+  // Cleanly identify active body movement category
+  const isWristExercise = isTrial 
+    ? trialType === 'wrist'
+    : Boolean(
+        exerciseDetails?.target_muscle?.toLowerCase().includes('wrist') ||
+        exerciseDetails?.primary_sensor?.toLowerCase().includes('wrist') ||
+        exerciseName?.toLowerCase().includes('wrist') ||
+        activeExerciseRef.current?.primary_sensor?.toLowerCase().includes('wrist')
+      );
+
+  const isFingerExercise = isTrial
+    ? trialType === 'fingers'
+    : Boolean(
+        exerciseDetails?.target_muscle?.toLowerCase().includes('finger') ||
+        exerciseDetails?.target_muscle?.toLowerCase().includes('hand') ||
+        exerciseDetails?.primary_sensor?.toLowerCase().includes('flex') ||
+        exerciseName?.toLowerCase().includes('finger') ||
+        exerciseName?.toLowerCase().includes('grip') ||
+        activeExerciseRef.current?.primary_sensor?.toLowerCase().includes('flex')
+      );
+
+  const isElbowExercise = isTrial
+    ? trialType === 'elbow'
+    : Boolean(
+        exerciseDetails?.target_muscle?.toLowerCase().includes('elbow') ||
+        exerciseDetails?.primary_sensor?.toLowerCase().includes('elbow') ||
+        exerciseName?.toLowerCase().includes('elbow') ||
+        activeExerciseRef.current?.primary_sensor?.toLowerCase().includes('elbow')
+      );
+
+  // Reset all joint angles, states, and counters when starting or switching any exercise
+  useEffect(() => {
+    setSensors({
+      wrist_pitch: 0.0,
+      wrist_roll: 0.0,
+      elbow: 180.0,
+      pressure: 0,
+      thumb: 0,
+      index: 0,
+      middle: 0,
+      ring: 0,
+      little: 0
+    });
+    setSensorWristAngles({ x: 0, y: 0, z: 0 });
+    setSensorFingerAngles({ thumb: 0, index: 0, middle: 0, ring: 0, little: 0 });
+    setSensorElbowAngles(null);
+    setWristTelemetryDetails(null);
+    setFingerTelemetryDetails(null);
+    setRepsCompleted(0);
+    setRepsFailed(0);
+    setSecondsElapsed(0);
+    setRepState('rest');
+    repStateRef.current = 'rest';
+  }, [location.pathname, location.search, exerciseId, trialType]);
 
   const cleanupSession = () => {
     if (wsRef.current) wsRef.current.close();
@@ -833,42 +888,47 @@ function LiveExercisePage() {
         setRawSensorPacket(data);
         setLastPacketTime(Date.now());
 
-        // In main exercise mode, calculate calibrated finger, wrist, and elbow GLB angles from live telemetry
-        if (!isTrial && !isPausedRef.current) {
-          if (isHardware && isFlexSyncedRef.current) {
-            const computed = processFingerTelemetry(data);
-            if (computed && computed.angles) {
-              setSensorFingerAngles(computed.angles);
-              setFingerTelemetryDetails(computed);
-            }
-          } else {
-            // When hardware is disconnected or sync off, do not fake finger angles
-            setSensorFingerAngles(null);
-            setFingerTelemetryDetails(null);
-          }
+        // 1. Process finger telemetry continuously with dynamic auto-range
+        const computedFingers = processFingerTelemetry(data);
+        if (computedFingers && computedFingers.angles) {
+          setSensorFingerAngles(computedFingers.angles);
+          setFingerTelemetryDetails(computedFingers);
+        }
 
+        // 2. Process wrist telemetry ONLY if the active exercise is a wrist exercise!
+        // For finger or elbow exercises, strictly lock wrist to neutral rest pose (0°)
+        if (isWristExercise) {
           const currentWristEx = activeExerciseRef.current || exerciseDetails || { exercise_name: exerciseName, primary_sensor: 'wrist_pitch', target_angle: 60 };
           const wristComputed = processWristTelemetry(data, currentWristEx);
           if (wristComputed && wristComputed.angles) {
             setSensorWristAngles(wristComputed.angles);
             setWristTelemetryDetails(wristComputed);
           }
+        } else {
+          setSensorWristAngles({ x: 0, y: 0, z: 0 });
+          setWristTelemetryDetails(null);
+        }
 
+        // 3. Process elbow telemetry if applicable
+        if (isElbowExercise) {
           const elbowComputed = processElbowTelemetry(data, activeExerciseRef.current || exerciseDetails);
           if (elbowComputed && elbowComputed.angles) {
             setSensorElbowAngles(elbowComputed);
           }
+        } else {
+          setSensorElbowAngles(null);
         }
 
-        // Normalize raw or scaled sensor readings matching CalibrationPage logic
+        // 4. Extract finger percentage (0-100%) directly from calibrated telemetry
         const extractFinger = (name) => {
-          const rawKey = 'raw_' + name;
-          if (data[rawKey] !== undefined) return Math.min(100, Math.max(0, (data[rawKey] / 4095) * 100));
+          if (computedFingers?.percentages?.[name] !== undefined) {
+            return computedFingers.percentages[name];
+          }
           const val = data[name];
           if (val === undefined || val === null) return 0;
-          if (typeof val === 'object') return val.raw !== undefined ? Math.min(100, Math.max(0, (val.raw / 4095) * 100)) : (val.angle || 0);
-          if (val > 100) return Math.min(100, Math.max(0, (val / 4095) * 100));
-          return val;
+          if (typeof val === 'object') return val.angle || 0;
+          if (val <= 90) return Math.round((val / 90) * 100);
+          return Math.min(100, Math.max(0, (val / 4095) * 100));
         };
 
         const extractElbow = () => {

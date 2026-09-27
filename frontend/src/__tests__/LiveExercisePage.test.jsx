@@ -89,8 +89,8 @@ describe('LiveExercisePage Component', () => {
     // Check dashboard text rendering
     expect(screen.getAllByText('Ball Squeeze')[0]).toBeInTheDocument();
     expect(screen.getByTestId('mock-canvas')).toBeInTheDocument();
-    expect(screen.getByText('0')).toBeInTheDocument();
-    expect(screen.getByText(/\/ 10/)).toBeInTheDocument(); // reps completed counter
+    expect(screen.getAllByText('0')[0]).toBeInTheDocument();
+    expect(screen.getAllByText(/\/ 10/)[0]).toBeInTheDocument(); // reps completed counter
   });
 
   it('completes session when clicking End session manually', async () => {

@@ -66,6 +66,16 @@ function FullBodyRig({
   // Frame loop for smooth real-time joint rotations
   const lastControlsRef = useRef({});
 
+  // Refresh controls cache whenever controls or sensorWristAngles changes
+  useEffect(() => {
+    lastControlsRef.current = controls || {};
+  }, [controls, sensorWristAngles]);
+
+  // Refresh controls cache whenever controls or sensorWristAngles changes
+  useEffect(() => {
+    lastControlsRef.current = controls || {};
+  }, [controls, sensorWristAngles]);
+
   useFrame(({ clock }) => {
     if (!clonedScene || !baseRotationsRef.current.initialized) return;
 
