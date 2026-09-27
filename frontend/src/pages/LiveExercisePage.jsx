@@ -209,6 +209,26 @@ const renderFormattedWarningText = (text) => {
   });
 };
 
+// Format AI guidance overlay text with high-contrast bold white text and bright cyan highlight pills
+const renderFormattedOverlayText = (text) => {
+  if (!text) return null;
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      const content = part.slice(2, -2);
+      return (
+        <span 
+          key={idx} 
+          className="font-black text-cyan-300 bg-cyan-950/90 px-1.5 py-0.5 rounded-md border border-cyan-500/50 mx-1 text-xs shadow-xs inline-block uppercase tracking-wide"
+        >
+          {content}
+        </span>
+      );
+    }
+    return <span key={idx} className="text-white font-bold">{part}</span>;
+  });
+};
+
 // Real-time Flex Sensor ↔ GLB Sync Panel for Main Finger Exercises
 const FingerSyncPanel = ({ 
   computedFingerData, 
@@ -862,6 +882,16 @@ function LiveExercisePage() {
     repStateRef.current = 'rest';
     setWristBilateralPhase({ left: false, right: false });
     wristBilateralPhaseRef.current = { left: false, right: false };
+    const initialText = isWristExercise 
+      ? 'Move **left first or right** to start repetition.' 
+      : 'Place your arm in the starting position to begin.';
+    setGuidance(initialText);
+    setAiFeedback({
+      progress: 0,
+      suggestion: initialText,
+      warning: null,
+      status: 'info'
+    });
   }, [location.pathname, location.search, exerciseId, trialType]);
 
   const cleanupSession = () => {
@@ -1150,13 +1180,13 @@ function LiveExercisePage() {
 
       let suggestionText = '';
       if (leftDone && rightDone) {
-        suggestionText = `Excellent! Return wrist to **Center (0°)** to finish.`;
+        suggestionText = `Both completed! Return wrist to **Center (0°)** to finish rep.`;
       } else if (leftDone) {
-        suggestionText = `Left side completed (✓). Now move wrist **RIGHT** past center to **+${Math.round(targetAngle)}°**.`;
+        suggestionText = `Left complete (✓). Now move wrist completely **RIGHT** to **+${Math.round(targetAngle)}°**.`;
       } else if (rightDone) {
-        suggestionText = `Right side completed (✓). Now move wrist **LEFT** past center to **-${Math.round(targetAngle)}°**.`;
+        suggestionText = `Right complete (✓). Now move wrist completely **LEFT** to **-${Math.round(targetAngle)}°**.`;
       } else {
-        suggestionText = `Perform 1 full repetition: Move wrist completely **LEFT** and **RIGHT** (Target: **${targetAngle}°**).`;
+        suggestionText = `Move **LEFT FIRST OR RIGHT** toward **${targetAngle}°** to start repetition.`;
       }
 
       setAiFeedback({
@@ -1973,10 +2003,39 @@ function LiveExercisePage() {
                 </div>
               )}
 
-              {/* 3D Guide helper */}
-              <div className="absolute bottom-4 left-4 text-[10px] text-slate-400 bg-slate-950/60 p-2 px-3 border border-slate-850 rounded-lg font-medium">
-                Use the camera angle buttons to toggle viewpoints.
-              </div>
+              {/* Bottom Prominent AI Suggestion Banner with Single Rep Count */}
+              {!isTrial ? (
+                <div className="absolute bottom-4 left-4 right-44 md:left-1/2 md:right-auto md:-translate-x-1/2 z-20 flex items-center gap-3 bg-slate-950/90 backdrop-blur-md border border-slate-750/90 px-4 py-2.5 rounded-2xl shadow-2xl max-w-[calc(100%-180px)] md:max-w-xl animate-in fade-in slide-in-from-bottom-2 duration-200">
+                  {/* Single Rep Number at beginning of text */}
+                  <div 
+                    className="flex items-center justify-center min-w-[34px] h-8 px-2 rounded-xl bg-blue-600 text-white font-black text-sm sm:text-base shadow-sm flex-shrink-0" 
+                    title="Current Completed Repetitions"
+                  >
+                    {repsCompleted}
+                  </div>
+
+                  {/* AI Suggestion Instruction Text (High-contrast bold white text) */}
+                  <div className="text-xs sm:text-sm font-bold text-white leading-snug flex-1 truncate sm:whitespace-normal">
+                    {renderFormattedOverlayText(aiFeedback?.suggestion || guidance)}
+                  </div>
+
+                  {/* Bilateral Left/Right Status Badges for Wrist Exercises */}
+                  {isWristExercise && (
+                    <div className="hidden sm:flex items-center gap-1.5 flex-shrink-0 ml-1">
+                      <span className={`text-[10px] font-black px-1.5 py-0.5 rounded border transition-colors ${wristBilateralPhase.left ? 'bg-emerald-500/30 text-emerald-300 border-emerald-500/60 shadow-xs' : 'bg-slate-900 text-slate-400 border-slate-800'}`}>
+                        L: {wristBilateralPhase.left ? '✓' : '○'}
+                      </span>
+                      <span className={`text-[10px] font-black px-1.5 py-0.5 rounded border transition-colors ${wristBilateralPhase.right ? 'bg-emerald-500/30 text-emerald-300 border-emerald-500/60 shadow-xs' : 'bg-slate-900 text-slate-400 border-slate-800'}`}>
+                        R: {wristBilateralPhase.right ? '✓' : '○'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="absolute bottom-4 left-4 text-[10px] text-slate-400 bg-slate-950/60 p-2 px-3 border border-slate-850 rounded-lg font-medium">
+                  Use the camera angle buttons to toggle viewpoints.
+                </div>
+              )}
 
               {/* Floating Rep Count & Time Elapsed HUD (Bottom-Right of 3D GLB Viewport) */}
               {!isTrial && (
