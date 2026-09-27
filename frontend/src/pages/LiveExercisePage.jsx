@@ -366,7 +366,8 @@ const WristDebugPanel = ({
   repsCompleted,
   holdCountdown,
   wristComputed,
-  deviceConnected
+  deviceConnected,
+  wristBilateralPhase
 }) => {
   const targetAngle = exercise?.target_angle || 60;
   const isExtension = (exercise?.exercise_name || '').toLowerCase().includes('extension');
@@ -436,6 +437,16 @@ const WristDebugPanel = ({
           <div className="text-[10px] text-slate-400 pt-0.5">
             Reps: <span className="text-white font-bold">{repsCompleted}</span> / {exercise?.repetitions || 10}
           </div>
+          {wristBilateralPhase && (
+            <div className="flex items-center gap-1 text-[9px] font-bold pt-0.5">
+              <span className={`px-1 rounded border ${wristBilateralPhase.left ? 'text-emerald-400 bg-emerald-950/80 border-emerald-800' : 'text-slate-500 border-slate-800'}`}>
+                L: {wristBilateralPhase.left ? '✓' : '○'}
+              </span>
+              <span className={`px-1 rounded border ${wristBilateralPhase.right ? 'text-emerald-400 bg-emerald-950/80 border-emerald-800' : 'text-slate-500 border-slate-800'}`}>
+                R: {wristBilateralPhase.right ? '✓' : '○'}
+              </span>
+            </div>
+          )}
           <div className="text-[9px] text-slate-400">
             Hold: <span className={holdCountdown > 0 ? 'text-emerald-400 font-bold animate-pulse' : 'text-slate-400'}>{holdCountdown > 0 ? `${holdCountdown}s` : 'Inactive'}</span>
           </div>
@@ -644,6 +655,8 @@ function LiveExercisePage() {
   // State machine variables
   // States: 'rest' | 'moving' | 'target_hold' | 'returning'
   const [repState, setRepState] = useState('rest');
+  const [wristBilateralPhase, setWristBilateralPhase] = useState({ left: false, right: false });
+  const wristBilateralPhaseRef = useRef({ left: false, right: false });
   const [guidance, setGuidance] = useState('Ensure wearable sleeve is connected. Get ready to begin.');
   const [patientDetails, setPatientDetails] = useState(null);
   const [aiFeedback, setAiFeedback] = useState({
@@ -847,6 +860,8 @@ function LiveExercisePage() {
     setSecondsElapsed(0);
     setRepState('rest');
     repStateRef.current = 'rest';
+    setWristBilateralPhase({ left: false, right: false });
+    wristBilateralPhaseRef.current = { left: false, right: false };
   }, [location.pathname, location.search, exerciseId, trialType]);
 
   const cleanupSession = () => {
@@ -1029,6 +1044,132 @@ function LiveExercisePage() {
 
     const nameLower = ex.exercise_name.toLowerCase();
     const primaryLower = (ex.primary_sensor || '').toLowerCase();
+
+    const isWristBilateral = primaryLower === 'wrist_pitch' || primaryLower === 'wrist_roll' || nameLower.includes('wrist');
+
+    if (isWristBilateral) {
+      // BILATERAL WRIST REPETITION ENGINE:
+      // A complete repetition requires ONE FULL LEFT + ONE FULL RIGHT (in either sequence) + RETURN TO CENTER (0°)
+      const angle = primaryLower === 'wrist_roll' ? (data.wrist_roll ?? 0) : (data.wrist_pitch ?? 0);
+      const targetAngle = Math.max(25, Math.abs(ex.target_angle || 45));
+      // 70% threshold allows solid physiological deflection without causing excessive joint strain
+      const leftTargetThreshold = -targetAngle * 0.70;
+      const rightTargetThreshold = targetAngle * 0.70;
+      const centerThreshold = 14;
+
+      const { left: leftDone, right: rightDone } = wristBilateralPhaseRef.current;
+      const currentState = repStateRef.current;
+      const now = Date.now();
+
+      if (currentState === 'rest') {
+        if (now - lastRepTimeRef.current >= 800) {
+          if (angle <= -10) {
+            repStateRef.current = 'moving';
+            setRepState('moving');
+            setGuidance(`Moving **LEFT**. Reach **${Math.round(-targetAngle)}°** to complete left phase! (Current: **${Math.abs(Math.round(angle))}° Left**)`);
+          } else if (angle >= 10) {
+            repStateRef.current = 'moving';
+            setRepState('moving');
+            setGuidance(`Moving **RIGHT**. Reach **+${Math.round(targetAngle)}°** to complete right phase! (Current: **${Math.round(angle)}° Right**)`);
+          }
+        }
+      } else if (currentState === 'moving') {
+        let updatedLeft = leftDone;
+        let updatedRight = rightDone;
+
+        // Check if Left target reached
+        if (!leftDone && angle <= leftTargetThreshold) {
+          updatedLeft = true;
+          wristBilateralPhaseRef.current.left = true;
+          setWristBilateralPhase(prev => ({ ...prev, left: true }));
+        }
+
+        // Check if Right target reached
+        if (!rightDone && angle >= rightTargetThreshold) {
+          updatedRight = true;
+          wristBilateralPhaseRef.current.right = true;
+          setWristBilateralPhase(prev => ({ ...prev, right: true }));
+        }
+
+        // Check completion of both sides
+        if (updatedLeft && updatedRight) {
+          repStateRef.current = 'returning';
+          setRepState('returning');
+          setGuidance('Both **Left** and **Right** completed! Return wrist to **Center (0°)** to finish repetition.');
+        } else if (updatedLeft && !updatedRight) {
+          setGuidance(`**Left phase complete (✓)**! Now move wrist completely **RIGHT** to **+${Math.round(targetAngle)}°**! (Current: **${angle > 0 ? Math.round(angle) + '° Right' : Math.abs(Math.round(angle)) + '° Left'}**)`);
+        } else if (updatedRight && !updatedLeft) {
+          setGuidance(`**Right phase complete (✓)**! Now move wrist completely **LEFT** to **-${Math.round(targetAngle)}°**! (Current: **${angle < 0 ? Math.abs(Math.round(angle)) + '° Left' : Math.round(angle) + '° Right'}**)`);
+        } else {
+          if (angle < 0) {
+            setGuidance(`Moving **LEFT**: **${Math.abs(Math.round(angle))}°** / Target: **${Math.round(-targetAngle)}°**`);
+          } else {
+            setGuidance(`Moving **RIGHT**: **${Math.round(angle)}°** / Target: **+${Math.round(targetAngle)}°**`);
+          }
+        }
+      } else if (currentState === 'returning') {
+        if (Math.abs(angle) <= centerThreshold) {
+          if (now - lastRepTimeRef.current >= 1000) {
+            lastRepTimeRef.current = now;
+            wristBilateralPhaseRef.current = { left: false, right: false };
+            setWristBilateralPhase({ left: false, right: false });
+            repStateRef.current = 'rest';
+            setRepState('rest');
+
+            repsCompletedRef.current += 1;
+            const updated = repsCompletedRef.current;
+            setRepsCompleted(updated);
+            updateAccuracyScore(updated, repsFailedRef.current);
+            setGuidance('Repetition complete! (1 Full Left + 1 Full Right). Relax and prepare for next.');
+
+            const prescribedGoal = activeExerciseRef.current?.repetitions || 10;
+            if (updated >= prescribedGoal && !milestoneShownRef.current) {
+              milestoneShownRef.current = true;
+              setShowMilestonePopup(true);
+            }
+          }
+        } else {
+          setGuidance(`Almost done! Move wrist to **Center (0°)** to record rep. (Current: **${Math.abs(Math.round(angle))}°**)`);
+        }
+      }
+
+      // Progress calculation for bilateral rep
+      let progressPct = 0;
+      if (leftDone && rightDone) {
+        progressPct = 90;
+      } else if (leftDone) {
+        const rightSpan = Math.max(0, angle);
+        progressPct = 50 + Math.min(40, Math.round((rightSpan / targetAngle) * 40));
+      } else if (rightDone) {
+        const leftSpan = Math.max(0, -angle);
+        progressPct = 50 + Math.min(40, Math.round((leftSpan / targetAngle) * 40));
+      } else {
+        const span = Math.abs(angle);
+        progressPct = Math.min(45, Math.round((span / targetAngle) * 45));
+      }
+
+      let suggestionText = '';
+      if (leftDone && rightDone) {
+        suggestionText = `Excellent! Return wrist to **Center (0°)** to finish.`;
+      } else if (leftDone) {
+        suggestionText = `Left side completed (✓). Now move wrist **RIGHT** past center to **+${Math.round(targetAngle)}°**.`;
+      } else if (rightDone) {
+        suggestionText = `Right side completed (✓). Now move wrist **LEFT** past center to **-${Math.round(targetAngle)}°**.`;
+      } else {
+        suggestionText = `Perform 1 full repetition: Move wrist completely **LEFT** and **RIGHT** (Target: **${targetAngle}°**).`;
+      }
+
+      setAiFeedback({
+        progress: progressPct,
+        suggestion: suggestionText,
+        warning: Math.abs(data.wrist_roll || 0) > 35 && primaryLower === 'wrist_pitch'
+          ? `Straighten wrist! High lateral roll detected (**${Math.round(Math.abs(data.wrist_roll))}°**).`
+          : null,
+        status: leftDone && rightDone ? 'success' : (leftDone || rightDone ? 'info' : 'active')
+      });
+
+      return;
+    }
     
     const isForceBased = primaryLower === 'pressure' || ex.target_pressure > 0;
     const holdSecs = ex.hold_seconds || 0;
@@ -1849,6 +1990,16 @@ function LiveExercisePage() {
                       <span className="text-blue-400 text-2xl font-black">{repsCompleted}</span>
                       <span className="text-slate-400 text-xs font-bold">/ {exerciseDetails?.repetitions || activeExerciseRef.current?.repetitions || 10}</span>
                     </p>
+                    {isWristExercise && (
+                      <div className="flex items-center gap-1.5 mt-1 text-[9px] font-bold">
+                        <span className={`px-1.5 py-0.5 rounded border transition-colors ${wristBilateralPhase.left ? 'bg-emerald-500/30 text-emerald-300 border-emerald-500/60 shadow-xs' : 'bg-slate-900 text-slate-400 border-slate-800'}`}>
+                          L: {wristBilateralPhase.left ? '✓' : '○'}
+                        </span>
+                        <span className={`px-1.5 py-0.5 rounded border transition-colors ${wristBilateralPhase.right ? 'bg-emerald-500/30 text-emerald-300 border-emerald-500/60 shadow-xs' : 'bg-slate-900 text-slate-400 border-slate-800'}`}>
+                          R: {wristBilateralPhase.right ? '✓' : '○'}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Time Elapsed Card */}
@@ -2134,6 +2285,7 @@ function LiveExercisePage() {
                         holdCountdown={holdCountdown}
                         wristComputed={wristTelemetryDetails}
                         deviceConnected={deviceConnected}
+                        wristBilateralPhase={wristBilateralPhase}
                       />
                     )}
                     <div className="flex gap-3">
