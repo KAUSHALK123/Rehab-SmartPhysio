@@ -2271,6 +2271,18 @@ function LiveExercisePage() {
                   </div>
                 ) : (
                   <div className="space-y-3">
+                    <div className="flex gap-3">
+                      {(exerciseDetails?.primary_sensor?.toLowerCase() === 'elbow' || 
+                         exerciseDetails?.target_joint?.toLowerCase()?.includes('elbow') ||
+                         exerciseName.toLowerCase().includes('elbow') ||
+                         exerciseName.toLowerCase().includes('curl')) ? (
+                        <ElbowVolumeBar sensors={sensors} target={exerciseDetails?.target_angle || 90} />
+                      ) : (
+                        <SVGGauge {...primary} />
+                      )}
+                      <SVGGauge {...secondary} />
+                    </div>
+
                     {(!isTrial && (
                       exerciseDetails?.primary_sensor?.toLowerCase() === 'wrist_pitch' || 
                       exerciseDetails?.primary_sensor?.toLowerCase() === 'wrist_roll' ||
@@ -2288,17 +2300,6 @@ function LiveExercisePage() {
                         wristBilateralPhase={wristBilateralPhase}
                       />
                     )}
-                    <div className="flex gap-3">
-                      {(exerciseDetails?.primary_sensor?.toLowerCase() === 'elbow' || 
-                         exerciseDetails?.target_joint?.toLowerCase()?.includes('elbow') ||
-                         exerciseName.toLowerCase().includes('elbow') ||
-                         exerciseName.toLowerCase().includes('curl')) ? (
-                        <ElbowVolumeBar sensors={sensors} target={exerciseDetails?.target_angle || 90} />
-                      ) : (
-                        <SVGGauge {...primary} />
-                      )}
-                      <SVGGauge {...secondary} />
-                    </div>
                   </div>
                 )}
               </div>
