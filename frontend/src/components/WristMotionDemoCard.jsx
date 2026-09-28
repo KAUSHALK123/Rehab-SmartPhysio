@@ -110,12 +110,12 @@ function WristRigGLBScene({
       wristWorldPos.z
     );
 
-    // Zoomed 15-20% back (z + 0.94) and positioned with gentle downward offset
+    // Zoomed an additional 15-20% back (z + 1.15) for comfortable full-hand framing
     if (!cameraInitializedRef.current) {
       camera.position.set(
-        wristWorldPos.x + 0.18,
-        wristWorldPos.y + 0.02,
-        wristWorldPos.z + 0.94
+        wristWorldPos.x + 0.20,
+        wristWorldPos.y + 0.04,
+        wristWorldPos.z + 1.15
       );
       camera.lookAt(handCenter);
 
