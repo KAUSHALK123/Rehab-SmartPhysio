@@ -61,16 +61,18 @@ function WristRigGLBScene({
     const maxDeg = Math.abs(targetAngle) || 50;
 
     if (isFlexion) {
-      // Wrist Flexion: hand bends downward from 0° (neutral) to +maxDeg and returns
+      // Wrist Flexion (LOCKED): hand bends downward from 0° (neutral) to +maxDeg and returns
       const progress = (Math.sin(t * 2.2 - Math.PI / 2) + 1) / 2;
       const deg = progress * maxDeg;
       angles.x = deg;
       liveAngleVal = Math.round(deg);
     } else if (isExtension) {
-      // Wrist Extension: hand bends upward from 0° to -maxDeg and returns
+      // Wrist Extension: hand bends upward / backward (dorsiflexion) from 0° (neutral) to targetAngle and returns
       const progress = (Math.sin(t * 2.2 - Math.PI / 2) + 1) / 2;
       const deg = progress * maxDeg;
       angles.x = -deg;
+      angles.y = deg * 0.25;
+      angles.z = deg * 0.25;
       liveAngleVal = Math.round(deg);
     } else if (isRotation) {
       // Wrist Rotation: pronation/supination twisting left (-maxDeg) and right (+maxDeg)
