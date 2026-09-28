@@ -160,7 +160,8 @@ function WristRigGLBScene({
  * 
  * Displays an animated GLB 3D model demonstration of the specific wrist exercise
  * being performed (Wrist Flexion, Wrist Extension, Wrist Rotation, etc.)
- * directly inside the 3D viewport overlay, zoomed in tightly to the wrist and hand.
+ * directly inside the 3D viewport overlay, zoomed in tightly to the wrist and hand,
+ * filling the card with the 3D animation.
  */
 export default function WristMotionDemoCard({
   exerciseName = 'Wrist Flexion',
@@ -182,51 +183,44 @@ export default function WristMotionDemoCard({
   // Clinical Metadata
   let motionTitle = 'Wrist Flexion';
   let motionSubtitle = 'Bend Downward';
-  let motionCues = 'Bend wrist downward smoothly, then return to rest';
-  let repFormula = '1 Rep = Down & Up';
 
   if (isFlexion) {
     motionTitle = 'Wrist Flexion';
     motionSubtitle = 'Bend Downward';
-    motionCues = 'Bend wrist downward smoothly, then return to rest';
-    repFormula = '1 Rep = Down & Up';
   } else if (isExtension) {
     motionTitle = 'Wrist Extension';
     motionSubtitle = 'Bend Upward';
-    motionCues = 'Bend wrist upward smoothly, then return to rest';
-    repFormula = '1 Rep = Up & Down';
   } else if (isRotation) {
     motionTitle = 'Wrist Rotation';
     motionSubtitle = 'Rotate Left ↔ Right';
-    motionCues = 'Rotate hand fully to left, then fully to right';
-    repFormula = '1 Rep = Left + Right';
   } else if (isDeviation) {
     motionTitle = 'Wrist Deviation';
     motionSubtitle = 'Wave Side-to-Side';
-    motionCues = 'Wave hand toward thumb, then toward pinky side';
-    repFormula = '1 Rep = Left + Right';
   } else if (isFlexExtension) {
     motionTitle = 'Flexion & Extension';
     motionSubtitle = 'Up ↕ Down';
-    motionCues = 'Alternate bending downward and upward';
-    repFormula = '1 Rep = Down + Up';
   }
 
   return (
     <div 
-      className={`bg-slate-950/92 backdrop-blur-md border border-slate-800/90 rounded-2xl shadow-2xl p-3 text-slate-100 select-none transition-all duration-200 w-56 sm:w-64 ${className}`}
+      className={`bg-slate-950/92 backdrop-blur-md border border-slate-800/90 rounded-2xl shadow-2xl p-2.5 text-slate-100 select-none transition-all duration-200 w-56 sm:w-64 ${className}`}
       style={{ boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.45)' }}
     >
-      {/* Exercise Title & Motion Type Badge (Top Header removed as requested) */}
-      <div className="flex items-center justify-between text-xs pb-2">
-        <span className="font-bold text-white text-[13px] tracking-tight">{motionTitle}</span>
-        <span className="text-[10px] font-semibold text-cyan-300 bg-cyan-950/80 border border-cyan-800/60 px-2 py-0.5 rounded-full">
+      {/* Exercise Title with Demo Badge */}
+      <div className="flex items-center justify-between text-xs pb-2 px-0.5">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="font-bold text-white text-[13px] tracking-tight truncate">{motionTitle}</span>
+          <span className="text-[10px] font-bold text-cyan-400 bg-cyan-950/80 border border-cyan-800/60 px-1.5 py-0.2 rounded uppercase tracking-wider shrink-0">
+            Demo
+          </span>
+        </div>
+        <span className="text-[10px] font-semibold text-slate-300 bg-slate-900/90 border border-slate-800 px-2 py-0.5 rounded-full shrink-0">
           {motionSubtitle}
         </span>
       </div>
 
-      {/* 3D GLB Animated Viewport Box (Tightly zoomed on wrist & hand) */}
-      <div className="relative w-full h-40 bg-gradient-to-b from-slate-900/95 to-slate-950 rounded-xl border border-slate-800/80 overflow-hidden shadow-inner">
+      {/* 3D GLB Animated Viewport Box (Fills the card with 3D animation) */}
+      <div className="relative w-full h-52 sm:h-56 bg-gradient-to-b from-slate-900/95 to-slate-950 rounded-xl border border-slate-800/80 overflow-hidden shadow-inner">
         {/* Live Animated Angle Tag inside 3D viewport */}
         <div className="absolute top-2 left-2 z-10 bg-slate-950/85 backdrop-blur border border-slate-800 rounded-lg px-2 py-0.5 text-[9px] font-bold font-mono text-cyan-400 flex items-center gap-1 shadow-sm">
           <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
@@ -260,19 +254,6 @@ export default function WristMotionDemoCard({
             </Canvas>
           </Suspense>
         </div>
-      </div>
-
-      {/* Clinical Motion Cues & Rep Guide */}
-      <div className="mt-2 bg-slate-900/80 border border-slate-800/80 rounded-xl p-2 px-2.5 space-y-1">
-        <div className="flex items-center justify-between text-[10px]">
-          <span className="font-semibold text-slate-400">Rep Guide</span>
-          <span className="font-bold text-sky-400 bg-sky-950/70 border border-sky-850 px-1.5 py-0.2 rounded">
-            {repFormula}
-          </span>
-        </div>
-        <p className="text-[10px] text-slate-300 leading-snug font-medium">
-          {motionCues}
-        </p>
       </div>
     </div>
   );

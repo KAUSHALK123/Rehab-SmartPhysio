@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import WristMotionDemoCard from '../components/WristMotionDemoCard';
 
 describe('WristMotionDemoCard Component', () => {
-  it('renders wrist flexion 3D GLB demonstration with zoomed-in view correctly', () => {
+  it('renders wrist flexion 3D GLB demonstration with Demo badge and no rep guide', () => {
     render(
       <WristMotionDemoCard 
         exerciseName="Wrist Flexion"
@@ -14,11 +14,13 @@ describe('WristMotionDemoCard Component', () => {
     );
 
     expect(screen.getByText('Wrist Flexion')).toBeInTheDocument();
+    expect(screen.getByText('Demo')).toBeInTheDocument();
     expect(screen.getByText('Bend Downward')).toBeInTheDocument();
     expect(screen.getByText('Aim: 50°')).toBeInTheDocument();
     expect(screen.getByText(/DEMO: 0°/i)).toBeInTheDocument();
-    expect(screen.getByText(/Bend wrist downward smoothly/i)).toBeInTheDocument();
-    expect(screen.getByText('1 Rep = Down & Up')).toBeInTheDocument();
+    
+    // Rep guide should be removed
+    expect(screen.queryByText(/Rep Guide/i)).not.toBeInTheDocument();
   });
 
   it('renders wrist extension demonstration correctly', () => {
@@ -31,9 +33,9 @@ describe('WristMotionDemoCard Component', () => {
     );
 
     expect(screen.getByText('Wrist Extension')).toBeInTheDocument();
+    expect(screen.getByText('Demo')).toBeInTheDocument();
     expect(screen.getByText('Bend Upward')).toBeInTheDocument();
     expect(screen.getByText('Aim: 45°')).toBeInTheDocument();
-    expect(screen.getByText('1 Rep = Up & Down')).toBeInTheDocument();
   });
 
   it('renders wrist rotation demonstration correctly', () => {
@@ -46,8 +48,8 @@ describe('WristMotionDemoCard Component', () => {
     );
 
     expect(screen.getByText('Wrist Rotation')).toBeInTheDocument();
+    expect(screen.getByText('Demo')).toBeInTheDocument();
     expect(screen.getByText('Rotate Left ↔ Right')).toBeInTheDocument();
     expect(screen.getByText('Aim: 60°')).toBeInTheDocument();
-    expect(screen.getByText('1 Rep = Left + Right')).toBeInTheDocument();
   });
 });
