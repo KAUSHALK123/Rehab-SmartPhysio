@@ -33,8 +33,9 @@ import GLBCalibrationPanel from '../components/GLBCalibrationPanel';
 import FingerSensorTrialPanel from '../components/FingerSensorTrialPanel';
 import WristSensorTrialPanel from '../components/WristSensorTrialPanel';
 import ElbowSensorTrialPanel from '../components/ElbowSensorTrialPanel';
+import WristMotionDemoCard from '../components/WristMotionDemoCard';
 import { processFingerTelemetry } from '../services/fingerSensorMapper';
-import { processWristTelemetry } from '../services/wristSensorMapper';
+import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
 
 // Speedometer / Center-zero circular gauge component with rotating needle
@@ -1939,17 +1940,29 @@ function LiveExercisePage() {
                     </div>
                   )}
                 </div>
+
+                {/* Sleeve Connection / Battery status (relocated to top-left bar) */}
+                {deviceConnected ? (
+                  <div className="bg-slate-950/85 backdrop-blur border border-slate-800 rounded-xl p-2 px-3 flex items-center gap-2 text-xs font-semibold text-green-400 shadow-sm">
+                    <Activity className="w-4 h-4 text-green-400 animate-pulse" />
+                    <span>Battery: {battery}%</span>
+                  </div>
+                ) : (
+                  <div className="bg-slate-950/85 backdrop-blur border border-red-900/80 rounded-xl p-2 px-3 flex items-center gap-2 text-xs font-semibold text-red-400 animate-pulse shadow-sm">
+                    <AlertTriangle className="w-4 h-4 text-red-400" />
+                    <span>Sleeve Offline</span>
+                  </div>
+                )}
               </div>
 
-              {deviceConnected ? (
-                <div className="absolute top-4 right-4 z-10 bg-slate-950/80 backdrop-blur border border-slate-855 rounded-xl p-2 px-3 flex items-center gap-2 text-xs font-semibold text-green-400">
-                  <Activity className="w-4 h-4 text-green-400 animate-pulse" />
-                  Battery: {battery}%
-                </div>
-              ) : (
-                <div className="absolute top-4 right-4 z-10 bg-slate-950/80 backdrop-blur border border-red-950 rounded-xl p-2 px-3 flex items-center gap-2 text-xs font-semibold text-red-500 animate-pulse">
-                  <AlertTriangle className="w-4 h-4 text-red-500" />
-                  Sleeve Offline
+              {/* Animated Exercise Demonstration Card for Wrist Exercises (Top Right Overlay) */}
+              {isWristExercise && (
+                <div className="absolute top-4 right-4 z-10 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <WristMotionDemoCard 
+                    exerciseName={exerciseName}
+                    movementId={resolveWristMovementId(activeExerciseRef.current || exerciseDetails || exerciseName)}
+                    targetAngle={exerciseDetails?.target_angle || 50}
+                  />
                 </div>
               )}
 
