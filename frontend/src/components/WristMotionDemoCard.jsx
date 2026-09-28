@@ -67,12 +67,12 @@ function WristRigGLBScene({
       angles.x = deg;
       liveAngleVal = Math.round(deg);
     } else if (isExtension) {
-      // Wrist Extension: hand bends upward / backward (dorsiflexion) from 0° (neutral) to targetAngle and returns
+      // Wrist Extension: clean up-and-down movement bending the wrist upward towards the wrist watch (dorsiflexion) and returning down to neutral
       const progress = (Math.sin(t * 2.2 - Math.PI / 2) + 1) / 2;
       const deg = progress * maxDeg;
-      angles.x = -deg;
-      angles.y = deg * 0.25;
-      angles.z = deg * 0.25;
+      angles.x = -deg * 0.5;
+      angles.y = -deg * 0.4;
+      angles.z = -deg * 0.6;
       liveAngleVal = Math.round(deg);
     } else if (isRotation) {
       // Wrist Rotation: pronation/supination twisting left (-maxDeg) and right (+maxDeg)
@@ -87,10 +87,17 @@ function WristRigGLBScene({
       angles.z = deg;
       liveAngleVal = Math.round(Math.abs(deg));
     } else {
-      // Generic upDown / flexion & extension combined
+      // Generic upDown / flexion & extension combined (downward flexion and upward watch-directed extension)
       const progress = Math.sin(t * 2.0);
       const deg = progress * maxDeg;
-      angles.x = deg;
+      if (deg >= 0) {
+        angles.x = deg;
+      } else {
+        const extDeg = Math.abs(deg);
+        angles.x = -extDeg * 0.5;
+        angles.y = -extDeg * 0.4;
+        angles.z = -extDeg * 0.6;
+      }
       liveAngleVal = Math.round(Math.abs(deg));
     }
 
