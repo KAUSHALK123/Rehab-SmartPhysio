@@ -103,19 +103,19 @@ function WristRigGLBScene({
     const wristWorldPos = new THREE.Vector3();
     circle.getWorldPosition(wristWorldPos);
     
-    // Focus target at the center of the hand/palm slightly below wrist joint
+    // Focus target slightly above palm center so the hand renders positioned lower in the viewport
     const handCenter = new THREE.Vector3(
       wristWorldPos.x + 0.04,
-      wristWorldPos.y - 0.20,
+      wristWorldPos.y - 0.10,
       wristWorldPos.z
     );
 
-    // Initial tight framing: zoom directly onto the hand and wrist
+    // Zoomed 15-20% back (z + 0.94) and positioned with gentle downward offset
     if (!cameraInitializedRef.current) {
       camera.position.set(
-        wristWorldPos.x + 0.20,
-        wristWorldPos.y - 0.08,
-        wristWorldPos.z + 0.78
+        wristWorldPos.x + 0.18,
+        wristWorldPos.y + 0.02,
+        wristWorldPos.z + 0.94
       );
       camera.lookAt(handCenter);
 
