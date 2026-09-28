@@ -67,7 +67,7 @@ function WristRigGLBScene({
       angles.x = deg;
       liveAngleVal = Math.round(deg);
     } else if (isExtension) {
-      // Wrist Extension: clean up-and-down movement bending the wrist upward towards the wrist watch (dorsiflexion) and returning down to neutral
+      // Wrist Extension (LOCKED): clean up-and-down movement bending the wrist upward towards the wrist watch (dorsiflexion) and returning down to neutral
       const progress = (Math.sin(t * 2.2 - Math.PI / 2) + 1) / 2;
       const deg = progress * maxDeg;
       angles.x = -deg * 0.5;
