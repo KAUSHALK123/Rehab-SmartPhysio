@@ -1,10 +1,139 @@
-import React, { useState } from 'react';
-import { ChevronUp, ChevronDown, Play, RotateCcw, Info } from 'lucide-react';
+import React, { useRef, useEffect, useState, Suspense } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { useGLTF, OrbitControls } from '@react-three/drei';
+import * as THREE from 'three';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { ChevronUp, ChevronDown, RotateCcw, Box, Eye } from 'lucide-react';
+import { applyCalibratedWristRotation } from '../services/wristSensorMapper';
+
+/**
+ * Inner 3D GLB Rig Component that performs the animated wrist exercise demonstration.
+ */
+function WristRigGLBScene({ 
+  isFlexion, 
+  isExtension, 
+  isRotation, 
+  isDeviation, 
+  isFlexExtension,
+  targetAngle = 50,
+  onAngleTick
+}) {
+  const { scene } = useGLTF('/models/full_rig.glb');
+  
+  const clonedScene = React.useMemo(() => {
+    return scene?.clone ? SkeletonUtils.clone(scene) : scene;
+  }, [scene]);
+
+  const circleNodeRef = useRef(null);
+  const baseRotationRef = useRef({ x: 0, y: 0, z: 0 });
+  const controlsRef = useRef();
+
+  // Find Circle bone and capture initial base rest orientation
+  useEffect(() => {
+    if (!clonedScene) return;
+    const getNode = (name) =>
+      typeof clonedScene.getObjectByName === 'function'
+        ? clonedScene.getObjectByName(name)
+        : null;
+
+    const circle = getNode('Circle');
+    if (circle) {
+      circleNodeRef.current = circle;
+      baseRotationRef.current = {
+        x: circle.rotation.x,
+        y: circle.rotation.y,
+        z: circle.rotation.z
+      };
+    }
+  }, [clonedScene]);
+
+  useFrame(({ clock }) => {
+    const circle = circleNodeRef.current;
+    if (!circle) return;
+
+    const t = clock.getElapsedTime();
+    const base = baseRotationRef.current;
+    let angles = { x: 0, y: 0, z: 0 };
+    let liveAngleVal = 0;
+
+    const maxDeg = Math.abs(targetAngle) || 50;
+
+    if (isFlexion) {
+      // Wrist Flexion: hand bends downward from 0° (neutral) to +maxDeg and back
+      // Using smooth sine wave shifted to oscillate between 0 and 1
+      const progress = (Math.sin(t * 2.2 - Math.PI / 2) + 1) / 2;
+      const deg = progress * maxDeg;
+      angles.x = deg;
+      liveAngleVal = Math.round(deg);
+    } else if (isExtension) {
+      // Wrist Extension: hand bends upward from 0° to -maxDeg and back
+      const progress = (Math.sin(t * 2.2 - Math.PI / 2) + 1) / 2;
+      const deg = progress * maxDeg;
+      angles.x = -deg;
+      liveAngleVal = Math.round(deg);
+    } else if (isRotation) {
+      // Wrist Rotation: pronation/supination twisting left (-maxDeg) and right (+maxDeg)
+      const progress = Math.sin(t * 2.0);
+      const deg = progress * (maxDeg * 0.85);
+      angles.y = deg;
+      liveAngleVal = Math.round(Math.abs(deg));
+    } else if (isDeviation) {
+      // Radial / Ulnar deviation: waving side-to-side (-maxDeg to +maxDeg)
+      const progress = Math.sin(t * 2.0);
+      const deg = progress * (maxDeg * 0.7);
+      angles.z = deg;
+      liveAngleVal = Math.round(Math.abs(deg));
+    } else {
+      // Generic upDown / flexion & extension combined
+      const progress = Math.sin(t * 2.0);
+      const deg = progress * maxDeg;
+      angles.x = deg;
+      liveAngleVal = Math.round(Math.abs(deg));
+    }
+
+    if (onAngleTick) {
+      onAngleTick(liveAngleVal);
+    }
+
+    // Apply rotation to GLB Circle bone with smooth interpolation
+    applyCalibratedWristRotation(circle, base, angles, 0.25);
+
+    // Keep camera target smoothly locked on the moving hand/wrist
+    if (controlsRef.current) {
+      const targetVec = new THREE.Vector3();
+      circle.getWorldPosition(targetVec);
+      targetVec.y -= 0.12; // Center focus slightly lower onto palm
+      controlsRef.current.target.lerp(targetVec, 0.1);
+      controlsRef.current.update();
+    }
+  });
+
+  return (
+    <>
+      <ambientLight intensity={1.1} />
+      <directionalLight position={[4, 5, 4]} intensity={1.5} />
+      <directionalLight position={[-4, -2, 3]} intensity={0.7} />
+      <pointLight position={[0.4, -0.6, 1.2]} intensity={0.6} />
+
+      {/* 3D Human Rig Group with exact matching scale and rotation */}
+      <group rotation={[0, -Math.PI / 4, 0]} scale={[1.1, 1.1, 1.1]} position={[0, -0.6, 0]}>
+        <primitive object={clonedScene} />
+      </group>
+
+      <OrbitControls 
+        ref={controlsRef}
+        enableZoom={false}
+        enablePan={false}
+        rotateSpeed={0.5}
+      />
+    </>
+  );
+}
 
 /**
  * WristMotionDemoCard
  * 
- * Displays an animated visual demonstration of the specific wrist exercise
+ * Displays an animated GLB 3D model demonstration of the specific wrist exercise
  * being performed (Wrist Flexion, Wrist Extension, Wrist Rotation, etc.)
  * directly inside the 3D viewport overlay.
  */
@@ -15,6 +144,7 @@ export default function WristMotionDemoCard({
   className = ''
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [currentLiveAngle, setCurrentLiveAngle] = useState(0);
 
   const nameLower = (exerciseName || '').toLowerCase();
   
@@ -25,11 +155,11 @@ export default function WristMotionDemoCard({
   const isDeviation = nameLower.includes('radial') || nameLower.includes('ulnar') || nameLower.includes('deviation') || nameLower.includes('hi') || movementId === 'hiMovement';
   const isFlexExtension = !isFlexion && !isExtension && !isRotation && !isDeviation;
 
-  // Exercise Metadata
+  // Clinical Metadata
   let motionTitle = 'Wrist Flexion';
   let motionSubtitle = 'Bend Downward';
   let motionRange = `0° → ${targetAngle}°`;
-  let motionCues = 'Bend hand downward smoothly, then return to neutral';
+  let motionCues = 'Bend wrist downward to target, then return to neutral';
   let repFormula = '1 Rep = Down & Up';
 
   if (isFlexion) {
@@ -69,97 +199,16 @@ export default function WristMotionDemoCard({
       className={`bg-slate-950/90 backdrop-blur-md border border-slate-800/90 rounded-2xl shadow-2xl p-3 text-slate-100 select-none transition-all duration-300 w-56 sm:w-64 ${className}`}
       style={{ boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.45)' }}
     >
-      {/* Dynamic Keyframes for smooth animations */}
-      <style>{`
-        @keyframes wristFlexDemo {
-          0%, 100% {
-            transform: rotate(0deg);
-          }
-          45%, 55% {
-            transform: rotate(44deg);
-          }
-        }
-        @keyframes wristExtDemo {
-          0%, 100% {
-            transform: rotate(0deg);
-          }
-          45%, 55% {
-            transform: rotate(-44deg);
-          }
-        }
-        @keyframes wristFlexExtDemo {
-          0%, 100% {
-            transform: rotate(0deg);
-          }
-          25% {
-            transform: rotate(40deg);
-          }
-          50% {
-            transform: rotate(0deg);
-          }
-          75% {
-            transform: rotate(-40deg);
-          }
-        }
-        @keyframes wristRotateRollDemo {
-          0%, 100% {
-            transform: rotate(0deg) scaleX(1);
-          }
-          25% {
-            transform: rotate(-35deg) scaleX(0.85);
-          }
-          50% {
-            transform: rotate(0deg) scaleX(1);
-          }
-          75% {
-            transform: rotate(35deg) scaleX(0.85);
-          }
-        }
-        @keyframes wristWaveDemo {
-          0%, 100% {
-            transform: rotate(0deg);
-          }
-          25% {
-            transform: rotate(-25deg);
-          }
-          50% {
-            transform: rotate(0deg);
-          }
-          75% {
-            transform: rotate(25deg);
-          }
-        }
-        @keyframes motionPathPulse {
-          0%, 100% {
-            stroke-dashoffset: 0;
-            opacity: 0.8;
-          }
-          50% {
-            stroke-dashoffset: 12;
-            opacity: 1;
-          }
-        }
-        @keyframes anglePulseTag {
-          0%, 100% {
-            opacity: 0.6;
-            transform: scale(0.98);
-          }
-          50% {
-            opacity: 1;
-            transform: scale(1.02);
-          }
-        }
-      `}</style>
-
       {/* Card Header */}
       <div className="flex items-center justify-between gap-1.5 pb-2 border-b border-slate-800/80">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
           </span>
+          <Box className="w-3.5 h-3.5 text-cyan-400" />
           <span className="text-[10px] font-extrabold uppercase tracking-wider text-cyan-400">
-            Motion Demo
+            3D GLB Demo
           </span>
         </div>
 
@@ -188,243 +237,41 @@ export default function WristMotionDemoCard({
             </span>
           </div>
 
-          {/* SVG Animated Model Viewport */}
-          <div className="relative w-full h-28 bg-gradient-to-b from-slate-900/90 to-slate-950 rounded-xl border border-slate-800/70 overflow-hidden flex items-center justify-center shadow-inner">
-            {/* Background Anatomical Reference Grid */}
-            <svg className="absolute inset-0 w-full h-full opacity-20 pointer-events-none" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <pattern id="grid-pattern" width="16" height="16" patternUnits="userSpaceOnUse">
-                  <path d="M 16 0 L 0 0 0 16" fill="none" stroke="#38bdf8" strokeWidth="0.5" strokeDasharray="1,3" />
-                </pattern>
-              </defs>
-              <rect width="100%" height="100%" fill="url(#grid-pattern)" />
-            </svg>
+          {/* 3D GLB Animated Viewport */}
+          <div className="relative w-full h-36 bg-gradient-to-b from-slate-900/90 to-slate-950 rounded-xl border border-slate-800/80 overflow-hidden shadow-inner">
+            {/* Live Angle Tag inside 3D viewport */}
+            <div className="absolute top-2 left-2 z-10 bg-slate-950/85 backdrop-blur border border-slate-800 rounded-lg px-2 py-0.5 text-[9px] font-bold font-mono text-cyan-400 flex items-center gap-1 shadow-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+              <span>DEMO: {currentLiveAngle}°</span>
+            </div>
 
-            {/* Visualizer 1: Wrist Flexion (Downwards Bend) */}
-            {isFlexion && (
-              <svg viewBox="0 0 200 110" className="w-full h-full relative z-10">
-                {/* Horizontal Baseline (Neutral 0°) */}
-                <line x1="70" y1="52" x2="175" y2="52" stroke="#475569" strokeWidth="1" strokeDasharray="3,3" />
-                <text x="178" y="55" fill="#64748b" fontSize="8" fontWeight="bold">0°</text>
+            <div className="absolute top-2 right-2 z-10 bg-slate-950/85 backdrop-blur border border-slate-800 rounded-lg px-2 py-0.5 text-[9px] font-bold text-slate-300 shadow-sm">
+              Aim: {targetAngle}°
+            </div>
 
-                {/* Curved Motion Arc with Arrowhead */}
-                <defs>
-                  <marker id="arrow-down" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
-                    <path d="M 0 1 L 9 5 L 0 9 z" fill="#38bdf8" />
-                  </marker>
-                </defs>
-                <path 
-                  d="M 145 52 A 75 75 0 0 1 126 95" 
-                  fill="none" 
-                  stroke="#38bdf8" 
-                  strokeWidth="1.5" 
-                  strokeDasharray="4,3" 
-                  markerEnd="url(#arrow-down)"
-                  style={{ animation: 'motionPathPulse 2.4s ease-in-out infinite' }}
-                />
-
-                {/* Target Angle Arc Label */}
-                <g style={{ animation: 'anglePulseTag 2.4s ease-in-out infinite' }}>
-                  <rect x="135" y="80" width="34" height="15" rx="4" fill="#0369a1" fillOpacity="0.8" />
-                  <text x="152" y="91" fill="#e0f2fe" fontSize="8" fontWeight="bold" textAnchor="middle">{targetAngle}° Aim</text>
-                </g>
-
-                {/* Stationary Forearm (Left) */}
-                <g>
-                  {/* Forearm Body */}
-                  <path d="M 12 40 L 70 44 L 70 60 L 12 64 Z" fill="#1e293b" stroke="#334155" strokeWidth="1.5" />
-                  {/* Smart Sleeve IoT Cuff Band */}
-                  <rect x="35" y="41.5" width="22" height="21" rx="2" fill="#0f172a" stroke="#0284c7" strokeWidth="1" />
-                  <line x1="46" y1="42.5" x2="46" y2="61.5" stroke="#38bdf8" strokeWidth="1.5" />
-                  <text x="46" y="54" fill="#38bdf8" fontSize="6" fontWeight="bold" textAnchor="middle">IOT</text>
-                </g>
-
-                {/* Wrist Joint Pivot Circle */}
-                <circle cx="70" cy="52" r="5" fill="#0284c7" stroke="#e0f2fe" strokeWidth="1.5" />
-                <circle cx="70" cy="52" r="8" fill="none" stroke="#38bdf8" strokeWidth="1" opacity="0.6" />
-
-                {/* Animated Hand (Pivoting Downwards) */}
-                <g 
-                  style={{ 
-                    transformOrigin: '70px 52px', 
-                    animation: 'wristFlexDemo 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite' 
-                  }}
+            {/* Three.js Canvas with the actual 3D GLB Model */}
+            <div className="w-full h-full">
+              <Suspense fallback={
+                <div className="w-full h-full flex items-center justify-center text-xs text-slate-400">
+                  Loading 3D Model...
+                </div>
+              }>
+                <Canvas
+                  camera={{ position: [0.5, -0.9, 1.1], fov: 36 }}
+                  gl={{ antialias: true, alpha: true }}
                 >
-                  {/* Palm Assembly */}
-                  <path d="M 70 46 L 110 46 L 114 58 L 70 58 Z" fill="#334155" stroke="#64748b" strokeWidth="1.2" />
-                  {/* Palm Sensor / Smart Coin */}
-                  <circle cx="92" cy="52" r="3.5" fill="#eab308" stroke="#ca8a04" strokeWidth="1" />
-                  {/* Fingers */}
-                  <line x1="110" y1="48" x2="148" y2="48" stroke="#60a5fa" strokeWidth="2.5" strokeLinecap="round" />
-                  <line x1="112" y1="51" x2="152" y2="51" stroke="#a855f7" strokeWidth="2.5" strokeLinecap="round" />
-                  <line x1="113" y1="54" x2="150" y2="54" stroke="#ec4899" strokeWidth="2.5" strokeLinecap="round" />
-                  <line x1="110" y1="57" x2="142" y2="57" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" />
-                  {/* Thumb */}
-                  <path d="M 85 46 Q 95 38 108 40" fill="none" stroke="#facc15" strokeWidth="2.5" strokeLinecap="round" />
-                </g>
-              </svg>
-            )}
-
-            {/* Visualizer 2: Wrist Extension (Upwards Bend) */}
-            {isExtension && (
-              <svg viewBox="0 0 200 110" className="w-full h-full relative z-10">
-                {/* Horizontal Baseline (Neutral 0°) */}
-                <line x1="70" y1="58" x2="175" y2="58" stroke="#475569" strokeWidth="1" strokeDasharray="3,3" />
-                <text x="178" y="61" fill="#64748b" fontSize="8" fontWeight="bold">0°</text>
-
-                {/* Curved Motion Arc with Arrowhead */}
-                <defs>
-                  <marker id="arrow-up" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
-                    <path d="M 0 1 L 9 5 L 0 9 z" fill="#38bdf8" />
-                  </marker>
-                </defs>
-                <path 
-                  d="M 145 58 A 75 75 0 0 0 126 15" 
-                  fill="none" 
-                  stroke="#38bdf8" 
-                  strokeWidth="1.5" 
-                  strokeDasharray="4,3" 
-                  markerEnd="url(#arrow-up)"
-                  style={{ animation: 'motionPathPulse 2.4s ease-in-out infinite' }}
-                />
-
-                {/* Target Angle Arc Label */}
-                <g style={{ animation: 'anglePulseTag 2.4s ease-in-out infinite' }}>
-                  <rect x="135" y="16" width="34" height="15" rx="4" fill="#0369a1" fillOpacity="0.8" />
-                  <text x="152" y="27" fill="#e0f2fe" fontSize="8" fontWeight="bold" textAnchor="middle">{targetAngle}° Aim</text>
-                </g>
-
-                {/* Stationary Forearm (Left) */}
-                <g>
-                  <path d="M 12 46 L 70 50 L 70 66 L 12 70 Z" fill="#1e293b" stroke="#334155" strokeWidth="1.5" />
-                  <rect x="35" y="47.5" width="22" height="21" rx="2" fill="#0f172a" stroke="#0284c7" strokeWidth="1" />
-                  <line x1="46" y1="48.5" x2="46" y2="67.5" stroke="#38bdf8" strokeWidth="1.5" />
-                  <text x="46" y="60" fill="#38bdf8" fontSize="6" fontWeight="bold" textAnchor="middle">IOT</text>
-                </g>
-
-                {/* Wrist Joint Pivot Circle */}
-                <circle cx="70" cy="58" r="5" fill="#0284c7" stroke="#e0f2fe" strokeWidth="1.5" />
-                <circle cx="70" cy="58" r="8" fill="none" stroke="#38bdf8" strokeWidth="1" opacity="0.6" />
-
-                {/* Animated Hand (Pivoting Upwards) */}
-                <g 
-                  style={{ 
-                    transformOrigin: '70px 58px', 
-                    animation: 'wristExtDemo 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite' 
-                  }}
-                >
-                  <path d="M 70 52 L 110 52 L 114 64 L 70 64 Z" fill="#334155" stroke="#64748b" strokeWidth="1.2" />
-                  <circle cx="92" cy="58" r="3.5" fill="#eab308" stroke="#ca8a04" strokeWidth="1" />
-                  <line x1="110" y1="54" x2="148" y2="54" stroke="#60a5fa" strokeWidth="2.5" strokeLinecap="round" />
-                  <line x1="112" y1="57" x2="152" y2="57" stroke="#a855f7" strokeWidth="2.5" strokeLinecap="round" />
-                  <line x1="113" y1="60" x2="150" y2="60" stroke="#ec4899" strokeWidth="2.5" strokeLinecap="round" />
-                  <line x1="110" y1="63" x2="142" y2="63" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" />
-                  <path d="M 85 64 Q 95 72 108 70" fill="none" stroke="#facc15" strokeWidth="2.5" strokeLinecap="round" />
-                </g>
-              </svg>
-            )}
-
-            {/* Visualizer 3: Wrist Rotation / Twist (Pronation & Supination) */}
-            {isRotation && (
-              <svg viewBox="0 0 200 110" className="w-full h-full relative z-10">
-                {/* Circular Rotation Guides */}
-                <defs>
-                  <marker id="arrow-rot-cw" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
-                    <path d="M 0 1 L 9 5 L 0 9 z" fill="#38bdf8" />
-                  </marker>
-                  <marker id="arrow-rot-ccw" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
-                    <path d="M 0 1 L 9 5 L 0 9 z" fill="#a855f7" />
-                  </marker>
-                </defs>
-
-                {/* Left/Right Circular Arrow Arcs */}
-                <path 
-                  d="M 65 30 A 45 45 0 0 1 135 30" 
-                  fill="none" 
-                  stroke="#38bdf8" 
-                  strokeWidth="1.5" 
-                  strokeDasharray="4,3" 
-                  markerEnd="url(#arrow-rot-cw)" 
-                />
-                <path 
-                  d="M 135 80 A 45 45 0 0 1 65 80" 
-                  fill="none" 
-                  stroke="#a855f7" 
-                  strokeWidth="1.5" 
-                  strokeDasharray="4,3" 
-                  markerEnd="url(#arrow-rot-ccw)" 
-                />
-
-                <text x="32" y="58" fill="#38bdf8" fontSize="8" fontWeight="bold">Left</text>
-                <text x="156" y="58" fill="#a855f7" fontSize="8" fontWeight="bold">Right</text>
-
-                {/* Center Forearm & Hand in Isometric/Frontal Orientation */}
-                <g 
-                  style={{ 
-                    transformOrigin: '100px 55px', 
-                    animation: 'wristRotateRollDemo 3.2s ease-in-out infinite' 
-                  }}
-                >
-                  {/* Forearm stub behind */}
-                  <rect x="90" y="80" width="20" height="28" rx="3" fill="#1e293b" stroke="#334155" strokeWidth="1.2" />
-                  {/* Wrist Band */}
-                  <rect x="88" y="72" width="24" height="12" rx="2" fill="#0f172a" stroke="#0284c7" strokeWidth="1" />
-
-                  {/* Palm */}
-                  <path d="M 85 45 Q 100 42 115 45 L 118 72 Q 100 75 82 72 Z" fill="#334155" stroke="#64748b" strokeWidth="1.2" />
-                  {/* Palm Coin */}
-                  <circle cx="100" cy="58" r="4" fill="#eab308" stroke="#ca8a04" strokeWidth="1" />
-
-                  {/* Fingers Upward */}
-                  <line x1="88" y1="45" x2="86" y2="20" stroke="#60a5fa" strokeWidth="2.5" strokeLinecap="round" />
-                  <line x1="95" y1="44" x2="94" y2="15" stroke="#a855f7" strokeWidth="2.5" strokeLinecap="round" />
-                  <line x1="102" y1="44" x2="103" y2="14" stroke="#ec4899" strokeWidth="2.5" strokeLinecap="round" />
-                  <line x1="109" y1="45" x2="112" y2="20" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" />
-                  <path d="M 84 56 Q 74 50 72 38" fill="none" stroke="#facc15" strokeWidth="2.5" strokeLinecap="round" />
-                </g>
-              </svg>
-            )}
-
-            {/* Visualizer 4: Combined Up ↕ Down or Side-to-Side */}
-            {(isFlexExtension || isDeviation) && (
-              <svg viewBox="0 0 200 110" className="w-full h-full relative z-10">
-                <line x1="70" y1="55" x2="175" y2="55" stroke="#475569" strokeWidth="1" strokeDasharray="3,3" />
-
-                <defs>
-                  <marker id="arrow-both" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
-                    <path d="M 0 1 L 9 5 L 0 9 z" fill="#38bdf8" />
-                  </marker>
-                </defs>
-                <path 
-                  d="M 135 22 A 65 65 0 0 1 135 88" 
-                  fill="none" 
-                  stroke="#38bdf8" 
-                  strokeWidth="1.5" 
-                  strokeDasharray="4,3" 
-                  markerEnd="url(#arrow-both)"
-                />
-
-                {/* Forearm */}
-                <path d="M 12 43 L 70 47 L 70 63 L 12 67 Z" fill="#1e293b" stroke="#334155" strokeWidth="1.5" />
-                <rect x="35" y="44.5" width="22" height="21" rx="2" fill="#0f172a" stroke="#0284c7" strokeWidth="1" />
-                <circle cx="70" cy="55" r="5" fill="#0284c7" stroke="#e0f2fe" strokeWidth="1.5" />
-
-                {/* Oscillating Hand */}
-                <g 
-                  style={{ 
-                    transformOrigin: '70px 55px', 
-                    animation: isDeviation ? 'wristWaveDemo 3s ease-in-out infinite' : 'wristFlexExtDemo 3.2s ease-in-out infinite' 
-                  }}
-                >
-                  <path d="M 70 49 L 110 49 L 114 61 L 70 61 Z" fill="#334155" stroke="#64748b" strokeWidth="1.2" />
-                  <circle cx="92" cy="55" r="3.5" fill="#eab308" stroke="#ca8a04" strokeWidth="1" />
-                  <line x1="110" y1="51" x2="148" y2="51" stroke="#60a5fa" strokeWidth="2.5" strokeLinecap="round" />
-                  <line x1="112" y1="54" x2="152" y2="54" stroke="#a855f7" strokeWidth="2.5" strokeLinecap="round" />
-                  <line x1="113" y1="57" x2="150" y2="57" stroke="#ec4899" strokeWidth="2.5" strokeLinecap="round" />
-                  <line x1="110" y1="60" x2="142" y2="60" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" />
-                </g>
-              </svg>
-            )}
+                  <WristRigGLBScene 
+                    isFlexion={isFlexion}
+                    isExtension={isExtension}
+                    isRotation={isRotation}
+                    isDeviation={isDeviation}
+                    isFlexExtension={isFlexExtension}
+                    targetAngle={targetAngle}
+                    onAngleTick={setCurrentLiveAngle}
+                  />
+                </Canvas>
+              </Suspense>
+            </div>
           </div>
 
           {/* Clinical Motion Cues */}

@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import WristMotionDemoCard from '../components/WristMotionDemoCard';
 
 describe('WristMotionDemoCard Component', () => {
-  it('renders wrist flexion demonstration correctly', () => {
+  it('renders wrist flexion 3D GLB demonstration correctly', () => {
     render(
       <WristMotionDemoCard 
         exerciseName="Wrist Flexion"
@@ -13,11 +13,12 @@ describe('WristMotionDemoCard Component', () => {
       />
     );
 
-    expect(screen.getByText('Motion Demo')).toBeInTheDocument();
+    expect(screen.getByText('3D GLB Demo')).toBeInTheDocument();
     expect(screen.getByText('Wrist Flexion')).toBeInTheDocument();
     expect(screen.getByText('Bend Downward')).toBeInTheDocument();
     expect(screen.getByText('0° → 50°')).toBeInTheDocument();
-    expect(screen.getByText('50° Aim')).toBeInTheDocument();
+    expect(screen.getByText('Aim: 50°')).toBeInTheDocument();
+    expect(screen.getByText(/DEMO: 0°/i)).toBeInTheDocument();
     expect(screen.getByText(/Bend wrist downward smoothly/i)).toBeInTheDocument();
   });
 
@@ -33,7 +34,7 @@ describe('WristMotionDemoCard Component', () => {
     expect(screen.getByText('Wrist Extension')).toBeInTheDocument();
     expect(screen.getByText('Bend Upward')).toBeInTheDocument();
     expect(screen.getByText('0° → 45°')).toBeInTheDocument();
-    expect(screen.getByText('45° Aim')).toBeInTheDocument();
+    expect(screen.getByText('Aim: 45°')).toBeInTheDocument();
   });
 
   it('renders wrist rotation demonstration correctly', () => {
@@ -47,8 +48,7 @@ describe('WristMotionDemoCard Component', () => {
 
     expect(screen.getByText('Wrist Rotation')).toBeInTheDocument();
     expect(screen.getByText('Rotate Left ↔ Right')).toBeInTheDocument();
-    expect(screen.getByText('Left')).toBeInTheDocument();
-    expect(screen.getByText('Right')).toBeInTheDocument();
+    expect(screen.getByText('Aim: 60°')).toBeInTheDocument();
   });
 
   it('toggles collapse and expand when clicking the collapse button', () => {
