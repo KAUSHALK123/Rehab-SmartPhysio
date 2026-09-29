@@ -29,6 +29,7 @@ import {
 import { getDashboardAnalytics } from '../services/analytics';
 import { getPatients } from '../services/patient';
 import { useTheme } from '../context/ThemeContext';
+import PatientExerciseStreakCalendar from '../components/PatientExerciseStreakCalendar';
 
 function AnalyticsPage() {
   const { isDark } = useTheme();
@@ -382,6 +383,12 @@ function AnalyticsPage() {
                 </div>
 
               </div>
+
+              {/* Patient Daily Exercise Streak & Activity Tree Card (GitHub Contribution Style) */}
+              <PatientExerciseStreakCalendar 
+                history={analytics.history} 
+                patientName={activePatientName} 
+              />
 
               {/* Progress Graphs Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
