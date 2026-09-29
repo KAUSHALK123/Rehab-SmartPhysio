@@ -168,7 +168,8 @@ export const generateYearCalendarWeeks = (year) => {
     curr.setDate(curr.getDate() + 1);
   }
 
-  // Month labels position along weeks
+  // Month labels position along weeks with standard 3-letter abbreviations
+  const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const monthLabels = [];
   let lastMonth = -1;
 
@@ -178,7 +179,7 @@ export const generateYearCalendarWeeks = (year) => {
     if (firstInYearDay && firstInYearDay.month !== lastMonth) {
       monthLabels.push({
         weekIndex,
-        label: firstInYearDay.date.toLocaleString('default', { month: 'short' }),
+        label: MONTH_NAMES[firstInYearDay.month] || firstInYearDay.date.toLocaleString('default', { month: 'short' }),
         month: firstInYearDay.month
       });
       lastMonth = firstInYearDay.month;
@@ -469,68 +470,75 @@ export default function PatientExerciseStreakCalendar({
       </div>
 
       {/* GitHub Contribution Heatmap Tree Grid */}
-      <div className={`p-4 rounded-xl border overflow-x-auto select-none ${
+      <div className={`p-4 sm:p-5 rounded-xl border overflow-x-auto select-none ${
         isDark ? 'bg-slate-950/80 border-slate-800/80' : 'bg-slate-50/70 border-slate-200'
       }`}>
-        <div className="min-w-[760px]">
-          {/* Month Labels Top Header */}
-          <div className="flex text-[10px] font-bold text-slate-400 mb-1.5 pl-8">
-            <div className="relative w-full h-4">
-              {monthLabels.map((m) => {
-                // Approximate left offset based on week index
-                const leftPct = (m.weekIndex / Math.max(1, weeks.length)) * 100;
+        <div className="w-full min-w-[760px]">
+          <div className="flex items-start gap-1.5 sm:gap-2 w-full">
+            {/* Day of Week Labels (Sun, Tue, Thu, Sat) perfectly aligned with cell rows */}
+            <div className="flex flex-col items-end shrink-0 select-none pr-1">
+              {/* Top spacer matching month label header height */}
+              <div className="h-5" />
+              {/* 7 rows matching each day cell */}
+              <div className="flex flex-col gap-[3px] sm:gap-[4px] w-6 sm:w-7">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label, idx) => {
+                  const isVisible = idx === 0 || idx === 2 || idx === 4 || idx === 6;
+                  return (
+                    <div 
+                      key={label}
+                      className="w-full aspect-square flex items-center justify-end text-[9px] font-extrabold text-slate-400 leading-none"
+                    >
+                      {isVisible ? label : ''}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 52-53 Weeks Columns filling the card width uniformly */}
+            <div className="flex gap-[3px] sm:gap-[4px] flex-1 w-full justify-between">
+              {weeks.map((week, wIdx) => {
+                const monthObj = monthLabels.find((m) => m.weekIndex === wIdx);
                 return (
-                  <span
-                    key={`${m.label}-${m.weekIndex}`}
-                    className="absolute font-semibold tracking-wider text-slate-400"
-                    style={{ left: `${leftPct}%` }}
-                  >
-                    {m.label}
-                  </span>
+                  <div key={wIdx} className="flex-1 flex flex-col items-center min-w-[10px]">
+                    {/* Month Label pinned directly to this starting week */}
+                    <div className="h-5 text-[10px] font-bold text-slate-400 select-none relative w-full flex items-center">
+                      {monthObj && (
+                        <span className="absolute left-0 top-0 whitespace-nowrap text-slate-400 font-bold tracking-wider z-10">
+                          {monthObj.label}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* 7 Day Cells */}
+                    <div className="flex flex-col gap-[3px] sm:gap-[4px] w-full">
+                      {week.map((day) => {
+                        const dayData = dateMap[day.dateKey];
+                        const count = dayData ? dayData.count : 0;
+                        const level = getIntensityLevel(count);
+
+                        return (
+                          <div
+                            key={day.dateKey}
+                            onMouseEnter={(e) => handleCellMouseEnter(e, day, dayData)}
+                            onMouseLeave={handleCellMouseLeave}
+                            className={`w-full aspect-square rounded-[2.5px] border transition-all duration-150 cursor-pointer ${getCellColor(
+                              level,
+                              day.inYear
+                            )}`}
+                            style={{
+                              transform: hoveredDay?.dateKey === day.dateKey ? 'scale(1.35)' : 'scale(1)',
+                              zIndex: hoveredDay?.dateKey === day.dateKey ? 20 : 1
+                            }}
+                            data-date={day.dateKey}
+                            data-count={count}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
                 );
               })}
-            </div>
-          </div>
-
-          {/* 7 Rows Grid with Day Labels on Left */}
-          <div className="flex items-start gap-2">
-            {/* Day of Week Labels (Mon, Wed, Fri) */}
-            <div className="flex flex-col justify-between h-[106px] text-[9px] font-bold text-slate-400 pr-1 py-0.5 shrink-0">
-              <span className="h-3 flex items-center">Sun</span>
-              <span className="h-3 flex items-center">Tue</span>
-              <span className="h-3 flex items-center">Thu</span>
-              <span className="h-3 flex items-center">Sat</span>
-            </div>
-
-            {/* Weeks Columns (52-53 weeks) */}
-            <div className="flex gap-[3.5px] flex-1">
-              {weeks.map((week, wIdx) => (
-                <div key={wIdx} className="flex flex-col gap-[3.5px]">
-                  {week.map((day) => {
-                    const dayData = dateMap[day.dateKey];
-                    const count = dayData ? dayData.count : 0;
-                    const level = getIntensityLevel(count);
-
-                    return (
-                      <div
-                        key={day.dateKey}
-                        onMouseEnter={(e) => handleCellMouseEnter(e, day, dayData)}
-                        onMouseLeave={handleCellMouseLeave}
-                        className={`w-3 h-3 rounded-[2.5px] border transition-all duration-150 cursor-pointer ${getCellColor(
-                          level,
-                          day.inYear
-                        )}`}
-                        style={{
-                          transform: hoveredDay?.dateKey === day.dateKey ? 'scale(1.3)' : 'scale(1)',
-                          zIndex: hoveredDay?.dateKey === day.dateKey ? 20 : 1
-                        }}
-                        data-date={day.dateKey}
-                        data-count={count}
-                      />
-                    );
-                  })}
-                </div>
-              ))}
             </div>
           </div>
 
