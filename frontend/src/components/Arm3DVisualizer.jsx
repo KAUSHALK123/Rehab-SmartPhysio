@@ -190,12 +190,15 @@ function FullBodyRig({
         // Real-time sensor-driven GLB movement from proven Trial logic
         const fingerKey = nodeName.replace('right_', '');
         const mappedAngleDeg = sensorFingerAngles[fingerKey] !== undefined ? sensorFingerAngles[fingerKey] : 0;
-        applyCalibratedFingerRotation(fingerNode, nodeName, base, mappedAngleDeg, 0.25);
+        // In main exercise GLB frame, reverse thumb angle so bending sensor closes thumb inward toward palm
+        const effectiveAngle = isThumb ? -mappedAngleDeg : mappedAngleDeg;
+        applyCalibratedFingerRotation(fingerNode, nodeName, base, effectiveAngle, 0.25);
       } else {
         // Fallback when sensorFingerAngles is not provided (e.g. demo mode or offline)
         const flexRad = degToRad(Math.max(0, Math.min(90, val)));
         if (isThumb) {
-          const targetX = base.x + flexRad;
+          // Reverse direction so thumb closes inward toward palm
+          const targetX = base.x - flexRad;
           fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, targetX, 0.15);
           fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, 0.15);
           fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, base.z, 0.15);

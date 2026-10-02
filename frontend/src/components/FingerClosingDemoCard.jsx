@@ -158,8 +158,8 @@ function FingerClosingRigScene({
       const rad = degToRad(currentAngleDeg);
 
       if (name === 'right_thumb') {
-        // Thumb: LOCAL X axis ONLY (curl inward); Y and Z locked to base rest
-        const targetX = base.x + rad;
+        // Thumb: LOCAL X axis ONLY (curl inward toward palm - reversed so it closes into fist); Y and Z locked to base rest
+        const targetX = base.x - rad;
         node.rotation.x = THREE.MathUtils.lerp(node.rotation.x, targetX, 0.25);
         node.rotation.y = THREE.MathUtils.lerp(node.rotation.y, base.y, 0.25);
         node.rotation.z = THREE.MathUtils.lerp(node.rotation.z, base.z, 0.25);
