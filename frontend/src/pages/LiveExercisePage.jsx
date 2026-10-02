@@ -34,6 +34,7 @@ import FingerSensorTrialPanel from '../components/FingerSensorTrialPanel';
 import WristSensorTrialPanel from '../components/WristSensorTrialPanel';
 import ElbowSensorTrialPanel from '../components/ElbowSensorTrialPanel';
 import WristMotionDemoCard from '../components/WristMotionDemoCard';
+import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
 import { processFingerTelemetry } from '../services/fingerSensorMapper';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
@@ -828,19 +829,6 @@ function LiveExercisePage() {
     };
   }, [location.pathname, location.search, exerciseId]);
 
-  // Cleanly identify active body movement category
-  const isWristExercise = isTrial 
-    ? trialType === 'wrist'
-    : Boolean(
-        exerciseDetails?.body_part?.toLowerCase().includes('wrist') ||
-        exerciseDetails?.target_joint?.toLowerCase().includes('wrist') ||
-        exerciseDetails?.target_muscle?.toLowerCase().includes('wrist') ||
-        exerciseDetails?.primary_sensor?.toLowerCase().includes('wrist') ||
-        exerciseDetails?.secondary_sensor?.toLowerCase().includes('wrist') ||
-        exerciseName?.toLowerCase().includes('wrist') ||
-        activeExerciseRef.current?.primary_sensor?.toLowerCase().includes('wrist')
-      );
-
   const isFingerExercise = isTrial
     ? trialType === 'fingers'
     : Boolean(
@@ -870,6 +858,28 @@ function LiveExercisePage() {
         exerciseName?.toLowerCase().includes('curl') ||
         activeExerciseRef.current?.primary_sensor?.toLowerCase().includes('elbow')
       );
+
+  // Cleanly identify active body movement category
+  // NOTE: Exclude finger and elbow exercises so secondary sensors (e.g. wrist_pitch for Finger Closing) do not misclassify them as wrist exercises
+  const isWristExercise = isTrial 
+    ? trialType === 'wrist'
+    : !isFingerExercise && !isElbowExercise && Boolean(
+        exerciseDetails?.body_part?.toLowerCase().includes('wrist') ||
+        exerciseDetails?.target_joint?.toLowerCase().includes('wrist') ||
+        exerciseDetails?.target_muscle?.toLowerCase().includes('wrist') ||
+        exerciseDetails?.primary_sensor?.toLowerCase().includes('wrist') ||
+        exerciseDetails?.secondary_sensor?.toLowerCase().includes('wrist') ||
+        exerciseName?.toLowerCase().includes('wrist') ||
+        activeExerciseRef.current?.primary_sensor?.toLowerCase().includes('wrist')
+      );
+
+  // Main Exercise: Finger Closing
+  const isFingerClosing = !isTrial && Boolean(
+    exerciseName?.toLowerCase().includes('finger closing') ||
+    exerciseDetails?.exercise_name?.toLowerCase().includes('finger closing') ||
+    exerciseDetails?.name?.toLowerCase().includes('finger closing') ||
+    activeExerciseRef.current?.exercise_name?.toLowerCase().includes('finger closing')
+  );
 
   // Reset all joint angles, states, and counters when starting or switching any exercise
   useEffect(() => {
@@ -1962,6 +1972,15 @@ function LiveExercisePage() {
                     exerciseName={exerciseName}
                     movementId={resolveWristMovementId(activeExerciseRef.current || exerciseDetails || exerciseName)}
                     targetAngle={exerciseDetails?.target_angle || 50}
+                  />
+                </div>
+              )}
+
+              {/* Animated Exercise Demonstration Card for Finger Closing Exercise (Top Right Overlay) */}
+              {isFingerClosing && (
+                <div className="absolute top-4 right-4 z-10 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <FingerClosingDemoCard 
+                    targetReps={exerciseDetails?.repetitions || 10}
                   />
                 </div>
               )}
