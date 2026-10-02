@@ -12,8 +12,8 @@ describe('FingerClosingDemoCard Component', () => {
     expect(screen.getByText('Fist Movement')).toBeInTheDocument();
   });
 
-  it('renders rep counter indicator synchronized to target reps', () => {
-    render(<FingerClosingDemoCard targetReps={12} />);
+  it('renders rep counter indicator synchronized to target reps (defaults to 12 reps)', () => {
+    render(<FingerClosingDemoCard />);
 
     expect(screen.getByText(/REP 1 \/ 12/i)).toBeInTheDocument();
   });

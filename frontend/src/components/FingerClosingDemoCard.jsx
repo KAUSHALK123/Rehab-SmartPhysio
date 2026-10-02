@@ -31,7 +31,7 @@ const TOTAL_REP_CYCLE = DURATION_OPEN + DURATION_CLOSE + DURATION_HOLD + DURATIO
  * - Index, Middle, Ring, Little: LOCAL Z
  */
 function FingerClosingRigScene({ 
-  targetReps = 10,
+  targetReps = 12,
   onPhaseChange,
   onRepChange
 }) {
@@ -235,7 +235,7 @@ function FingerClosingRigScene({
  * Does NOT generate sensor values or interfere with real exercise rep counting.
  */
 export default function FingerClosingDemoCard({
-  targetReps = 10,
+  targetReps = 12,
   className = ''
 }) {
   const [currentRep, setCurrentRep] = useState(1);

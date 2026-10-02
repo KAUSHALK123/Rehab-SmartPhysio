@@ -908,7 +908,7 @@ function LiveExercisePage() {
     wristBilateralPhaseRef.current = { left: false, right: false };
     const initialText = isWristExercise 
       ? 'Move **left first or right** to start repetition.' 
-      : 'Place your arm in the starting position to begin.';
+      : (isFingerClosing ? 'Close your fingers into a fist (close at least 3-4 fingers) to begin repetition.' : 'Place your arm in the starting position to begin.');
     setGuidance(initialText);
     setAiFeedback({
       progress: 0,
@@ -1230,6 +1230,137 @@ function LiveExercisePage() {
 
       return;
     }
+
+    // DEDICATED FINGER CLOSING REPETITION ENGINE
+    // Requirement:
+    // - Configured target repetitions: 12 reps (or ex.repetitions)
+    // - Closing at least 3 to 4 fingers into a fist (flex bend >= 40%) counts as a repetition
+    // - Progress through Open → Close (>=3 fingers) → Hold → Open
+    // - Saves reps completed, accuracy, duration, and telemetry to backend session
+    const isFingerClosingRoutine = isFingerClosing || 
+      nameLower.includes('finger closing') || 
+      (ex.exercise_name || '').toLowerCase().includes('finger closing');
+
+    if (isFingerClosingRoutine) {
+      const targetReps = ex.repetitions || 12;
+      const fingerBends = [
+        { name: 'Thumb', val: data.thumb ?? 0 },
+        { name: 'Index', val: data.index ?? 0 },
+        { name: 'Middle', val: data.middle ?? 0 },
+        { name: 'Ring', val: data.ring ?? 0 },
+        { name: 'Little', val: data.little ?? 0 }
+      ];
+
+      // Finger is considered closed when flex bend >= 40%
+      const closedFingers = fingerBends.filter(f => f.val >= 40);
+      const closedCount = closedFingers.length;
+      const avgBend = Math.round(fingerBends.reduce((sum, f) => sum + f.val, 0) / 5);
+
+      // Repetition target met if 3 or more fingers are closed, or average fist bend is >= 48%
+      const isFistClosed = closedCount >= 3 || avgBend >= 48;
+      // Hand open (starting rest pose) when at most 1 finger is bent and average bend is low
+      const isHandOpen = closedCount <= 1 && avgBend <= 32;
+
+      const currentState = repStateRef.current;
+      const now = Date.now();
+      const holdSecs = Math.min(2, Math.max(1, ex.hold_seconds || 1));
+
+      if (currentState === 'rest') {
+        // Debounce: must be at least 800ms after previous rep completion
+        if (now - lastRepTimeRef.current >= 800) {
+          if (isFistClosed) {
+            setHoldCountdown(holdSecs);
+            startHoldTimer(holdSecs);
+            setGuidance(`Target achieved! ${closedCount} fingers closed into fist. HOLD position for ${holdSecs}s.`);
+            repStateRef.current = 'target_hold';
+            setRepState('target_hold');
+          } else if (closedCount >= 2 || avgBend >= 35) {
+            repStateRef.current = 'moving';
+            setRepState('moving');
+            setGuidance(`Fingers closing... Close at least 3-4 fingers into a fist! (${closedCount}/5 closed)`);
+          }
+        }
+      } else if (currentState === 'moving') {
+        if (isFistClosed) {
+          setHoldCountdown(holdSecs);
+          startHoldTimer(holdSecs);
+          setGuidance(`Target achieved! ${closedCount} fingers closed into fist. HOLD position for ${holdSecs}s.`);
+          repStateRef.current = 'target_hold';
+          setRepState('target_hold');
+        } else {
+          setGuidance(`Closing... ${closedCount} of 5 fingers closed (close at least 3 fingers to count rep).`);
+        }
+      } else if (currentState === 'target_hold') {
+        // Patient opened hand prematurely before hold timer finished
+        if (closedCount < 2 && avgBend < 28) {
+          clearInterval(holdTimerIntervalRef.current);
+          setHoldCountdown(0);
+          repsFailedRef.current += 1;
+          const nextFailed = repsFailedRef.current;
+          setRepsFailed(nextFailed);
+          updateAccuracyScore(repsCompletedRef.current, nextFailed);
+          setGuidance('Fist opened too early! Return hand to open and try again.');
+          repStateRef.current = 'returning';
+          setRepState('returning');
+        }
+      } else if (currentState === 'returning') {
+        if (isHandOpen) {
+          if (now - lastRepTimeRef.current >= 800) {
+            lastRepTimeRef.current = now;
+            repStateRef.current = 'rest';
+            setRepState('rest');
+
+            repsCompletedRef.current += 1;
+            const updated = repsCompletedRef.current;
+            setRepsCompleted(updated);
+            updateAccuracyScore(updated, repsFailedRef.current);
+            setGuidance(`Repetition ${updated} of ${targetReps} completed! Relax and prepare for next rep.`);
+
+            // Milestone popup when reaching target reps (12 reps)
+            if (updated >= targetReps && !milestoneShownRef.current) {
+              milestoneShownRef.current = true;
+              setShowMilestonePopup(true);
+            }
+          }
+        } else {
+          setGuidance(`Repetition verified! Now open your fingers fully (${closedCount} fingers still bent).`);
+        }
+      }
+
+      // Dynamic Progress & AI Clinical Suggestions
+      let progressPct = 0;
+      if (currentState === 'rest') {
+        progressPct = Math.min(25, Math.round((closedCount / 3) * 25));
+      } else if (currentState === 'moving') {
+        progressPct = Math.min(90, Math.round((Math.max(closedCount, (avgBend / 48) * 3) / 3) * 90));
+      } else if (currentState === 'target_hold') {
+        progressPct = 95;
+      } else if (currentState === 'returning') {
+        progressPct = Math.max(15, Math.round((closedCount / 3) * 60));
+      }
+
+      let suggestionText = '';
+      if (currentState === 'rest') {
+        suggestionText = `Ready to begin. Close at least 3-4 fingers into a fist to start repetition.`;
+      } else if (currentState === 'moving') {
+        suggestionText = isFistClosed 
+          ? `Fist closed (${closedCount} fingers)! Holding position...` 
+          : `Close more fingers (${closedCount}/5 closed - need at least 3).`;
+      } else if (currentState === 'target_hold') {
+        suggestionText = `Great grip! Hold fist position for ${holdCountdown > 0 ? holdCountdown : holdSecs}s.`;
+      } else if (currentState === 'returning') {
+        suggestionText = `Repetition closing verified! Now slowly open your fingers.`;
+      }
+
+      setAiFeedback({
+        progress: progressPct,
+        suggestion: suggestionText,
+        warning: null,
+        status: isFistClosed ? 'success' : (closedCount >= 2 ? 'active' : 'info')
+      });
+
+      return;
+    }
     
     const isForceBased = primaryLower === 'pressure' || ex.target_pressure > 0;
     const holdSecs = ex.hold_seconds || 0;
@@ -1387,7 +1518,7 @@ function LiveExercisePage() {
     let suggestionText = '';
     let statusVal = 'info';
 
-    const isWristExercise = nameLower.includes('wrist') || primaryLower.includes('wrist');
+    const isWristPostureExercise = nameLower.includes('wrist') || primaryLower.includes('wrist');
     const rollVal = data.wrist_roll ?? 0;
     const pitchVal = data.wrist_pitch ?? 0;
 
@@ -1395,7 +1526,7 @@ function LiveExercisePage() {
     const secondaryLower = (ex.secondary_sensor || '').toLowerCase();
     
     // Check lateral tilt (left vs right) on wrist:
-    if (isWristExercise || secondaryLower === 'wrist_roll') {
+    if (isWristPostureExercise || secondaryLower === 'wrist_roll') {
       const rollThreshold = 12;
       // If doing flexion / extension, wrist should stay level (not tilted left or right)
       if (primaryLower === 'wrist_pitch' || nameLower.includes('flexion') || nameLower.includes('extension')) {
@@ -1497,7 +1628,7 @@ function LiveExercisePage() {
           suggestionText = `Move your wrist more **${dir}** by **${remaining}°** more (**${progressPct}%** completed).`;
         } else if (nameLower.includes('elbow')) {
           suggestionText = `Bend your elbow more towards your shoulder by **${remaining}°** more (**${progressPct}%** completed).`;
-        } else if (isWristExercise) {
+        } else if (isWristPostureExercise) {
           const dir = rollVal < 0 ? 'right' : 'left';
           suggestionText = `Move your wrist more **${dir}** by **${remaining}°** more (**${progressPct}%** completed).`;
         } else {
@@ -1570,8 +1701,9 @@ function LiveExercisePage() {
       // Find angle column matching exercise
       const ex = exerciseDetails;
       const isElbow = ex?.exercise_name?.toLowerCase()?.includes('elbow');
+      const isFinger = isFingerExercise || ex?.exercise_name?.toLowerCase()?.includes('finger');
       
-      const angles = hist.map(h => isElbow ? (180 - h.elbow) : h.wrist_pitch);
+      const angles = hist.map(h => isElbow ? (180 - h.elbow) : (isFinger ? ((h.thumb + h.index + h.middle + h.ring + h.little) / 5) : h.wrist_pitch));
       const pressures = hist.map(h => h.pressure);
       
       avgAngle = angles.reduce((a, b) => a + b, 0) / hist.length;
@@ -1582,8 +1714,8 @@ function LiveExercisePage() {
     const payload = {
       session_id: sessionId,
       duration_seconds: secondsElapsed,
-      repetitions_completed: repsCompleted,
-      repetitions_failed: repsFailed,
+      repetitions_completed: repsCompletedRef.current,
+      repetitions_failed: repsFailedRef.current,
       average_angle: Number(avgAngle.toFixed(1)),
       max_angle: Number(maxAngle.toFixed(1)),
       average_pressure: Number(avgPressure.toFixed(1)),
@@ -1980,7 +2112,7 @@ function LiveExercisePage() {
               {isFingerClosing && (
                 <div className="absolute top-4 right-4 z-10 animate-in fade-in slide-in-from-top-2 duration-200">
                   <FingerClosingDemoCard 
-                    targetReps={exerciseDetails?.repetitions || 10}
+                    targetReps={exerciseDetails?.repetitions || 12}
                   />
                 </div>
               )}
@@ -2501,7 +2633,7 @@ function LiveExercisePage() {
 
               <div className="p-3.5 bg-blue-50/70 border border-blue-150 rounded-xl text-blue-950 text-xs font-medium leading-relaxed">
                 <span className="font-bold block mb-0.5 text-blue-900">🌟 Target Prescription Met!</span>
-                You have reached your goal of 10 repetitions. You can close this to <strong>perform more reps</strong> at your own pace, or finish and save your session.
+                You have reached your goal of {activeExerciseRef.current?.repetitions || 12} repetitions. You can close this to <strong>perform more reps</strong> at your own pace, or finish and save your session.
               </div>
 
               {/* Action Buttons */}
