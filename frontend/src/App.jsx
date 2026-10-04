@@ -18,6 +18,7 @@ import AppointmentsPage from './pages/AppointmentsPage';
 import ReportsPage from './pages/ReportsPage';
 import Debug3DPage from './pages/Debug3DPage';
 import DataCollectionPage from './pages/DataCollectionPage';
+import LiveSensorMonitorPage from './pages/LiveSensorMonitorPage';
 
 // Component to protect user pages
 function ProtectedRoute({ children }) {
@@ -75,6 +76,7 @@ function App() {
             <Route path="/messages" element={<MessagesPage />} />
             <Route path="/appointments" element={<AppointmentsPage />} />
             <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/live-sensor-monitor" element={<LiveSensorMonitorPage />} />
           </Route>
 
           {/* Debug route - no auth required for quick testing */}

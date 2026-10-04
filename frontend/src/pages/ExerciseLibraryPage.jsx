@@ -17,7 +17,8 @@ import {
   ChevronRight,
   ChevronLeft,
   Columns3,
-  LayoutGrid
+  LayoutGrid,
+  Radio
 } from 'lucide-react';
 
 import { useTheme } from '../context/ThemeContext';
@@ -616,6 +617,21 @@ function ExerciseLibraryPage() {
             </p>
           </div>
         </div>
+
+        {/* Live Sensor Monitor Button */}
+        <button
+          type="button"
+          onClick={() => navigate('/live-sensor-monitor')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition border cursor-pointer ${
+            isDark
+              ? 'bg-cyan-950/60 border-cyan-700/50 text-cyan-400 hover:bg-cyan-900/60 hover:border-cyan-600'
+              : 'bg-cyan-50 border-cyan-200 text-cyan-700 hover:bg-cyan-100'
+          }`}
+          title="Open Live Sensor Monitor — verify raw ADC values from the physical sleeve"
+        >
+          <Radio className="w-3.5 h-3.5" />
+          Live Sensor Monitor
+        </button>
 
         {/* Small & Simple View Toggle Button */}
         <div className="flex items-center bg-slate-100 dark:bg-slate-800/90 p-1 rounded-xl border border-slate-200 dark:border-slate-700/80 shadow-xs self-start md:self-auto flex-shrink-0">
