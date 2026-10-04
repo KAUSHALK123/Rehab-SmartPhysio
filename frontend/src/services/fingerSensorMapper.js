@@ -179,7 +179,7 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
 
     let normalized = 0;
     let filteredVal = 0;
-    let rawReading = rawVal !== undefined ? rawVal : null;
+    let rawReading = (rawVal !== undefined && rawVal !== null) ? Number(rawVal) : null;
 
     // Track dynamic physical sensor min/max if reading valid signal (> 30 ADC counts)
     if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
@@ -206,7 +206,7 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
 
       filteredVal = rawVal;
       normalized = normalizeFlexValue(rawVal, effectiveStraight, effectiveBent);
-    } else if (angleVal !== undefined && angleVal !== null && Number(angleVal) > 0) {
+    } else if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
       // Pre-filtered angle value from firmware or backend mock (0 - 90 deg)
       filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
       normalized = Math.max(0, Math.min(1, filteredVal / 90.0));
@@ -216,6 +216,7 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     } else {
       normalized = 0;
       filteredVal = 0;
+      if (rawReading === null) rawReading = 0;
     }
 
     const glbMapping = mapNormalizedToGlb(normalized, finger, activeGlbConfig);

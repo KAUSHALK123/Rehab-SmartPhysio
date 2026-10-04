@@ -237,7 +237,9 @@ const FingerSyncPanel = ({
   rawSensorPacket, 
   deviceConnected, 
   isFlexSynced, 
-  onToggleSync 
+  onToggleSync,
+  simulatedActive = false,
+  onToggleSimulation = () => {}
 }) => {
   const fingerKeys = [
     { key: 'thumb', label: 'Thumb' },
@@ -253,6 +255,15 @@ const FingerSyncPanel = ({
     return 'bg-gradient-to-t from-rose-500 to-pink-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]';
   };
 
+  const hasHardwarePacket = rawSensorPacket && Object.keys(rawSensorPacket).length > 0;
+  const sensorsReadingZero = hasHardwarePacket && !simulatedActive && (
+    Number(rawSensorPacket.raw_thumb ?? 0) === 0 &&
+    Number(rawSensorPacket.raw_index ?? 0) === 0 &&
+    Number(rawSensorPacket.raw_middle ?? 0) === 0 &&
+    Number(rawSensorPacket.raw_ring ?? 0) === 0 &&
+    Number(rawSensorPacket.raw_little ?? 0) === 0
+  );
+
   return (
     <div className="w-full space-y-3">
       {/* Top Header & Sync Status Badge */}
@@ -265,23 +276,52 @@ const FingerSyncPanel = ({
         </div>
         <div className="flex items-center gap-1.5">
           <span className={`inline-flex items-center gap-1 text-[9px] font-extrabold px-2.5 py-1 rounded-full border ${
-            !deviceConnected
-              ? 'bg-amber-50 text-amber-600 border-amber-200'
-              : isFlexSynced
-                ? 'bg-emerald-50 text-emerald-600 border-emerald-200 animate-pulse'
-                : 'bg-slate-100 text-slate-500 border-slate-200'
+            simulatedActive
+              ? 'bg-purple-50 text-purple-700 border-purple-200 animate-pulse'
+              : sensorsReadingZero
+                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                : !deviceConnected
+                  ? 'bg-slate-100 text-slate-500 border-slate-200'
+                  : isFlexSynced
+                    ? 'bg-emerald-50 text-emerald-600 border-emerald-200 animate-pulse'
+                    : 'bg-slate-100 text-slate-500 border-slate-200'
           }`}>
             <span className={`w-1.5 h-1.5 rounded-full ${
-              !deviceConnected ? 'bg-amber-500' : isFlexSynced ? 'bg-emerald-500' : 'bg-slate-400'
+              simulatedActive ? 'bg-purple-500' : sensorsReadingZero ? 'bg-amber-500' : !deviceConnected ? 'bg-slate-400' : isFlexSynced ? 'bg-emerald-500' : 'bg-slate-400'
             }`} />
-            {!deviceConnected
-              ? 'Waiting for Flex Sensor...'
-              : isFlexSynced
-                ? 'Real-Time Flex Active'
-                : 'Flex Sync Off'}
+            {simulatedActive
+              ? 'Simulated Motion Active'
+              : sensorsReadingZero
+                ? 'Hardware 0 ADC (Check VCC)'
+                : !deviceConnected
+                  ? 'Waiting for Telemetry...'
+                  : isFlexSynced
+                    ? 'Real-Time Flex Active'
+                    : 'Flex Sync Off'}
           </span>
         </div>
       </div>
+
+      {/* 0 ADC Diagnostic Warning Banner */}
+      {sensorsReadingZero && (
+        <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1.5">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+            <span>ESP32 Connected • Flex Pins Reading 0 ADC</span>
+          </div>
+          <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
+            The ESP32 is online, but GPIO pins 32-36 are reading 0V. Check that 3.3V power &amp; GND to the flex voltage dividers are plugged in, or click below to simulate fist movement.
+          </p>
+          <button
+            type="button"
+            onClick={onToggleSimulation}
+            className="mt-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <Zap className="w-3 h-3" />
+            Start Simulated Flex (Test Repetitions)
+          </button>
+        </div>
+      )}
 
       {/* Two Side-By-Side Cards */}
       <div className="grid grid-cols-2 gap-3">
@@ -307,12 +347,12 @@ const FingerSyncPanel = ({
               return (
                 <div key={key} className="flex-1 flex flex-col items-center h-full justify-end min-w-0">
                   <span className="text-[9px] font-black text-slate-800 mb-1">
-                    {isFlexSynced && deviceConnected && debugInfo ? `${Math.round(angle)}°` : '0°'}
+                    {debugInfo ? `${Math.round(angle)}°` : '0°'}
                   </span>
                   <div className="w-2.5 bg-slate-200 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
                     <div 
                       className={`w-full rounded-full transition-all duration-150 ease-out ${getBarColor(pct)}`}
-                      style={{ height: `${isFlexSynced && deviceConnected && debugInfo ? pct : 0}%` }}
+                      style={{ height: `${debugInfo ? pct : 0}%` }}
                     />
                   </div>
                   <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
@@ -337,20 +377,20 @@ const FingerSyncPanel = ({
             {fingerKeys.map(({ key, label }) => {
               const debugInfo = computedFingerData?.debug?.[key];
               const flexPct = debugInfo?.normalized !== undefined ? debugInfo.normalized : 0;
-              const rawVal = debugInfo?.raw !== null && debugInfo?.raw !== undefined ? debugInfo.raw : (rawSensorPacket?.['raw_' + key] || null);
+              const rawVal = debugInfo?.raw !== null && debugInfo?.raw !== undefined ? debugInfo.raw : (rawSensorPacket?.['raw_' + key] !== undefined ? rawSensorPacket['raw_' + key] : null);
 
               return (
                 <div key={key} className="flex-1 flex flex-col items-center h-full justify-end min-w-0">
                   <span className="text-[8px] font-bold text-slate-400 leading-none mb-0.5">
-                    {isFlexSynced && deviceConnected && rawVal !== null ? `r:${rawVal}` : 'r:--'}
+                    {rawVal !== null ? `r:${rawVal}` : 'r:--'}
                   </span>
                   <span className="text-[9px] font-black text-slate-800 mb-1">
-                    {isFlexSynced && deviceConnected && debugInfo ? `${Math.round(flexPct)}%` : '0%'}
+                    {debugInfo ? `${Math.round(flexPct)}%` : '0%'}
                   </span>
                   <div className="w-2.5 bg-slate-200 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
                     <div 
                       className={`w-full rounded-full transition-all duration-150 ease-out ${getBarColor(flexPct)}`}
-                      style={{ height: `${isFlexSynced && deviceConnected && debugInfo ? flexPct : 0}%` }}
+                      style={{ height: `${debugInfo ? flexPct : 0}%` }}
                     />
                   </div>
                   <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
@@ -364,18 +404,33 @@ const FingerSyncPanel = ({
       </div>
 
       {/* SYNC VALUES & SHOW REAL TIME FLEX BUTTON */}
-      <button
-        type="button"
-        onClick={onToggleSync}
-        className={`w-full py-2.5 px-4 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm ${
-          isFlexSynced
-            ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-900/10 ring-2 ring-emerald-500/30'
-            : 'bg-slate-800 hover:bg-slate-900 text-white shadow-slate-900/10'
-        }`}
-      >
-        <RefreshCw className={`w-3.5 h-3.5 ${isFlexSynced ? 'animate-spin' : ''}`} />
-        {isFlexSynced ? 'REAL TIME FLEX SYNC ACTIVE' : 'SYNC VALUES & SHOW REAL TIME FLEX'}
-      </button>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={onToggleSync}
+          className={`py-2 px-3 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${
+            isFlexSynced
+              ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-900/10 ring-2 ring-emerald-500/30'
+              : 'bg-slate-800 hover:bg-slate-900 text-white shadow-slate-900/10'
+          }`}
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isFlexSynced ? 'animate-spin' : ''}`} />
+          <span className="truncate">{isFlexSynced ? 'Sync Active' : 'Sync Values'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onToggleSimulation}
+          className={`py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
+            simulatedActive
+              ? 'bg-purple-600 hover:bg-purple-700 text-white border-purple-500 shadow-sm'
+              : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+          }`}
+        >
+          <Zap className={`w-3.5 h-3.5 ${simulatedActive ? 'text-amber-300' : 'text-slate-500'}`} />
+          <span className="truncate">{simulatedActive ? 'Stop Simulation' : 'Simulate Flex Test'}</span>
+        </button>
+      </div>
     </div>
   );
 };
@@ -659,6 +714,8 @@ function LiveExercisePage() {
 
   // Live Telemetry states
   const [deviceConnected, setDeviceConnected] = useState(false);
+  const [isHardwareDevice, setIsHardwareDevice] = useState(false);
+  const [simulatedFingersActive, setSimulatedFingersActive] = useState(false);
   const [battery, setBattery] = useState(100);
   const [telemetryStream, setTelemetryStream] = useState([]);
   
@@ -952,7 +1009,8 @@ function LiveExercisePage() {
 
       if (data.type === 'sensor_data') {
         const isHardware = !data.is_mock;
-        setDeviceConnected(isHardware);
+        setIsHardwareDevice(isHardware);
+        setDeviceConnected(true);
         if (data.battery !== undefined) setBattery(data.battery);
         setRawSensorPacket(data);
         setLastPacketTime(Date.now());
@@ -1043,9 +1101,72 @@ function LiveExercisePage() {
 
     ws.onclose = () => {
       setDeviceConnected(false);
+      setIsHardwareDevice(false);
       setGuidance('Wearable sleeve disconnected. Attempting to reconnect...');
     };
   };
+
+  // Simulated Finger Movement Loop (for testing fist curl, sensor sync & 12-rep counting without hardware)
+  useEffect(() => {
+    if (!simulatedFingersActive) return;
+
+    const startTime = Date.now();
+    const interval = setInterval(() => {
+      const elapsed = (Date.now() - startTime) / 1000;
+      // 4.5 second smooth repetition wave:
+      // ~2.25s closing fist (bend goes from 0 to 1), ~2.25s opening hand (bend goes from 1 to 0)
+      const cycleProgress = (elapsed % 4.5) / 4.5;
+      const bend = Math.pow(Math.sin(cycleProgress * Math.PI), 1.5);
+
+      const parsedSensors = {
+        wrist_pitch: 0.0,
+        wrist_roll: 0.0,
+        elbow: 180.0,
+        pressure: Math.round(bend * 35),
+        thumb: Math.round(bend * 80),
+        index: Math.round(bend * 92),
+        middle: Math.round(bend * 90),
+        ring: Math.round(bend * 88),
+        little: Math.round(bend * 84)
+      };
+
+      const simPacket = {
+        type: 'sensor_data',
+        is_mock: true,
+        battery: 99,
+        wrist_pitch: 0,
+        wrist_roll: 0,
+        elbow: 180,
+        pressure: parsedSensors.pressure,
+        thumb: parsedSensors.thumb,
+        index: parsedSensors.index,
+        middle: parsedSensors.middle,
+        ring: parsedSensors.ring,
+        little: parsedSensors.little,
+        raw_thumb: Math.round(1800 + bend * 1600),
+        raw_index: Math.round(1750 + bend * 1700),
+        raw_middle: Math.round(1820 + bend * 1650),
+        raw_ring: Math.round(1790 + bend * 1600),
+        raw_little: Math.round(1850 + bend * 1550)
+      };
+
+      setSensors(parsedSensors);
+      setRawSensorPacket(simPacket);
+      setLastPacketTime(Date.now());
+      setDeviceConnected(true);
+
+      const computedFingers = processFingerTelemetry(simPacket);
+      if (computedFingers?.angles) {
+        setSensorFingerAngles(computedFingers.angles);
+        setFingerTelemetryDetails(computedFingers);
+      }
+
+      // Feed repetition state machine
+      evaluateRepetitionStateRef.current?.(parsedSensors);
+    }, 50);
+
+    return () => clearInterval(interval);
+  }, [simulatedFingersActive]);
 
   const getSensorValue = (sensorKey, data) => {
     if (!sensorKey) return 0;
@@ -1760,7 +1881,7 @@ function LiveExercisePage() {
 
   const activeSensors = isPaused && frozenSensors 
     ? frozenSensors 
-    : (deviceConnected ? sensors : defaultSensors);
+    : ((deviceConnected || simulatedFingersActive) ? sensors : defaultSensors);
 
   const activeControls = {
     shoulderAngle: 0, // LOCKED: Shoulder must remain stationary; sleeve has no shoulder sensor
@@ -2509,11 +2630,14 @@ function LiveExercisePage() {
                     <FingerSyncPanel 
                       computedFingerData={fingerTelemetryDetails}
                       rawSensorPacket={rawSensorPacket}
-                      deviceConnected={deviceConnected}
+                      deviceConnected={deviceConnected || simulatedFingersActive}
                       isFlexSynced={isFlexSynced}
                       onToggleSync={() => setIsFlexSynced(prev => !prev)}
+                      simulatedActive={simulatedFingersActive}
+                      onToggleSimulation={() => setSimulatedFingersActive(prev => !prev)}
                     />
-                    <div className="flex justify-center bg-slate-50 border border-slate-100 rounded-xl p-3 shadow-sm">
+                    <div className="grid grid-cols-2 gap-3">
+                      <SVGGauge {...primary} />
                       <SVGGauge {...secondary} />
                     </div>
                   </div>
