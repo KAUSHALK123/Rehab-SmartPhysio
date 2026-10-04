@@ -93,6 +93,249 @@ const CATEGORIES = [
   }
 ];
 
+const FALLBACK_EXERCISES = [
+  {
+    id: "97223631-0df8-4ecf-9fd5-e36688f98014",
+    exercise_name: "Ball Squeeze",
+    description: "Squeeze the therapy ball repeatedly with moderate pressure to improve grip strength, finger flexion, and hand dexterity.",
+    body_part: "Hand/Fingers",
+    target_joint: "Fingers",
+    rehabilitation_goal: "Strength Building",
+    difficulty: "Medium",
+    target_angle: 85.0,
+    target_pressure: 120.0,
+    repetitions: 10,
+    hold_duration: 3,
+    hold_seconds: 3,
+    rest_duration: 2,
+    rest_seconds: 2,
+    required_sensors: "FSR, Flex Sensors",
+    camera_view: "hand",
+    primary_sensor: "pressure",
+    secondary_sensor: "flex_avg"
+  },
+  {
+    id: "6bf28f42-c178-4359-ba1d-288289bf65d8",
+    exercise_name: "Wrist Flexion",
+    description: "Slowly bend your wrist downward towards the inside of your forearm to stretch and strengthen wrist flexors.",
+    body_part: "Wrist",
+    target_joint: "Wrist",
+    rehabilitation_goal: "Improve Range of Motion",
+    difficulty: "Easy",
+    target_angle: 60.0,
+    target_pressure: 0.0,
+    repetitions: 10,
+    hold_duration: 3,
+    hold_seconds: 3,
+    rest_duration: 2,
+    rest_seconds: 2,
+    required_sensors: "MPU",
+    camera_view: "wrist",
+    primary_sensor: "wrist_pitch",
+    secondary_sensor: "wrist_roll"
+  },
+  {
+    id: "1a1e473f-0601-41dc-8ee7-e360f28fadd4",
+    exercise_name: "Wrist Extension",
+    description: "Bend your wrist upward towards the outside of your forearm to stretch and strengthen wrist extensors.",
+    body_part: "Wrist",
+    target_joint: "Wrist",
+    rehabilitation_goal: "Improve Range of Motion",
+    difficulty: "Easy",
+    target_angle: 50.0,
+    target_pressure: 0.0,
+    repetitions: 10,
+    hold_duration: 3,
+    hold_seconds: 3,
+    rest_duration: 2,
+    rest_seconds: 2,
+    required_sensors: "MPU",
+    camera_view: "wrist",
+    primary_sensor: "wrist_pitch",
+    secondary_sensor: "wrist_roll"
+  },
+  {
+    id: "39371466-5a3c-4335-82af-daeca0cec244",
+    exercise_name: "Wrist Rotation",
+    description: "Rotate your wrist slowly in a circular motion to improve wrist joint mobility, range of motion, and flexibility.",
+    body_part: "Wrist",
+    target_joint: "Wrist",
+    rehabilitation_goal: "Improve Range of Motion",
+    difficulty: "Medium",
+    target_angle: 90.0,
+    target_pressure: 0.0,
+    repetitions: 8,
+    hold_duration: 2,
+    hold_seconds: 2,
+    rest_duration: 3,
+    rest_seconds: 3,
+    required_sensors: "MPU",
+    camera_view: "wrist",
+    primary_sensor: "wrist_roll",
+    secondary_sensor: "wrist_pitch"
+  },
+  {
+    id: "0f385649-9f2a-4ef0-b959-cb7f405527ce",
+    exercise_name: "Finger Closing",
+    description: "Curl all fingers inward to make a tight fist to improve hand flexor endurance and finger joint range.",
+    body_part: "Hand/Fingers",
+    target_joint: "Fingers",
+    rehabilitation_goal: "Reduce Stiffness",
+    difficulty: "Easy",
+    target_angle: 95.0,
+    target_pressure: 0.0,
+    repetitions: 12,
+    hold_duration: 4,
+    hold_seconds: 4,
+    rest_duration: 2,
+    rest_seconds: 2,
+    required_sensors: "Flex Sensors",
+    camera_view: "hand",
+    primary_sensor: "flex_avg",
+    secondary_sensor: "wrist_pitch"
+  },
+  {
+    id: "03441c40-0b73-423c-b593-fd5a9595c6db",
+    exercise_name: "Finger Opening",
+    description: "Fully extend and separate your fingers outward to improve extensor strength and reduce joint stiffness.",
+    body_part: "Hand/Fingers",
+    target_joint: "Fingers",
+    rehabilitation_goal: "Reduce Stiffness",
+    difficulty: "Easy",
+    target_angle: 10.0,
+    target_pressure: 0.0,
+    repetitions: 12,
+    hold_duration: 3,
+    hold_seconds: 3,
+    rest_duration: 2,
+    rest_seconds: 2,
+    required_sensors: "Flex Sensors",
+    camera_view: "hand",
+    primary_sensor: "flex_avg",
+    secondary_sensor: "wrist_pitch"
+  },
+  {
+    id: "071a02dd-255c-45f0-bb8c-98dfe560d5ef",
+    exercise_name: "Elbow Curl",
+    description: "Bend your elbow to bring your forearm up towards your shoulder, simulating a standard bicep curl to improve elbow range of motion.",
+    body_part: "Elbow",
+    target_joint: "Elbow",
+    rehabilitation_goal: "Improve Range of Motion",
+    difficulty: "Medium",
+    target_angle: 130.0,
+    target_pressure: 0.0,
+    repetitions: 10,
+    hold_duration: 3,
+    hold_seconds: 3,
+    rest_duration: 3,
+    rest_seconds: 3,
+    required_sensors: "MPU",
+    camera_view: "elbow",
+    primary_sensor: "elbow",
+    secondary_sensor: "wrist_roll"
+  },
+  {
+    id: "bc589ee6-9a23-4120-bc3c-6979bf688ce2",
+    exercise_name: "Shoulder Raise",
+    description: "Raise your arm up sideways to shoulder level to improve shoulder rotation, range of motion, and deltoid muscular strength.",
+    body_part: "Shoulder",
+    target_joint: "Shoulder",
+    rehabilitation_goal: "Improve Range of Motion",
+    difficulty: "Hard",
+    target_angle: 90.0,
+    target_pressure: 0.0,
+    repetitions: 8,
+    hold_duration: 4,
+    hold_seconds: 4,
+    rest_duration: 4,
+    rest_seconds: 4,
+    required_sensors: "MPU",
+    camera_view: "side",
+    primary_sensor: "wrist_pitch",
+    secondary_sensor: "elbow"
+  },
+  {
+    id: "d2be0688-1534-4cab-8cf7-85b725be6c9a",
+    exercise_name: "Elbow Flex Test",
+    description: "Slowly bend and straighten your elbow to test flex sensor range and calibrate the 3D model elbow joint.",
+    body_part: "Elbow",
+    target_joint: "Elbow",
+    rehabilitation_goal: "Improve Range of Motion",
+    difficulty: "Easy",
+    target_angle: 90.0,
+    target_pressure: 0.0,
+    repetitions: 5,
+    hold_duration: 3,
+    hold_seconds: 3,
+    rest_duration: 3,
+    rest_seconds: 3,
+    required_sensors: "Flex Sensor",
+    camera_view: "elbow",
+    primary_sensor: "elbow",
+    secondary_sensor: "wrist_roll"
+  },
+  {
+    id: "550f0c38-457a-43be-83af-d63e57998804",
+    exercise_name: "Finger Flex Test",
+    description: "Open and close your hand slowly to test all 5 finger flex sensors and calibrate the 3D finger model.",
+    body_part: "Hand/Fingers",
+    target_joint: "Fingers",
+    rehabilitation_goal: "Reduce Stiffness",
+    difficulty: "Easy",
+    target_angle: 70.0,
+    target_pressure: 0.0,
+    repetitions: 5,
+    hold_seconds: 3,
+    hold_duration: 3,
+    rest_duration: 3,
+    rest_seconds: 3,
+    required_sensors: "Flex Sensors",
+    camera_view: "hand",
+    primary_sensor: "flex_avg",
+    secondary_sensor: "pressure"
+  },
+  {
+    id: "6ae8def9-b6d3-4bf0-b249-bfcc7e30a66c",
+    exercise_name: "Wrist Motion Test",
+    description: "Tilt and rotate your wrist to test MPU6050 pitch and roll readings and calibrate wrist 3D movement.",
+    body_part: "Wrist",
+    target_joint: "Wrist",
+    rehabilitation_goal: "Improve Range of Motion",
+    difficulty: "Easy",
+    target_angle: 45.0,
+    target_pressure: 0.0,
+    repetitions: 5,
+    hold_seconds: 2,
+    hold_duration: 2,
+    rest_duration: 2,
+    rest_seconds: 2,
+    required_sensors: "MPU",
+    camera_view: "wrist",
+    primary_sensor: "wrist_pitch",
+    secondary_sensor: "wrist_roll"
+  },
+  {
+    id: "71df6ce9-141c-4dac-9060-3ead1a7ff385",
+    exercise_name: "Full Arm Diagnostic",
+    description: "Complete arm range of motion test: bend elbow, flex fingers, rotate wrist. Tests all sensors simultaneously.",
+    body_part: "Full Arm",
+    target_joint: "All",
+    rehabilitation_goal: "Improve Range of Motion",
+    difficulty: "Medium",
+    target_angle: 90.0,
+    target_pressure: 0.0,
+    repetitions: 3,
+    hold_seconds: 5,
+    hold_duration: 5,
+    rest_duration: 5,
+    rest_seconds: 5,
+    required_sensors: "All",
+    camera_view: "straight",
+    primary_sensor: "elbow",
+    secondary_sensor: "flex_avg"
+  }
+];
+
 function ExerciseLibraryPage() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
@@ -127,25 +370,34 @@ function ExerciseLibraryPage() {
     setErrorMsg('');
     try {
       const allEx = await getExercises();
-      setExercises(allEx);
+      if (allEx && Array.isArray(allEx) && allEx.length > 0) {
+        setExercises(allEx);
+      } else {
+        setExercises(FALLBACK_EXERCISES);
+      }
 
       if (activePatientId) {
-        const recEx = await getRecommendedExercises(activePatientId);
-        setRecommendedExercises(recEx);
+        try {
+          const recEx = await getRecommendedExercises(activePatientId);
+          setRecommendedExercises(recEx || []);
+        } catch (rErr) {
+          console.warn("Failed to load recommended exercises:", rErr);
+        }
         
         try {
           const pDetails = await getPatient(activePatientId);
           setPatientDetails(pDetails);
         } catch (pErr) {
-          console.error("Failed to load patient details:", pErr);
+          console.warn("Failed to load patient details:", pErr);
         }
       } else {
         setRecommendedExercises([]);
         setPatientDetails(null);
       }
     } catch (err) {
-      console.error(err);
-      setErrorMsg('Failed to load rehabilitation exercises. Please verify the backend connection.');
+      console.warn("Could not fetch exercises from API, using built-in catalog:", err);
+      setExercises(FALLBACK_EXERCISES);
+      setErrorMsg('Connected to built-in exercise catalogue (backend sync pending).');
     } finally {
       setLoading(false);
     }
@@ -403,6 +655,23 @@ function ExerciseLibraryPage() {
         </div>
       </div>
 
+      {/* Exercise DB Sync Banner if errorMsg exists */}
+      {errorMsg && (
+        <div className="mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="text-amber-500 text-lg">ℹ️</span>
+            <span className="text-sm font-medium text-amber-700 dark:text-amber-300">{errorMsg}</span>
+          </div>
+          <button
+            onClick={fetchExercisesList}
+            className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Sync DB</span>
+          </button>
+        </div>
+      )}
+
       {/* Exercises Cards Grid */}
       {loading ? (
         <div className="flex flex-col items-center justify-center py-20 space-y-4">
@@ -410,10 +679,17 @@ function ExerciseLibraryPage() {
           <p className="text-sm font-semibold text-slate-500">Loading exercises library from DB...</p>
         </div>
       ) : exercises.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-2xl border border-slate-200">
-          <BookOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-          <h4 className="text-lg font-bold text-slate-700">No Exercises Found</h4>
-          <p className="text-sm text-slate-500">The exercise database is currently empty.</p>
+        <div className="text-center py-20 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-8 shadow-sm">
+          <BookOpen className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
+          <h4 className="text-lg font-bold text-slate-700 dark:text-slate-200">No Exercises Found</h4>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">The exercise database is syncing. Click below to reload.</p>
+          <button
+            onClick={fetchExercisesList}
+            className="px-4 py-2 rounded-xl bg-primary hover:bg-primary/90 text-white font-medium text-sm inline-flex items-center gap-2 cursor-pointer shadow-sm"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Reload Library
+          </button>
         </div>
       ) : viewMode === 'horizontal' ? (
         <div className="space-y-8">
