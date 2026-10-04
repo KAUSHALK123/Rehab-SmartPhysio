@@ -9,19 +9,12 @@ import {
   Radio,
   RefreshCw,
   AlertTriangle,
-  Eye
+  Eye,
+  XCircle
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
-// ─── GPIO reference (matches sleeve_firmware.ino) ────────────────────────────
-const FINGER_COLORS = {
-  thumb:  { bar: '#8b5cf6', text: 'text-violet-400'  },
-  index:  { bar: '#3b82f6', text: 'text-blue-400'    },
-  middle: { bar: '#10b981', text: 'text-emerald-400' },
-  ring:   { bar: '#f59e0b', text: 'text-amber-400'   },
-  little: { bar: '#ef4444', text: 'text-red-400'     },
-};
-
+// ─── GPIO reference (matches sleeve_firmware.ino PIN_ constants) ─────────────
 const GPIO_ROWS = [
   ['Thumb',    'PIN_THUMB',    'GPIO 32 (D32)', 'ADC1_CH4'],
   ['Index',    'PIN_INDEX',    'GPIO 35 (D35)', 'ADC1_CH7'],
@@ -34,8 +27,18 @@ const GPIO_ROWS = [
   ['MPU SCL',  'Wire.begin()', 'GPIO 22',       'I\u00b2C Clock'],
 ];
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// Raw field names sent by firmware in the JSON WebSocket packet
+const FINGER_SENSORS = [
+  { key: 'raw_thumb',  label: 'Thumb',  gpio: 'GPIO 32 (D32)', color: '#8b5cf6' },
+  { key: 'raw_index',  label: 'Index',  gpio: 'GPIO 35 (D35)', color: '#3b82f6' },
+  { key: 'raw_middle', label: 'Middle', gpio: 'GPIO 34 (D34)', color: '#10b981' },
+  { key: 'raw_ring',   label: 'Ring',   gpio: 'GPIO 33 (D33)', color: '#f59e0b' },
+  { key: 'raw_little', label: 'Little', gpio: 'VP / GPIO 36',  color: '#ef4444' },
+];
 
+const ADC_MAX = 4095; // ESP32 12-bit ADC
+
+// ─── WebSocket URL helper ─────────────────────────────────────────────────────
 function getWsUrl() {
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -44,92 +47,65 @@ function getWsUrl() {
   return `${protocol}//${wsHost}/api/v1/device/ws`;
 }
 
-function fmtRaw(v) {
-  if (v === undefined || v === null) return '\u2014';
-  return Math.round(v);
-}
-
-function fmtAngle(v) {
-  if (v === undefined || v === null) return '\u2014';
-  if (typeof v === 'object') return (v.angle ?? 0).toFixed(1) + '\u00b0';
-  return Number(v).toFixed(1) + '\u00b0';
-}
-
-function anglePct(v) {
-  if (v === undefined || v === null) return 0;
-  if (typeof v === 'object') return Math.round(((v.angle ?? 0) / 90) * 100);
-  if (v <= 90) return Math.round((v / 90) * 100);
-  return Math.round(Math.min(100, (v / 4095) * 100));
-}
-
-// ─── Sub-components ──────────────────────────────────────────────────────────
-
-function CurlBar({ pct = 0, color = '#3b82f6' }) {
+// ─── Pure raw ADC bar — NO calibration, NO angle mapping ─────────────────────
+function RawBar({ raw, color }) {
+  // pct is purely: raw / 4095 * 100. Nothing else.
+  const pct = (raw !== undefined && raw !== null) ? Math.min(100, Math.round((raw / ADC_MAX) * 100)) : 0;
   return (
-    <div className="w-full h-2 rounded-full bg-slate-700/40 overflow-hidden">
-      <div
-        className="h-full rounded-full transition-all duration-150"
-        style={{ width: `${Math.min(100, pct)}%`, background: color }}
-      />
+    <div className="flex items-center gap-3 w-full">
+      <div className="flex-1 h-3 rounded-full bg-slate-700/40 overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-100"
+          style={{ width: `${pct}%`, background: color }}
+        />
+      </div>
+      <span className="text-[11px] font-mono font-bold text-slate-400 w-8 text-right">{pct}%</span>
     </div>
   );
 }
 
-function SensorRow({ label, emoji, gpioLabel, rawKey, angleKey, colorKey, packet, isDark }) {
-  const raw   = packet?.[rawKey];
-  const angle = packet?.[angleKey];
-  const p     = anglePct(angle);
-  const color = (FINGER_COLORS[colorKey] || FINGER_COLORS.index).bar;
-  const textColor = (FINGER_COLORS[colorKey] || FINGER_COLORS.index).text;
-
+// ─── Single sensor row ────────────────────────────────────────────────────────
+function SensorRow({ label, gpio, color, rawValue, isDark }) {
+  const hasValue = rawValue !== undefined && rawValue !== null;
   return (
-    <tr className={`border-b ${isDark ? 'border-slate-800' : 'border-slate-100'} transition-colors`}>
-      <td className="py-3 px-4">
-        <div className="flex items-center gap-2">
-          <span className="text-base">{emoji}</span>
-          <div>
-            <div className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>{label}</div>
-            <div className="text-[10px] text-slate-500 font-mono">{gpioLabel}</div>
-          </div>
-        </div>
+    <tr className={`border-b ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+      {/* Label */}
+      <td className="py-3 px-4 w-40">
+        <div className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>{label}</div>
+        <div className="text-[10px] font-mono text-slate-500">{gpio}</div>
       </td>
-      <td className="py-3 px-4">
-        <span className={`font-mono text-sm font-bold ${packet ? (isDark ? 'text-slate-200' : 'text-slate-700') : 'text-slate-500'}`}>
-          {fmtRaw(raw)}
+
+      {/* Raw ADC number — the ONLY value shown */}
+      <td className="py-3 px-4 w-32">
+        <span className={`font-mono text-xl font-black ${hasValue ? (isDark ? 'text-white' : 'text-slate-800') : 'text-slate-600'}`}>
+          {hasValue ? Math.round(rawValue) : '\u2014'}
         </span>
-        <div className="text-[9px] text-slate-500">/ 4095</div>
+        <div className="text-[9px] text-slate-500">/ {ADC_MAX}</div>
       </td>
+
+      {/* Bar — raw / 4095, no processing */}
       <td className="py-3 px-4">
-        <span className={`font-mono text-sm font-bold ${textColor}`}>{fmtAngle(angle)}</span>
-      </td>
-      <td className="py-3 px-4" style={{ minWidth: '140px' }}>
-        <div className="space-y-1">
-          <div className="flex justify-between text-[10px] font-bold">
-            <span className={textColor}>{p}%</span>
-            <span className="text-slate-500">{p < 30 ? 'Open' : p < 65 ? 'Partial' : 'Curled'}</span>
-          </div>
-          <CurlBar pct={p} color={color} />
-        </div>
+        <RawBar raw={rawValue} color={color} />
       </td>
     </tr>
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
-
+// ─── Main page ────────────────────────────────────────────────────────────────
 export default function LiveSensorMonitorPage() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
   const wsRef = useRef(null);
 
-  const [connected, setConnected]           = useState(false);
-  const [isHardware, setIsHardware]         = useState(false);
   const [packet, setPacket]                 = useState(null);
+  const [isMock, setIsMock]                 = useState(false);
+  const [isHardware, setIsHardware]         = useState(false);
+  const [connected, setConnected]           = useState(false);
   const [packetCount, setPacketCount]       = useState(0);
   const [lastPacketTime, setLastPacketTime] = useState(null);
   const [wsState, setWsState]               = useState('disconnected');
 
-  // ── WebSocket (viewer-only — sends NOTHING) ─────────────────────────────
+  // ── WebSocket — viewer-only, sends NOTHING ─────────────────────────────────
   useEffect(() => {
     let ws;
     let reconnectTimer = null;
@@ -144,13 +120,17 @@ export default function LiveSensorMonitorPage() {
       ws.onmessage = (ev) => {
         try {
           const data = JSON.parse(ev.data);
+
           if (data.type === 'status_update') {
             setConnected(!!data.hardware_connected);
           }
+
           if (data.type === 'sensor_data') {
-            setIsHardware(!data.is_mock);
+            const mock = !!data.is_mock;
+            setIsMock(mock);
+            setIsHardware(!mock);
             setConnected(true);
-            setPacket(data);
+            setPacket(data);                        // store full packet as-is
             setLastPacketTime(Date.now());
             setPacketCount(n => n + 1);
           }
@@ -167,34 +147,33 @@ export default function LiveSensorMonitorPage() {
     }
 
     connect();
-
     return () => {
       clearTimeout(reconnectTimer);
       if (ws) ws.close();
     };
   }, []);
 
-  const timeSince = lastPacketTime ? ((Date.now() - lastPacketTime) / 1000).toFixed(1) : null;
+  // Age of last packet (for staleness warning)
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, []);
+  const msSince = lastPacketTime ? now - lastPacketTime : null;
 
-  // ── MPU data ────────────────────────────────────────────────────────────
-  const pitch  = packet?.wrist_pitch ?? packet?.pitch;
-  const roll   = packet?.wrist_roll  ?? packet?.roll;
-  const mpuOk  = packet?.mpu_working;
+  // MPU raw values — these ARE live hardware, not mapped
+  const pitch   = packet?.wrist_pitch ?? packet?.pitch;
+  const roll    = packet?.wrist_roll  ?? packet?.roll;
+  const mpuOk   = packet?.mpu_working;
 
-  // ── Pressure data ───────────────────────────────────────────────────────
-  const rawP    = packet?.raw_pressure ?? packet?.pressure;
-  const mapped  = rawP !== undefined ? Math.round(Math.min(rawP, 3000) / 3000 * 800) : undefined;
-  const pBar    = rawP !== undefined ? Math.min(100, Math.round((Math.min(rawP, 3000) / 3000) * 100)) : 0;
-
-  // ── Elbow data ──────────────────────────────────────────────────────────
-  const rawE  = packet?.raw_elbow;
-  const angE  = packet?.elbow;
-  const pE    = angE !== undefined ? Math.round(Number(angE) / 90 * 100) : 0;
+  // Elbow and pressure raw
+  const rawElbow    = packet?.raw_elbow;
+  const rawPressure = packet?.raw_pressure;
 
   return (
-    <div className="space-y-6 pb-10">
+    <div className="space-y-5 pb-10">
 
-      {/* Header */}
+      {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className={`p-5 md:p-6 rounded-2xl border shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 ${
         isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
       }`}>
@@ -219,13 +198,13 @@ export default function LiveSensorMonitorPage() {
           <div>
             <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Live Sensor Monitor</h3>
             <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-              Read-only diagnostic view &mdash; verify sensor wiring &amp; live ADC values
+              Pure raw ADC values only &mdash; no processing, no calibration, no mapping
             </p>
           </div>
         </div>
 
+        {/* Status badges */}
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Status badge */}
           {wsState === 'connecting' && !connected ? (
             <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-slate-800 text-slate-400 border border-slate-700">
               <RefreshCw className="w-3 h-3 animate-spin" /> Connecting&hellip;
@@ -235,10 +214,10 @@ export default function LiveSensorMonitorPage() {
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
               Hardware Live
             </span>
-          ) : connected ? (
-            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-blue-950/70 text-blue-400 border border-blue-500/30">
-              <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse inline-block" />
-              Simulated
+          ) : connected && isMock ? (
+            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-orange-950/70 text-orange-400 border border-orange-500/30">
+              <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
+              SIMULATED
             </span>
           ) : (
             <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-slate-800 text-slate-400 border border-slate-700">
@@ -251,24 +230,41 @@ export default function LiveSensorMonitorPage() {
           }`}>
             {packetCount} pkts
           </div>
-          {timeSince && (
-            <div className="text-[11px] text-slate-500">Last: {timeSince}s ago</div>
+
+          {msSince !== null && (
+            <span className={`text-[11px] font-mono ${msSince > 3000 ? 'text-red-400' : 'text-slate-500'}`}>
+              {(msSince / 1000).toFixed(1)}s ago
+            </span>
           )}
         </div>
       </div>
 
-      {/* Read-only notice */}
+      {/* ── MOCK DATA WARNING — shown whenever is_mock=true ──────────────────── */}
+      {isMock && packet && (
+        <div className="flex items-start gap-3 px-5 py-4 rounded-xl border-2 border-orange-500/60 bg-orange-950/40">
+          <XCircle className="w-5 h-5 text-orange-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-black text-orange-300">SIMULATED DATA &mdash; ESP32 not connected</p>
+            <p className="text-xs text-orange-400/80 mt-0.5">
+              The backend is sending fake/random telemetry because the hardware device is offline.
+              These values do NOT reflect real sensor readings. Connect the ESP32 sleeve and refresh to see live data.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Read-only notice ─────────────────────────────────────────────────── */}
       <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-sm ${
         isDark ? 'bg-cyan-950/30 border-cyan-800/40 text-cyan-300' : 'bg-cyan-50 border-cyan-200 text-cyan-700'
       }`}>
         <Eye className="w-4 h-4 flex-shrink-0" />
         <span className="font-medium">
-          <strong>READ-ONLY monitor.</strong> This page sends zero commands to the device &mdash;
-          it only observes the live telemetry stream already broadcast by the backend WebSocket.
+          <strong>READ-ONLY.</strong> Showing only <code className="font-mono bg-black/20 px-1 rounded">raw_*</code> ADC fields
+          straight from the WebSocket packet &mdash; no angle mapping, no calibration, no EMA.
         </span>
       </div>
 
-      {/* No signal banner */}
+      {/* ── No packet yet ──────────────────────────────────────────────────────  */}
       {!packet && (
         <div className={`flex items-center gap-3 px-5 py-4 rounded-xl border ${
           isDark ? 'bg-slate-800/70 border-slate-700' : 'bg-slate-50 border-slate-200'
@@ -277,93 +273,80 @@ export default function LiveSensorMonitorPage() {
           <div>
             <p className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Waiting for sensor data&hellip;</p>
             <p className="text-xs text-slate-500">
-              {wsState === 'connecting' ? 'Establishing WebSocket connection to backend\u2026' :
-               wsState === 'open'       ? 'Connected \u2014 waiting for ESP32 telemetry packets\u2026' :
-               'WebSocket closed. Reconnecting in a few seconds\u2026'}
+              {wsState === 'connecting'
+                ? 'Establishing WebSocket connection\u2026'
+                : wsState === 'open'
+                ? 'Socket open \u2014 waiting for ESP32 telemetry\u2026'
+                : 'Socket closed \u2014 reconnecting in 4 s\u2026'}
             </p>
           </div>
         </div>
       )}
 
-      {/* ── FINGER FLEX SENSORS ─────────────────────────────────────────── */}
+      {/* ── FINGER FLEX SENSORS ──────────────────────────────────────────────── */}
       <div className={`rounded-2xl border overflow-hidden ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <div className={`px-5 py-4 border-b flex items-center gap-2 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+        <div className={`px-5 py-4 border-b flex items-center gap-3 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
           <span className="text-lg">✋</span>
-          <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Live Finger Flex Sensors</h3>
-          <span className="text-[10px] text-slate-500 ml-auto">Raw ADC (0&ndash;4095) &rarr; Angle (0&ndash;90&deg;)</span>
+          <div>
+            <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Finger Flex Sensors</h3>
+            <p className="text-[10px] text-slate-500">
+              Direct <code className="font-mono bg-black/20 px-1 rounded">raw_*</code> ADC reading (0&ndash;4095) from firmware JSON packet &mdash; no angle mapping applied
+            </p>
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'bg-slate-800/60 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
-                <th className="py-2 px-4">Finger / GPIO</th>
-                <th className="py-2 px-4">Raw ADC</th>
-                <th className="py-2 px-4">Angle</th>
-                <th className="py-2 px-4">Curl %</th>
-              </tr>
-            </thead>
-            <tbody>
-              <SensorRow label="Thumb"  emoji="👍" gpioLabel="GPIO 32 (D32)" colorKey="thumb"  rawKey="raw_thumb"  angleKey="thumb"  packet={packet} isDark={isDark} />
-              <SensorRow label="Index"  emoji="☝" gpioLabel="GPIO 35 (D35)"  colorKey="index"  rawKey="raw_index"  angleKey="index"  packet={packet} isDark={isDark} />
-              <SensorRow label="Middle" emoji="🖐" gpioLabel="GPIO 34 (D34)"  colorKey="middle" rawKey="raw_middle" angleKey="middle" packet={packet} isDark={isDark} />
-              <SensorRow label="Ring"   emoji="💍" gpioLabel="GPIO 33 (D33)" colorKey="ring"   rawKey="raw_ring"   angleKey="ring"   packet={packet} isDark={isDark} />
-              <SensorRow label="Little" emoji="🤙" gpioLabel="VP / GPIO 36"  colorKey="little" rawKey="raw_little" angleKey="little" packet={packet} isDark={isDark} />
-            </tbody>
-          </table>
-        </div>
+        <table className="w-full text-left">
+          <thead>
+            <tr className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'bg-slate-800/60 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
+              <th className="py-2 px-4">Finger / GPIO Pin</th>
+              <th className="py-2 px-4">Raw ADC (0&ndash;4095)</th>
+              <th className="py-2 px-4">% of Max ADC</th>
+            </tr>
+          </thead>
+          <tbody>
+            {FINGER_SENSORS.map(({ key, label, gpio, color }) => (
+              <SensorRow
+                key={key}
+                label={label}
+                gpio={gpio}
+                color={color}
+                rawValue={packet?.[key]}
+                isDark={isDark}
+              />
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      {/* ── ELBOW FLEX SENSOR ────────────────────────────────────────────── */}
+      {/* ── ELBOW FLEX SENSOR ────────────────────────────────────────────────── */}
       <div className={`rounded-2xl border overflow-hidden ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <div className={`px-5 py-4 border-b flex items-center gap-2 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+        <div className={`px-5 py-4 border-b flex items-center gap-3 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
           <span className="text-lg">💪</span>
-          <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Elbow Flex Sensor</h3>
-          <span className="text-[10px] text-slate-500 ml-auto">VN / GPIO 39 &mdash; ADC1_CH3</span>
+          <div>
+            <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Elbow Flex Sensor</h3>
+            <p className="text-[10px] text-slate-500">VN / GPIO 39 &mdash; ADC1_CH3</p>
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'bg-slate-800/60 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
-                <th className="py-2 px-4">Sensor / GPIO</th>
-                <th className="py-2 px-4">Raw ADC</th>
-                <th className="py-2 px-4">Angle</th>
-                <th className="py-2 px-4">Flex %</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className={`border-b ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
-                <td className="py-3 px-4">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">💪</span>
-                    <div>
-                      <div className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Elbow</div>
-                      <div className="text-[10px] text-slate-500 font-mono">VN / GPIO 39</div>
-                    </div>
-                  </div>
-                </td>
-                <td className="py-3 px-4">
-                  <span className={`font-mono text-sm font-bold ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>{fmtRaw(rawE)}</span>
-                  <div className="text-[9px] text-slate-500">/ 4095</div>
-                </td>
-                <td className="py-3 px-4">
-                  <span className="font-mono text-sm font-bold text-blue-400">{fmtAngle(angE)}</span>
-                </td>
-                <td className="py-3 px-4" style={{ minWidth: '140px' }}>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[10px] font-bold">
-                      <span className="text-blue-400">{pE}%</span>
-                      <span className="text-slate-500">{pE < 30 ? 'Extended' : pE < 65 ? 'Partial' : 'Flexed'}</span>
-                    </div>
-                    <CurlBar pct={pE} color="#3b82f6" />
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <table className="w-full text-left">
+          <thead>
+            <tr className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'bg-slate-800/60 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
+              <th className="py-2 px-4">Sensor / GPIO Pin</th>
+              <th className="py-2 px-4">Raw ADC (0&ndash;4095)</th>
+              <th className="py-2 px-4">% of Max ADC</th>
+            </tr>
+          </thead>
+          <tbody>
+            <SensorRow
+              label="Elbow"
+              gpio="VN / GPIO 39"
+              color="#3b82f6"
+              rawValue={rawElbow}
+              isDark={isDark}
+            />
+          </tbody>
+        </table>
       </div>
 
-      {/* ── MPU + Pressure Grid ─────────────────────────────────────────── */}
+      {/* ── MPU-6050 + Grip Pressure ─────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         {/* MPU-6050 */}
@@ -374,26 +357,40 @@ export default function LiveSensorMonitorPage() {
             </div>
             <div>
               <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>MPU-6050 IMU</h3>
-              <p className="text-[10px] text-slate-500">GPIO 21 (SDA) / GPIO 22 (SCL) &mdash; I&sup2;C</p>
+              <p className="text-[10px] text-slate-500">GPIO 21 (SDA) &amp; GPIO 22 (SCL) &mdash; I&sup2;C</p>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: 'MPU I\u00b2C', value: mpuOk === undefined ? '\u2014' : mpuOk ? 'OK' : 'No Ack', ok: mpuOk },
-              { label: 'Pitch', value: pitch !== undefined ? `${Number(pitch).toFixed(1)}\u00b0` : '\u2014' },
-              { label: 'Roll',  value: roll  !== undefined ? `${Number(roll ).toFixed(1)}\u00b0` : '\u2014' },
+              {
+                label: 'I\u00b2C Status',
+                value: mpuOk === undefined ? '\u2014' : mpuOk ? 'OK' : 'No Ack',
+                color: mpuOk === undefined ? 'text-slate-400' : mpuOk ? 'text-emerald-400' : 'text-red-400',
+                icon: mpuOk === true ? '✓' : mpuOk === false ? '✗' : '?'
+              },
+              {
+                label: 'Pitch',
+                value: pitch !== undefined ? `${Number(pitch).toFixed(2)}\u00b0` : '\u2014',
+                color: 'text-violet-400',
+                icon: <Activity className="w-4 h-4 mx-auto" />
+              },
+              {
+                label: 'Roll',
+                value: roll !== undefined ? `${Number(roll).toFixed(2)}\u00b0` : '\u2014',
+                color: 'text-blue-400',
+                icon: <Activity className="w-4 h-4 mx-auto" />
+              },
             ].map(s => (
               <div key={s.label} className={`rounded-xl p-3 border text-center ${isDark ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
-                <div className={`text-base mb-1 ${s.ok === true ? 'text-emerald-400' : s.ok === false ? 'text-red-400' : 'text-slate-400'}`}>
-                  {s.ok === true ? '✓' : s.ok === false ? '✗' : <Activity className="w-4 h-4 mx-auto" />}
-                </div>
-                <div className={`text-xs font-bold font-mono ${
-                  s.ok === true ? 'text-emerald-400' : s.ok === false ? 'text-red-400' : isDark ? 'text-slate-200' : 'text-slate-700'
-                }`}>{s.value}</div>
+                <div className={`text-base mb-1 ${s.color}`}>{s.icon}</div>
+                <div className={`text-sm font-black font-mono ${s.color}`}>{s.value}</div>
                 <div className="text-[9px] text-slate-500 mt-0.5">{s.label}</div>
               </div>
             ))}
           </div>
+          <p className="text-[10px] text-slate-500 mt-3">
+            MPU values are orientation angles from the DMP/gyro integration &mdash; not raw register reads.
+          </p>
         </div>
 
         {/* Grip Pressure */}
@@ -407,28 +404,25 @@ export default function LiveSensorMonitorPage() {
               <p className="text-[10px] text-slate-500">GPIO 25 (D25) &mdash; Analog</p>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            <div className={`rounded-xl p-3 border ${isDark ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
-              <div className="text-[10px] text-slate-500 mb-1">Raw ADC</div>
-              <div className={`text-lg font-black font-mono ${isDark ? 'text-white' : 'text-slate-800'}`}>{fmtRaw(rawP)}</div>
-              <div className="text-[9px] text-slate-500">/ 4095</div>
+          <div className={`rounded-xl p-4 border mb-3 ${isDark ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
+            <div className="text-[10px] text-slate-500 mb-1">raw_pressure ADC value</div>
+            <div className={`text-3xl font-black font-mono ${isDark ? 'text-white' : 'text-slate-800'}`}>
+              {rawPressure !== undefined ? Math.round(rawPressure) : '\u2014'}
             </div>
-            <div className={`rounded-xl p-3 border ${isDark ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
-              <div className="text-[10px] text-slate-500 mb-1">Approx. Force</div>
-              <div className="text-lg font-black font-mono text-rose-400">{mapped !== undefined ? mapped : '\u2014'}</div>
-              <div className="text-[9px] text-slate-500">/ 800 N-approx</div>
-            </div>
+            <div className="text-[9px] text-slate-500">/ {ADC_MAX}</div>
           </div>
-          <CurlBar pct={pBar} color="#f43f5e" />
+          <RawBar raw={rawPressure} color="#f43f5e" />
           <div className="flex justify-between text-[10px] text-slate-500 mt-1">
             <span>No press</span>
-            <span className="font-bold text-rose-400">{pBar}%</span>
-            <span>Max squeeze</span>
+            <span className="font-bold text-rose-400">
+              {rawPressure !== undefined ? Math.min(100, Math.round((rawPressure / ADC_MAX) * 100)) : 0}%
+            </span>
+            <span>Max (4095)</span>
           </div>
         </div>
       </div>
 
-      {/* ── GPIO Reference Table ─────────────────────────────────────────── */}
+      {/* ── GPIO Reference Table ─────────────────────────────────────────────── */}
       <div className={`rounded-2xl border p-5 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className="flex items-center gap-2 mb-4">
           <Cpu className="w-4 h-4 text-slate-400" />
