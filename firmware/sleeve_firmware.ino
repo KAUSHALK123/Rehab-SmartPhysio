@@ -310,6 +310,9 @@ void setup() {
     Serial.println("\nWi-Fi Connected successfully!");
     Serial.print("Local IP Address: ");
     Serial.println(WiFi.localIP());
+    // Disable Wi-Fi modem sleep to prevent disconnection during idle periods
+    WiFi.setSleep(false);
+    WiFi.setAutoReconnect(true);
   }
 
   // 2. Initialize I2C and MPU6050 with explicit ESP32 pins
@@ -331,7 +334,8 @@ void setup() {
   Serial.printf("Connecting to WebSocket server: %s:%d...\n", server_host.c_str(), server_port);
   webSocket.begin(server_host.c_str(), server_port, "/api/v1/device/ws?client_type=device");
   webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(5000); // Reconnect every 5 seconds if connection fails
+  webSocket.setReconnectInterval(3000); // Reconnect quickly (3s) if connection drops
+  webSocket.enableHeartbeat(15000, 3000, 2); // Keep-alive ping every 15s to prevent router timeouts
 
   // 4. Configure ADC resolution & analog input pins (Full 12-bit, 0V - 3.3V range)
   analogReadResolution(12);
