@@ -155,7 +155,7 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                             "mpu_working": False,
                         }
                         await websocket.send_text(json.dumps(packet))
-                    await asyncio.sleep(0.1) # 10Hz stream
+                    await asyncio.sleep(0.05) # 20Hz stream (matches firmware streamInterval=50ms)
             except asyncio.CancelledError:
                 pass
             except Exception:

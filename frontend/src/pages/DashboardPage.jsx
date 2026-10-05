@@ -390,21 +390,21 @@ function DashboardPage() {
 
   const sensorReadings = {
     imu: {
-      pitch: liveTelemetry ? (liveTelemetry.wrist_pitch ?? 0).toFixed(1) : '14.2',
-      roll: liveTelemetry ? (liveTelemetry.wrist_roll ?? 0).toFixed(1) : '-8.5',
+      pitch: liveTelemetry ? (liveTelemetry.wrist_pitch ?? 0).toFixed(1) : '0.0',
+      roll: liveTelemetry ? (liveTelemetry.wrist_roll ?? 0).toFixed(1) : '0.0',
     },
     flex: {
-      thumb: liveTelemetry ? Math.round(liveTelemetry.thumb ?? 0) : 35,
-      index: liveTelemetry ? Math.round(liveTelemetry.index ?? 0) : 52,
-      middle: liveTelemetry ? Math.round(liveTelemetry.middle ?? 0) : 60,
-      ring: liveTelemetry ? Math.round(liveTelemetry.ring ?? 0) : 48,
-      little: liveTelemetry ? Math.round(liveTelemetry.little ?? 0) : 40,
+      thumb: liveTelemetry ? Math.round(liveTelemetry.thumb ?? 0) : 0,
+      index: liveTelemetry ? Math.round(liveTelemetry.index ?? 0) : 0,
+      middle: liveTelemetry ? Math.round(liveTelemetry.middle ?? 0) : 0,
+      ring: liveTelemetry ? Math.round(liveTelemetry.ring ?? 0) : 0,
+      little: liveTelemetry ? Math.round(liveTelemetry.little ?? 0) : 0,
     },
     elbow: {
-      angle: liveTelemetry ? Math.round(180 - liveTelemetry.elbow) : 45,
+      angle: liveTelemetry ? Math.round(180 - liveTelemetry.elbow) : 0,
     },
     pressure: {
-      force: liveTelemetry ? ((liveTelemetry.pressure || 0) / 10).toFixed(1) : '18.4',
+      force: liveTelemetry ? ((liveTelemetry.pressure || 0) / 10).toFixed(1) : '0.0',
     }
   };
 

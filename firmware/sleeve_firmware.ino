@@ -16,9 +16,9 @@
   Sensor Name      | Type     | ESP32 Pin | Extra Components Required
   -------------------------------------------------------------
   Thumb Flex       | Analog   | GPIO 36 (VP)| 10k Ohm Resistor in Pull-down
-  Index Flex       | Analog   | GPIO 35 (D35)| 10k Ohm Resistor in Pull-down
+  Index Flex       | Analog   | GPIO 33 (D33)| 10k Ohm Resistor in Pull-down
   Middle Flex      | Analog   | GPIO 34 (D34)| 10k Ohm Resistor in Pull-down
-  Ring Flex        | Analog   | GPIO 33 (D33)| 10k Ohm Resistor in Pull-down
+  Ring Flex        | Analog   | GPIO 35 (D35)| 10k Ohm Resistor in Pull-down
   Little Flex      | Analog   | GPIO 32 (D32)| 10k Ohm Resistor in Pull-down
   Elbow Flex       | Analog   | GPIO 39 (VN)| 10k Ohm Resistor in Pull-down
   Pressure Squeeze | Analog   | GPIO 25     | 10k Ohm Resistor in Pull-down
@@ -50,16 +50,16 @@ Preferences preferences;
 // --- Analog Input Pins Assignment ---
 // User Hardware Pinout:
 // VP  (GPIO 36 / ADC1_CH0) -> Thumb Flex
-// D35 (GPIO 35 / ADC1_CH7) -> Index Flex  (Change to 33 if wired to D33)
+// D33 (GPIO 33 / ADC1_CH5) -> Index Flex
 // D34 (GPIO 34 / ADC1_CH6) -> Middle Flex
-// D33 (GPIO 33 / ADC1_CH5) -> Ring Flex   (Change to 35 if wired to D35)
+// D35 (GPIO 35 / ADC1_CH7) -> Ring Flex
 // D32 (GPIO 32 / ADC1_CH4) -> Little Flex
 // VN  (GPIO 39 / ADC1_CH3) -> Elbow Flex
 // D25 (GPIO 25)            -> Grip Pressure Resistor
 const int PIN_THUMB    = 36; // VP  (GPIO 36) -> THUMB FLEX
-const int PIN_INDEX    = 35; // D35 (GPIO 35) -> INDEX FLEX
+const int PIN_INDEX    = 33; // D33 (GPIO 33) -> INDEX FLEX
 const int PIN_MIDDLE   = 34; // D34 (GPIO 34) -> MIDDLE FLEX
-const int PIN_RING     = 33; // D33 (GPIO 33) -> RING FLEX
+const int PIN_RING     = 35; // D35 (GPIO 35) -> RING FLEX
 const int PIN_LITTLE   = 32; // D32 (GPIO 32) -> LITTLE FLEX
 const int PIN_ELBOW    = 39; // VN  (GPIO 39) -> ELBOW FLEX
 const int PIN_PRESSURE = 25; // D25 (GPIO 25) -> SQUEEZE FORCE
@@ -71,7 +71,7 @@ bool wsConnected = false;
 bool mpuFound = false;
 unsigned long lastStreamTime = 0;
 unsigned long lastMpuRetryTime = 0;
-const int streamInterval = 100; // 100ms = 10Hz sample rate
+const int streamInterval = 50; // 50ms = 20Hz sample rate (was 100ms/10Hz)
 
 // Finger and Elbow calibration storage variables (Loaded from NVS)
 int thumbStraight = 0, thumbBent = 4095;
@@ -81,8 +81,8 @@ int ringStraight = 0, ringBent = 4095;
 int littleStraight = 0, littleBent = 4095;
 int elbowStraight = 0, elbowBent = 4095;
 
-// EMA Filter variables
-const float emaAlpha = 0.2;
+// EMA Filter variables — alpha=0.5 gives fast response (~6 samples to 95%) with noise reduction
+const float emaAlpha = 0.5;
 float f_thumb = -1, f_index = -1, f_middle = -1, f_ring = -1, f_little = -1, f_elbow = -1;
 
 // Last sent angle (for deadband stabilization)
