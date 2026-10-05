@@ -42,7 +42,7 @@
 // --- Wi-Fi & Server Configurations (Defaults loaded from NVS if present) ---
 String wifi_ssid = "JioFiber-Ys2sx";
 String wifi_pass = "MBMGREEN";
-String server_host = "10.30.134.199";
+String server_host = "192.168.29.176";
 const int server_port = 8000;
 
 Preferences preferences;
