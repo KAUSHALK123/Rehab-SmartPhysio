@@ -938,6 +938,14 @@ function LiveExercisePage() {
     activeExerciseRef.current?.exercise_name?.toLowerCase().includes('finger closing')
   );
 
+  // Main Exercise: Finger Opening
+  const isFingerOpening = !isTrial && Boolean(
+    exerciseName?.toLowerCase().includes('finger opening') ||
+    exerciseDetails?.exercise_name?.toLowerCase().includes('finger opening') ||
+    exerciseDetails?.name?.toLowerCase().includes('finger opening') ||
+    activeExerciseRef.current?.exercise_name?.toLowerCase().includes('finger opening')
+  );
+
   // Reset all joint angles, states, and counters when starting or switching any exercise
   useEffect(() => {
     setSensors({
@@ -965,7 +973,11 @@ function LiveExercisePage() {
     wristBilateralPhaseRef.current = { left: false, right: false };
     const initialText = isWristExercise 
       ? 'Move **left first or right** to start repetition.' 
-      : (isFingerClosing ? 'Close your fingers into a fist (close at least 3-4 fingers) to begin repetition.' : 'Place your arm in the starting position to begin.');
+      : (isFingerClosing 
+          ? 'Close at least 3 fingers into a fist to begin repetition.' 
+          : (isFingerOpening 
+              ? 'Extend at least 3 fingers fully open to begin repetition.' 
+              : 'Place your arm in the starting position to begin.'));
     setGuidance(initialText);
     setAiFeedback({
       progress: 0,
@@ -1352,68 +1364,82 @@ function LiveExercisePage() {
       return;
     }
 
-    // DEDICATED FINGER CLOSING REPETITION ENGINE
-    // Requirement:
-    // - Configured target repetitions: 12 reps (or ex.repetitions)
-    // - Closing at least 3 to 4 fingers into a fist (flex bend >= 40%) counts as a repetition
-    // - Progress through Open → Close (>=3 fingers) → Hold → Open
-    // - Saves reps completed, accuracy, duration, and telemetry to backend session
+    // =========================================================================
+    // DEDICATED 3-OF-5 COORDINATED FINGER CLOSING REPETITION ENGINE
+    // Rule:
+    // - At least 3 of 5 fingers must close (>= 40% bend) to reach target
+    // - Progress: REST (Open) -> MOVING -> TARGET_HOLD (Hold) -> RETURNING -> REST (1 Rep)
+    // - At least 3 fingers must return to open (<= 30% bend) to complete the rep
+    // =========================================================================
     const isFingerClosingRoutine = isFingerClosing || 
       nameLower.includes('finger closing') || 
       (ex.exercise_name || '').toLowerCase().includes('finger closing');
 
     if (isFingerClosingRoutine) {
       const targetReps = ex.repetitions || 12;
+      const getNormalizedBend = (v) => {
+        if (v === undefined || v === null || isNaN(v)) return 0;
+        const num = Number(v);
+        if (num > 100) return Math.min(100, Math.max(0, (num / 4095) * 100));
+        return Math.min(100, Math.max(0, num));
+      };
+
       const fingerBends = [
-        { name: 'Thumb', val: data.thumb ?? 0 },
-        { name: 'Index', val: data.index ?? 0 },
-        { name: 'Middle', val: data.middle ?? 0 },
-        { name: 'Ring', val: data.ring ?? 0 },
-        { name: 'Little', val: data.little ?? 0 }
+        { name: 'Thumb', val: getNormalizedBend(data.thumb ?? data.raw_thumb) },
+        { name: 'Index', val: getNormalizedBend(data.index ?? data.raw_index) },
+        { name: 'Middle', val: getNormalizedBend(data.middle ?? data.raw_middle) },
+        { name: 'Ring', val: getNormalizedBend(data.ring ?? data.raw_ring) },
+        { name: 'Little', val: getNormalizedBend(data.little ?? data.raw_little) }
       ];
 
-      // Finger is considered closed when flex bend >= 40%
+      // Meaningful movement: finger is closed when flex bend >= 40%
       const closedFingers = fingerBends.filter(f => f.val >= 40);
       const closedCount = closedFingers.length;
-      const avgBend = Math.round(fingerBends.reduce((sum, f) => sum + f.val, 0) / 5);
 
-      // Repetition target met if 3 or more fingers are closed, or average fist bend is >= 48%
-      const isFistClosed = closedCount >= 3 || avgBend >= 48;
-      // Hand open (starting rest pose) when at most 1 finger is bent and average bend is low
-      const isHandOpen = closedCount <= 1 && avgBend <= 32;
+      // Finger is returned to open when flex bend <= 30%
+      const openFingers = fingerBends.filter(f => f.val <= 30);
+      const openCount = openFingers.length;
+
+      // 3-of-5 rule: At least 3 fingers must participate
+      const isTargetReached = closedCount >= 3;
+      const isHandReturned = openCount >= 3;
 
       const currentState = repStateRef.current;
       const now = Date.now();
       const holdSecs = Math.min(2, Math.max(1, ex.hold_seconds || 1));
 
       if (currentState === 'rest') {
-        // Debounce: must be at least 800ms after previous rep completion
-        if (now - lastRepTimeRef.current >= 800) {
-          if (isFistClosed) {
+        // Debounce: must be at least 600ms after previous rep completion
+        if (now - lastRepTimeRef.current >= 600) {
+          if (isTargetReached) {
             setHoldCountdown(holdSecs);
             startHoldTimer(holdSecs);
             setGuidance(`Target achieved! ${closedCount} fingers closed into fist. HOLD position for ${holdSecs}s.`);
             repStateRef.current = 'target_hold';
             setRepState('target_hold');
-          } else if (closedCount >= 2 || avgBend >= 35) {
+          } else if (closedCount >= 1) {
             repStateRef.current = 'moving';
             setRepState('moving');
-            setGuidance(`Fingers closing... Close at least 3-4 fingers into a fist! (${closedCount}/5 closed)`);
+            setGuidance(`Fingers closing... (${closedCount}/5 closed — need at least 3 fingers).`);
           }
         }
       } else if (currentState === 'moving') {
-        if (isFistClosed) {
+        if (isTargetReached) {
           setHoldCountdown(holdSecs);
           startHoldTimer(holdSecs);
           setGuidance(`Target achieved! ${closedCount} fingers closed into fist. HOLD position for ${holdSecs}s.`);
           repStateRef.current = 'target_hold';
           setRepState('target_hold');
+        } else if (closedCount === 0 && isHandReturned) {
+          repStateRef.current = 'rest';
+          setRepState('rest');
+          setGuidance('Ready to begin. Close at least 3 fingers into a fist.');
         } else {
-          setGuidance(`Closing... ${closedCount} of 5 fingers closed (close at least 3 fingers to count rep).`);
+          setGuidance(`Closing... ${closedCount} of 5 fingers closed (need at least 3 fingers to count rep).`);
         }
       } else if (currentState === 'target_hold') {
         // Patient opened hand prematurely before hold timer finished
-        if (closedCount < 2 && avgBend < 28) {
+        if (closedCount < 2) {
           clearInterval(holdTimerIntervalRef.current);
           setHoldCountdown(0);
           repsFailedRef.current += 1;
@@ -1425,8 +1451,8 @@ function LiveExercisePage() {
           setRepState('returning');
         }
       } else if (currentState === 'returning') {
-        if (isHandOpen) {
-          if (now - lastRepTimeRef.current >= 800) {
+        if (isHandReturned) {
+          if (now - lastRepTimeRef.current >= 600) {
             lastRepTimeRef.current = now;
             repStateRef.current = 'rest';
             setRepState('rest');
@@ -1437,14 +1463,14 @@ function LiveExercisePage() {
             updateAccuracyScore(updated, repsFailedRef.current);
             setGuidance(`Repetition ${updated} of ${targetReps} completed! Relax and prepare for next rep.`);
 
-            // Milestone popup when reaching target reps (12 reps)
+            // Milestone popup when reaching target reps
             if (updated >= targetReps && !milestoneShownRef.current) {
               milestoneShownRef.current = true;
               setShowMilestonePopup(true);
             }
           }
         } else {
-          setGuidance(`Repetition verified! Now open your fingers fully (${closedCount} fingers still bent).`);
+          setGuidance(`Repetition verified! Now open fingers fully (${openCount}/5 open — need at least 3).`);
         }
       }
 
@@ -1453,20 +1479,20 @@ function LiveExercisePage() {
       if (currentState === 'rest') {
         progressPct = Math.min(25, Math.round((closedCount / 3) * 25));
       } else if (currentState === 'moving') {
-        progressPct = Math.min(90, Math.round((Math.max(closedCount, (avgBend / 48) * 3) / 3) * 90));
+        progressPct = Math.min(90, Math.round((closedCount / 3) * 90));
       } else if (currentState === 'target_hold') {
         progressPct = 95;
       } else if (currentState === 'returning') {
-        progressPct = Math.max(15, Math.round((closedCount / 3) * 60));
+        progressPct = Math.max(15, Math.round((openCount / 3) * 80));
       }
 
       let suggestionText = '';
       if (currentState === 'rest') {
-        suggestionText = `Ready to begin. Close at least 3-4 fingers into a fist to start repetition.`;
+        suggestionText = `Ready to begin. Close at least 3 fingers into a fist to start repetition.`;
       } else if (currentState === 'moving') {
-        suggestionText = isFistClosed 
+        suggestionText = isTargetReached 
           ? `Fist closed (${closedCount} fingers)! Holding position...` 
-          : `Close more fingers (${closedCount}/5 closed - need at least 3).`;
+          : `Close more fingers (${closedCount}/5 closed — need at least 3).`;
       } else if (currentState === 'target_hold') {
         suggestionText = `Great grip! Hold fist position for ${holdCountdown > 0 ? holdCountdown : holdSecs}s.`;
       } else if (currentState === 'returning') {
@@ -1477,7 +1503,152 @@ function LiveExercisePage() {
         progress: progressPct,
         suggestion: suggestionText,
         warning: null,
-        status: isFistClosed ? 'success' : (closedCount >= 2 ? 'active' : 'info')
+        status: isTargetReached ? 'success' : (closedCount >= 2 ? 'active' : 'info')
+      });
+
+      return;
+    }
+
+    // =========================================================================
+    // DEDICATED 3-OF-5 COORDINATED FINGER OPENING REPETITION ENGINE
+    // Rule:
+    // - At least 3 of 5 fingers must open (<= 25% bend) to reach target
+    // - Progress: REST (Closed) -> MOVING -> TARGET_HOLD (Hold) -> RETURNING -> REST (1 Rep)
+    // - At least 3 fingers must return to closed (>= 40% bend) to complete the rep
+    // =========================================================================
+    const isFingerOpeningRoutine = isFingerOpening || 
+      nameLower.includes('finger opening') || 
+      (ex.exercise_name || '').toLowerCase().includes('finger opening');
+
+    if (isFingerOpeningRoutine) {
+      const targetReps = ex.repetitions || 12;
+      const getNormalizedBend = (v) => {
+        if (v === undefined || v === null || isNaN(v)) return 0;
+        const num = Number(v);
+        if (num > 100) return Math.min(100, Math.max(0, (num / 4095) * 100));
+        return Math.min(100, Math.max(0, num));
+      };
+
+      const fingerBends = [
+        { name: 'Thumb', val: getNormalizedBend(data.thumb ?? data.raw_thumb) },
+        { name: 'Index', val: getNormalizedBend(data.index ?? data.raw_index) },
+        { name: 'Middle', val: getNormalizedBend(data.middle ?? data.raw_middle) },
+        { name: 'Ring', val: getNormalizedBend(data.ring ?? data.raw_ring) },
+        { name: 'Little', val: getNormalizedBend(data.little ?? data.raw_little) }
+      ];
+
+      // Meaningful movement: finger is open when flex bend <= 25%
+      const openFingers = fingerBends.filter(f => f.val <= 25);
+      const openCount = openFingers.length;
+
+      // Finger is returned to closed when flex bend >= 40%
+      const closedFingers = fingerBends.filter(f => f.val >= 40);
+      const closedCount = closedFingers.length;
+
+      // 3-of-5 rule: At least 3 fingers must participate
+      const isTargetReached = openCount >= 3;
+      const isHandReturned = closedCount >= 3;
+
+      const currentState = repStateRef.current;
+      const now = Date.now();
+      const holdSecs = Math.min(2, Math.max(1, ex.hold_seconds || 1));
+
+      if (currentState === 'rest') {
+        // Debounce: must be at least 600ms after previous rep completion
+        if (now - lastRepTimeRef.current >= 600) {
+          if (isTargetReached) {
+            setHoldCountdown(holdSecs);
+            startHoldTimer(holdSecs);
+            setGuidance(`Target achieved! ${openCount} fingers opened. HOLD position for ${holdSecs}s.`);
+            repStateRef.current = 'target_hold';
+            setRepState('target_hold');
+          } else if (openCount >= 1) {
+            repStateRef.current = 'moving';
+            setRepState('moving');
+            setGuidance(`Fingers opening... (${openCount}/5 open — need at least 3 fingers).`);
+          }
+        }
+      } else if (currentState === 'moving') {
+        if (isTargetReached) {
+          setHoldCountdown(holdSecs);
+          startHoldTimer(holdSecs);
+          setGuidance(`Target achieved! ${openCount} fingers opened. HOLD position for ${holdSecs}s.`);
+          repStateRef.current = 'target_hold';
+          setRepState('target_hold');
+        } else if (openCount === 0 && isHandReturned) {
+          repStateRef.current = 'rest';
+          setRepState('rest');
+          setGuidance('Ready to begin. Open at least 3 fingers outward.');
+        } else {
+          setGuidance(`Opening... ${openCount} of 5 fingers open (need at least 3 fingers to count rep).`);
+        }
+      } else if (currentState === 'target_hold') {
+        // Patient closed hand prematurely before hold timer finished
+        if (openCount < 2) {
+          clearInterval(holdTimerIntervalRef.current);
+          setHoldCountdown(0);
+          repsFailedRef.current += 1;
+          const nextFailed = repsFailedRef.current;
+          setRepsFailed(nextFailed);
+          updateAccuracyScore(repsCompletedRef.current, nextFailed);
+          setGuidance('Fingers closed too early! Return to closed fist and try again.');
+          repStateRef.current = 'returning';
+          setRepState('returning');
+        }
+      } else if (currentState === 'returning') {
+        if (isHandReturned) {
+          if (now - lastRepTimeRef.current >= 600) {
+            lastRepTimeRef.current = now;
+            repStateRef.current = 'rest';
+            setRepState('rest');
+
+            repsCompletedRef.current += 1;
+            const updated = repsCompletedRef.current;
+            setRepsCompleted(updated);
+            updateAccuracyScore(updated, repsFailedRef.current);
+            setGuidance(`Repetition ${updated} of ${targetReps} completed! Relax and prepare for next rep.`);
+
+            // Milestone popup when reaching target reps
+            if (updated >= targetReps && !milestoneShownRef.current) {
+              milestoneShownRef.current = true;
+              setShowMilestonePopup(true);
+            }
+          }
+        } else {
+          setGuidance(`Repetition verified! Close fingers back into fist (${closedCount}/5 closed — need at least 3).`);
+        }
+      }
+
+      // Dynamic Progress & AI Clinical Suggestions
+      let progressPct = 0;
+      if (currentState === 'rest') {
+        progressPct = Math.min(25, Math.round((openCount / 3) * 25));
+      } else if (currentState === 'moving') {
+        progressPct = Math.min(90, Math.round((openCount / 3) * 90));
+      } else if (currentState === 'target_hold') {
+        progressPct = 95;
+      } else if (currentState === 'returning') {
+        progressPct = Math.max(15, Math.round((closedCount / 3) * 80));
+      }
+
+      let suggestionText = '';
+      if (currentState === 'rest') {
+        suggestionText = `Ready to begin. Open at least 3 fingers outward to start repetition.`;
+      } else if (currentState === 'moving') {
+        suggestionText = isTargetReached 
+          ? `Fingers open (${openCount} fingers)! Holding position...` 
+          : `Open more fingers (${openCount}/5 open — need at least 3).`;
+      } else if (currentState === 'target_hold') {
+        suggestionText = `Great extension! Hold open position for ${holdCountdown > 0 ? holdCountdown : holdSecs}s.`;
+      } else if (currentState === 'returning') {
+        suggestionText = `Repetition opening verified! Now slowly close your fingers back into a fist.`;
+      }
+
+      setAiFeedback({
+        progress: progressPct,
+        suggestion: suggestionText,
+        warning: null,
+        status: isTargetReached ? 'success' : (openCount >= 2 ? 'active' : 'info')
       });
 
       return;
