@@ -133,6 +133,10 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                             # Smooth animated open/close (0=straight, 70=bent)
                             finger_val = int(flex_cycle * 70)
                         
+                        # Approximate raw ADC values (0-4095)
+                        def to_adc(deg):
+                            return max(0, min(4095, int((deg / 90.0) * 4095) + random.randint(-20, 20)))
+
                         packet = {
                             "type": "sensor_data",
                             "is_mock": True,
@@ -145,6 +149,15 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                             "middle": finger_val + random.randint(-2, 2),
                             "ring":   finger_val + random.randint(-2, 2),
                             "little": finger_val + random.randint(-2, 2),
+                            
+                            # Raw ADC fields (0-4095) for Live Sensor Monitor
+                            "raw_thumb":    to_adc(finger_val),
+                            "raw_index":    to_adc(finger_val),
+                            "raw_middle":   to_adc(finger_val),
+                            "raw_ring":     to_adc(finger_val),
+                            "raw_little":   to_adc(finger_val),
+                            "raw_elbow":    to_adc(180 - (180 if step != "bend_elbow" else 90)),
+                            "raw_pressure": 5 + random.randint(-1, 2) if step != "close_hand" else 650 + random.randint(-10, 10),
                             
                             # Elbow: 180=straight, 90=bent
                             "elbow": 180 + random.randint(-3, 3) if step != "bend_elbow" else 90 + random.randint(-2, 2),

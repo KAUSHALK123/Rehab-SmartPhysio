@@ -9,7 +9,7 @@
   4. One MPU6050 Inertial Measurement Unit (I2C) for Wrist Pitch/Roll
   
   And streams the telemetry as a JSON payload over a WebSocket connection to the 
-  FastAPI backend server at 10Hz (100ms interval).
+  FastAPI backend server at 20Hz (50ms interval).
   
   Wiring Connection Layout:
   -------------------------------------------------------------
