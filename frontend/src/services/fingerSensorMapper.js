@@ -101,8 +101,8 @@ export const saveSensorCalibration = (bounds) => {
 /**
  * Normalize a sensor value to a 0.0 - 1.0 bend ratio
  * Formula: clamp((value - straight) / (bent - straight), 0, 1)
- * Uses high-sensitivity power curve (gamma = 0.75) so even small initial bends
- * produce clearly visible motion while smoothly reaching 1.0 at full bend.
+ * Uses high-sensitivity power curve (gamma = 0.60) so even subtle micro-bends
+ * produce immediate, visible 3D hand motion while smoothly reaching 1.0 at full bend.
  */
 export const normalizeFlexValue = (value, straight = 1400, bent = 2200, useBoost = true) => {
   if (value === undefined || value === null || isNaN(value)) return 0;
@@ -116,8 +116,8 @@ export const normalizeFlexValue = (value, straight = 1400, bent = 2200, useBoost
     return linearRatio;
   }
 
-  // Boost sensitivity for small bends (y = x^0.75)
-  return Math.max(0, Math.min(1, Math.pow(linearRatio, 0.75)));
+  // Ultra-sensitive response for slight bends (y = x^0.60)
+  return Math.max(0, Math.min(1, Math.pow(linearRatio, 0.60)));
 };
 
 /**
@@ -167,7 +167,7 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     // Ignore default uncalibrated firmware values (0 and 4095)
     if (packetBounds[strKey] !== undefined && packetBounds[bntKey] !== undefined &&
         !(packetBounds[strKey] === 0 && packetBounds[bntKey] === 4095) &&
-        Math.abs(packetBounds[bntKey] - packetBounds[strKey]) > 40) {
+        Math.abs(packetBounds[bntKey] - packetBounds[strKey]) > 30) {
       return { straight: packetBounds[strKey], bent: packetBounds[bntKey] };
     }
     return sensorBounds[finger] || DEFAULT_SENSOR_BOUNDS[finger];
@@ -205,9 +205,9 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       let effectiveStraight = bounds.straight;
       let effectiveBent = bounds.bent;
 
-      // Dynamic auto-range adapts to user's real physical bend range with low threshold (span >= 40)
+      // Ultra-sensitive dynamic auto-range adapts to micro-bends (span >= 25)
       const dynSpan = (dynamicRanges[finger].max || 0) - (dynamicRanges[finger].min || 0);
-      if (dynSpan >= 40) {
+      if (dynSpan >= 25) {
         effectiveStraight = dynamicRanges[finger].min;
         effectiveBent = dynamicRanges[finger].max;
       }
@@ -218,8 +218,8 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       // Pre-filtered angle value from firmware or backend mock (0 - 90 deg)
       filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
       const linearRatio = Math.max(0, Math.min(1, filteredVal / 90.0));
-      // Apply sensitivity boost for subtle angle inputs
-      normalized = linearRatio > 0 && linearRatio < 1 ? Math.pow(linearRatio, 0.75) : linearRatio;
+      // Apply ultra-sensitive boost for subtle angle inputs
+      normalized = linearRatio > 0 && linearRatio < 1 ? Math.pow(linearRatio, 0.60) : linearRatio;
       if (rawReading === null) {
         rawReading = Math.round(normalized * 4095);
       }
