@@ -73,20 +73,20 @@ unsigned long lastStreamTime = 0;
 unsigned long lastMpuRetryTime = 0;
 const int streamInterval = 50; // 50ms = 20Hz sample rate (was 100ms/10Hz)
 
-// Finger and Elbow calibration storage variables (Loaded from NVS)
-int thumbStraight = 0, thumbBent = 4095;
-int indexStraight = 0, indexBent = 4095;
-int middleStraight = 0, middleBent = 4095;
-int ringStraight = 0, ringBent = 4095;
-int littleStraight = 0, littleBent = 4095;
-int elbowStraight = 0, elbowBent = 4095;
+// Finger and Elbow calibration storage variables (Defaults tuned for high sensitivity flex response)
+int thumbStraight = 1400, thumbBent = 2200;
+int indexStraight = 1350, indexBent = 2250;
+int middleStraight = 1380, middleBent = 2280;
+int ringStraight = 1400, ringBent = 2250;
+int littleStraight = 1300, littleBent = 2150;
+int elbowStraight = 1200, elbowBent = 2400;
 
-// EMA Filter variables — alpha=0.5 gives fast response (~6 samples to 95%) with noise reduction
-const float emaAlpha = 0.5;
+// EMA Filter variables — alpha=0.7 gives instant response to micro-bends with clean filtering
+const float emaAlpha = 0.7;
 float f_thumb = -1, f_index = -1, f_middle = -1, f_ring = -1, f_little = -1, f_elbow = -1;
 
-// Last sent angle (for deadband stabilization)
-const float angleDeadband = 1.0;
+// Last sent angle (fine deadband 0.1 deg for maximum micro-bend sensitivity)
+const float angleDeadband = 0.1;
 float a_thumb = 0, a_index = 0, a_middle = 0, a_ring = 0, a_little = 0, a_elbow = 0;
 bool sensorsStable = false;
 

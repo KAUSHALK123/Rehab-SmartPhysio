@@ -54,14 +54,14 @@ export const resetDynamicRanges = () => {
 
 /**
  * Default hardware ADC sensor bounds for each finger.
- * (Typical 12-bit ESP32 pull-down: ~1200 straight to ~2900 bent)
+ * (Typical flex sensor on ESP32 voltage divider has ~600-900 ADC active range from rest to bend)
  */
 export const DEFAULT_SENSOR_BOUNDS = {
-  thumb:  { straight: 1200, bent: 2950 },
-  index:  { straight: 1150, bent: 3100 },
-  middle: { straight: 1180, bent: 3150 },
-  ring:   { straight: 1220, bent: 3050 },
-  little: { straight: 1100, bent: 2900 }
+  thumb:  { straight: 1400, bent: 2200 },
+  index:  { straight: 1350, bent: 2250 },
+  middle: { straight: 1380, bent: 2280 },
+  ring:   { straight: 1400, bent: 2250 },
+  little: { straight: 1300, bent: 2150 }
 };
 
 /**
@@ -101,15 +101,23 @@ export const saveSensorCalibration = (bounds) => {
 /**
  * Normalize a sensor value to a 0.0 - 1.0 bend ratio
  * Formula: clamp((value - straight) / (bent - straight), 0, 1)
+ * Uses high-sensitivity power curve (gamma = 0.75) so even small initial bends
+ * produce clearly visible motion while smoothly reaching 1.0 at full bend.
  */
-export const normalizeFlexValue = (value, straight = 1200, bent = 2950) => {
+export const normalizeFlexValue = (value, straight = 1400, bent = 2200, useBoost = true) => {
   if (value === undefined || value === null || isNaN(value)) return 0;
   const num = Number(value);
   if (straight === bent) return 0;
 
-  // Handle both straight < bent and straight > bent (sensor wiring polarity)
-  const ratio = (num - straight) / (bent - straight);
-  return Math.max(0, Math.min(1, ratio));
+  // Linear ratio clamped [0, 1]
+  const linearRatio = Math.max(0, Math.min(1, (num - straight) / (bent - straight)));
+
+  if (!useBoost || linearRatio === 0 || linearRatio === 1) {
+    return linearRatio;
+  }
+
+  // Boost sensitivity for small bends (y = x^0.75)
+  return Math.max(0, Math.min(1, Math.pow(linearRatio, 0.75)));
 };
 
 /**
@@ -159,7 +167,7 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     // Ignore default uncalibrated firmware values (0 and 4095)
     if (packetBounds[strKey] !== undefined && packetBounds[bntKey] !== undefined &&
         !(packetBounds[strKey] === 0 && packetBounds[bntKey] === 4095) &&
-        Math.abs(packetBounds[bntKey] - packetBounds[strKey]) > 60) {
+        Math.abs(packetBounds[bntKey] - packetBounds[strKey]) > 40) {
       return { straight: packetBounds[strKey], bent: packetBounds[bntKey] };
     }
     return sensorBounds[finger] || DEFAULT_SENSOR_BOUNDS[finger];
@@ -197,19 +205,21 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       let effectiveStraight = bounds.straight;
       let effectiveBent = bounds.bent;
 
-      // If user has bent the physical sensor dynamically across an active range (span >= 80)
+      // Dynamic auto-range adapts to user's real physical bend range with low threshold (span >= 40)
       const dynSpan = (dynamicRanges[finger].max || 0) - (dynamicRanges[finger].min || 0);
-      if (dynSpan >= 80) {
+      if (dynSpan >= 40) {
         effectiveStraight = dynamicRanges[finger].min;
         effectiveBent = dynamicRanges[finger].max;
       }
 
       filteredVal = rawVal;
-      normalized = normalizeFlexValue(rawVal, effectiveStraight, effectiveBent);
+      normalized = normalizeFlexValue(rawVal, effectiveStraight, effectiveBent, true);
     } else if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
       // Pre-filtered angle value from firmware or backend mock (0 - 90 deg)
       filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
-      normalized = Math.max(0, Math.min(1, filteredVal / 90.0));
+      const linearRatio = Math.max(0, Math.min(1, filteredVal / 90.0));
+      // Apply sensitivity boost for subtle angle inputs
+      normalized = linearRatio > 0 && linearRatio < 1 ? Math.pow(linearRatio, 0.75) : linearRatio;
       if (rawReading === null) {
         rawReading = Math.round(normalized * 4095);
       }

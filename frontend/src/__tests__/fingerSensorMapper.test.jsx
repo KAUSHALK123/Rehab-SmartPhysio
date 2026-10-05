@@ -22,14 +22,16 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
 
   describe('normalizeFlexValue', () => {
     it('normalizes within bounds and clamps [0, 1]', () => {
-      // Straight: 1000, Bent: 3000
-      expect(normalizeFlexValue(1000, 1000, 3000)).toBe(0);
-      expect(normalizeFlexValue(2000, 1000, 3000)).toBe(0.5);
-      expect(normalizeFlexValue(3000, 1000, 3000)).toBe(1);
+      // Straight: 1000, Bent: 3000 (linear without boost)
+      expect(normalizeFlexValue(1000, 1000, 3000, false)).toBe(0);
+      expect(normalizeFlexValue(2000, 1000, 3000, false)).toBe(0.5);
+      expect(normalizeFlexValue(3000, 1000, 3000, false)).toBe(1);
       // Below min clamps to 0
-      expect(normalizeFlexValue(500, 1000, 3000)).toBe(0);
+      expect(normalizeFlexValue(500, 1000, 3000, false)).toBe(0);
       // Above max clamps to 1
-      expect(normalizeFlexValue(3500, 1000, 3000)).toBe(1);
+      expect(normalizeFlexValue(3500, 1000, 3000, false)).toBe(1);
+      // Boosted version gives increased sensitivity at 50%
+      expect(normalizeFlexValue(2000, 1000, 3000, true)).toBeCloseTo(Math.pow(0.5, 0.75), 2);
     });
 
     it('safely handles divide by zero and invalid inputs', () => {
@@ -127,8 +129,8 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
       expect(result.percentages.index).toBe(100);
       expect(result.angles.index).toBe(65);
 
-      expect(result.percentages.middle).toBe(50);
-      expect(result.angles.middle).toBe(25);
+      expect(result.percentages.middle).toBe(59); // 50% linear with sensitivity boost = 59%
+      expect(result.angles.middle).toBeCloseTo(-15 + 0.5946 * (65 - (-15)), 0);
 
       expect(result.percentages.little).toBe(100);
       expect(result.angles.little).toBe(25);
@@ -164,8 +166,8 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
       expect(result.percentages.index).toBe(100);
       expect(result.angles.index).toBe(65);
 
-      expect(result.percentages.middle).toBe(50);
-      expect(result.angles.middle).toBe(25);
+      expect(result.percentages.middle).toBe(59);
+      expect(result.angles.middle).toBeCloseTo(-15 + 0.5946 * (65 - (-15)), 0);
     });
   });
 
