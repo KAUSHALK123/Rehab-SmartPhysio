@@ -6,7 +6,7 @@
   1. Five analog flex sensors (Thumb, Index, Middle, Ring, Little)
   2. One elbow curl flex sensor
   3. One force pressure resistor (Grip Squeeze)
-  4. One MPU6050 Inertial Measurement Unit (I2C) for Wrist Pitch/Roll
+  4. One MPU6050 Inertial Measurement Unit (I2C) for Wrist Pitch/Roll (Auto-detects 0x68 & 0x69)
   
   And streams the telemetry as a JSON payload over a WebSocket connection to the 
   FastAPI backend server at 20Hz (50ms interval).
@@ -24,17 +24,18 @@
   Pressure Squeeze | Analog   | GPIO 25     | 10k Ohm Resistor in Pull-down
   MPU6050 SDA      | I2C Data | GPIO 21   | 4.7k Ohm Pull-up to 3.3V
   MPU6050 SCL      | I2C Clock| GPIO 22   | 4.7k Ohm Pull-up to 3.3V
+  MPU6050 VCC      | Power    | 3.3V or 5V| Connect to 3.3V (or 5V if module has onboard 3.3V LDO)
+  MPU6050 GND      | Ground   | GND       | Common ground with ESP32
+  MPU6050 AD0      | Address  | GND/Float | Connect to GND (0x68) or 3.3V (0x69) - auto-detected!
   -------------------------------------------------------------
   
   External Libraries Required:
-  1. MPU6050_tockn (by tockn)
-  2. ArduinoJson (by Benoit Blanchon)
-  3. WebSockets (by Markus Sattler)
+  1. ArduinoJson (by Benoit Blanchon)
+  2. WebSockets (by Markus Sattler)
 */
 
 #include <WiFi.h>
 #include <Wire.h>
-#include <MPU6050_tockn.h>
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
 #include <Preferences.h>
@@ -65,13 +66,20 @@ const int PIN_ELBOW    = 39; // VN  (GPIO 39) -> ELBOW FLEX
 const int PIN_PRESSURE = 25; // D25 (GPIO 25) -> SQUEEZE FORCE
 
 // --- Sensors Variables & Objects ---
-MPU6050 mpu(Wire);
 WebSocketsClient webSocket;
 bool wsConnected = false;
+uint8_t mpuAddress = 0x68; // Auto-detected: 0x68 (AD0=GND) or 0x69 (AD0=VCC/Float)
 bool mpuFound = false;
 unsigned long lastStreamTime = 0;
 unsigned long lastMpuRetryTime = 0;
-const int streamInterval = 50; // 50ms = 20Hz sample rate (was 100ms/10Hz)
+unsigned long lastMpuUpdateTime = 0;
+const int streamInterval = 50; // 50ms = 20Hz sample rate
+
+// MPU6050 Orientation & Raw Values
+float wristPitch = 0.0;
+float wristRoll = 0.0;
+int16_t mpuRawAx = 0, mpuRawAy = 0, mpuRawAz = 0;
+int16_t mpuRawGx = 0, mpuRawGy = 0, mpuRawGz = 0;
 
 // Finger and Elbow calibration storage variables (Defaults tuned for high sensitivity flex response)
 int thumbStraight = 1400, thumbBent = 2200;
@@ -92,19 +100,166 @@ bool sensorsStable = false;
 
 // Helper maps filtered ADC values to angles (0 to 90 degrees)
 float mapFlexAngle(float filteredVal, int straightVal, int bentVal) {
-  // Determine bounds
   float low = min(straightVal, bentVal);
   float high = max(straightVal, bentVal);
-  
-  // Constrain reading
   float val = constrain(filteredVal, low, high);
-  
-  // Map to 0-90 degrees
-  if (bentVal == straightVal) return 0.0; // safety
+  if (bentVal == straightVal) return 0.0;
   float angle = (val - straightVal) * 90.0 / (float)(bentVal - straightVal);
-  
-  // Safety constrain to expected anatomical bounds
   return constrain(angle, 0.0, 90.0);
+}
+
+// ─── MPU-6050 Direct Hardware Driver (Universal 0x68 / 0x69 support) ─────────
+void recoverI2CBus() {
+  pinMode(21, INPUT_PULLUP);
+  pinMode(22, OUTPUT);
+  // Toggle clock line to clear any stuck I2C transaction
+  for (int i = 0; i < 16; i++) {
+    digitalWrite(22, LOW);
+    delayMicroseconds(5);
+    digitalWrite(22, HIGH);
+    delayMicroseconds(5);
+  }
+  Wire.begin(21, 22);
+  Wire.setTimeOut(50);
+}
+
+bool initMPUAtAddress(uint8_t addr) {
+  Wire.beginTransmission(addr);
+  byte err = Wire.endTransmission();
+  if (err != 0) return false;
+
+  // 1. Wake up MPU6050 (PWR_MGMT_1 = 0x00)
+  Wire.beginTransmission(addr);
+  Wire.write(0x6B); // PWR_MGMT_1 register
+  Wire.write(0x00); // Clear SLEEP bit (0 = wake up)
+  if (Wire.endTransmission() != 0) return false;
+  delay(10);
+
+  // 2. Set Clock Source to X-Gyro PLL (PWR_MGMT_1 = 0x01) for best stability
+  Wire.beginTransmission(addr);
+  Wire.write(0x6B);
+  Wire.write(0x01);
+  Wire.endTransmission();
+  delay(5);
+
+  // 3. Accelerometer Config (ACCEL_CONFIG = 0x08 -> ±4g range)
+  Wire.beginTransmission(addr);
+  Wire.write(0x1C);
+  Wire.write(0x08);
+  Wire.endTransmission();
+
+  // 4. Gyroscope Config (GYRO_CONFIG = 0x08 -> ±500 deg/s range)
+  Wire.beginTransmission(addr);
+  Wire.write(0x1B);
+  Wire.write(0x08);
+  Wire.endTransmission();
+
+  // 5. Digital Low-Pass Filter (CONFIG = 0x03 -> 44Hz low-pass filter)
+  Wire.beginTransmission(addr);
+  Wire.write(0x1A);
+  Wire.write(0x03);
+  Wire.endTransmission();
+
+  return true;
+}
+
+bool detectAndInitMPU(bool verbose) {
+  // Try default address 0x68 (AD0 connected to GND)
+  if (initMPUAtAddress(0x68)) {
+    mpuAddress = 0x68;
+    mpuFound = true;
+    if (verbose) Serial.println("[MPU] MPU6050 found & initialized on I2C address 0x68 (AD0=GND)!");
+    return true;
+  }
+  // Try alternate address 0x69 (AD0 connected to 3.3V or floating)
+  if (initMPUAtAddress(0x69)) {
+    mpuAddress = 0x69;
+    mpuFound = true;
+    if (verbose) Serial.println("[MPU] MPU6050 found & initialized on I2C address 0x69 (AD0=3.3V/Float)!");
+    return true;
+  }
+
+  // Fallback: full I2C bus scan (1 to 127)
+  for (byte addr = 1; addr < 127; addr++) {
+    if (addr == 0x68 || addr == 0x69) continue;
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      if (initMPUAtAddress(addr)) {
+        mpuAddress = addr;
+        mpuFound = true;
+        if (verbose) Serial.printf("[MPU] Found and initialized on custom I2C address 0x%02X!\n", addr);
+        return true;
+      }
+    }
+  }
+
+  mpuFound = false;
+  if (verbose) {
+    Serial.println("[MPU] No MPU6050 acknowledged on I2C bus (checked 0x68 & 0x69).");
+    Serial.println("--> Check wiring: SDA -> GPIO 21, SCL -> GPIO 22, VCC -> 3.3V/5V, GND -> GND.");
+    Serial.println("--> Background auto-reconnect is active: will connect immediately when wire is seated.");
+  }
+  return false;
+}
+
+bool readMPUData() {
+  if (!mpuFound) return false;
+
+  Wire.beginTransmission(mpuAddress);
+  Wire.write(0x3B); // ACCEL_XOUT_H register
+  if (Wire.endTransmission(false) != 0) {
+    mpuFound = false;
+    return false;
+  }
+
+  // Request 14 bytes: 6 accel, 2 temp, 6 gyro
+  uint8_t bytesRead = Wire.requestFrom((int)mpuAddress, 14);
+  if (bytesRead < 14) {
+    mpuFound = false;
+    return false;
+  }
+
+  mpuRawAx = (Wire.read() << 8) | Wire.read();
+  mpuRawAy = (Wire.read() << 8) | Wire.read();
+  mpuRawAz = (Wire.read() << 8) | Wire.read();
+  int16_t raw_temp = (Wire.read() << 8) | Wire.read();
+  mpuRawGx = (Wire.read() << 8) | Wire.read();
+  mpuRawGy = (Wire.read() << 8) | Wire.read();
+  mpuRawGz = (Wire.read() << 8) | Wire.read();
+
+  // Convert accel to G's (at ±4g sensitivity: 8192 LSB/g)
+  float ax = (float)mpuRawAx / 8192.0;
+  float ay = (float)mpuRawAy / 8192.0;
+  float az = (float)mpuRawAz / 8192.0;
+
+  // Convert gyro to deg/sec (at ±500 deg/s sensitivity: 65.5 LSB/(deg/s))
+  float gx = (float)mpuRawGx / 65.5;
+  float gy = (float)mpuRawGy / 65.5;
+
+  // Compute direct anatomical pitch (flexion/extension) & roll (pronation/supination / radial/ulnar deviation)
+  float accPitch = atan2(ay, sqrt(ax * ax + az * az)) * 180.0 / PI;
+  float accRoll  = atan2(-ax, az) * 180.0 / PI;
+
+  unsigned long now = millis();
+  float dt = (lastMpuUpdateTime > 0) ? (now - lastMpuUpdateTime) / 1000.0 : 0.05;
+  if (dt <= 0 || dt > 0.5) dt = 0.05;
+  lastMpuUpdateTime = now;
+
+  // Smooth complementary filter fusion: 95% gyro integration + 5% accelerometer correction
+  static bool firstRead = true;
+  if (firstRead) {
+    wristPitch = accPitch;
+    wristRoll  = accRoll;
+    firstRead = false;
+  } else {
+    wristPitch = 0.95 * (wristPitch + gx * dt) + 0.05 * accPitch;
+    wristRoll  = 0.95 * (wristRoll  + gy * dt) + 0.05 * accRoll;
+  }
+
+  wristPitch = constrain(wristPitch, -90.0, 90.0);
+  wristRoll  = constrain(wristRoll, -180.0, 180.0);
+
+  return true;
 }
 
 // WebSocket Event Handler Callback
@@ -120,7 +275,6 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       break;
     case WStype_TEXT:
       Serial.printf("[WS] Received Text: %s\n", payload);
-      // Process incoming commands from backend
       StaticJsonDocument<200> doc;
       DeserializationError error = deserializeJson(doc, payload);
       if (!error) {
@@ -139,7 +293,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           
           if (abs(strVal - bntVal) < 20) {
             Serial.printf("[FLEX] %s calibration invalid: insufficient sensor range (%d vs %d)\n", sensor, strVal, bntVal);
-            return; // Ignore garbage calibration
+            return;
           }
           
           preferences.begin("physio", false);
@@ -170,62 +324,6 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   }
 }
 
-// Helper to probe I2C bus and initialize MPU6050 on address 0x68 or 0x69 (or full bus scan)
-bool detectAndInitMPU(bool fullCalib) {
-  byte mpuAddress = 0;
-  
-  Wire.beginTransmission(0x68);
-  byte err68 = Wire.endTransmission();
-  
-  Wire.beginTransmission(0x69);
-  byte err69 = Wire.endTransmission();
-  
-  if (err68 == 0) {
-    mpuAddress = 0x68;
-  } else if (err69 == 0) {
-    mpuAddress = 0x69;
-  } else {
-    // If standard addresses fail, scan full 1-127 I2C bus to see if anything is connected
-    byte anyFound = 0;
-    for (byte addr = 1; addr < 127; addr++) {
-      Wire.beginTransmission(addr);
-      if (Wire.endTransmission() == 0) {
-        anyFound = addr;
-        break;
-      }
-    }
-    
-    if (anyFound != 0) {
-      Serial.printf("[I2C SCAN] Found unknown I2C device at 0x%02X (Expected MPU at 0x68 or 0x69)!\n", anyFound);
-      mpuAddress = anyFound;
-    } else {
-      if (fullCalib) {
-        Serial.printf("[I2C SCAN] No I2C response on GPIO 21 (SDA) & 22 (SCL). (Err: 0x68=%d, 0x69=%d)\n", err68, err69);
-        if (err68 == 4 || err68 == 5) {
-          Serial.println("--> I2C bus is STUCK or SHORTED. Check if SDA and SCL are touching or shorted to GND.");
-        } else {
-          Serial.println("--> Check wires: SDA must be on GPIO 21, SCL on GPIO 22. Connect AD0 to GND.");
-        }
-      }
-    }
-  }
-
-  if (mpuAddress != 0) {
-    Serial.printf("[MPU] Found chip on I2C address 0x%02X! Initializing...\n", mpuAddress);
-    mpu.begin();
-    if (fullCalib) {
-      Serial.println("[MPU] Calibrating gyro offsets (keep sleeve still for 3s)...");
-      mpu.calcGyroOffsets(true);
-    } else {
-      mpu.calcGyroOffsets(false);
-    }
-    mpuFound = true;
-    Serial.println("[MPU] Sensor successfully initialized and ready!");
-    return true;
-  }
-  return false;
-}
-
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -252,16 +350,12 @@ void setup() {
   }
   
   // Load Flex Calibration
-  thumbStraight = preferences.getInt("thumbStr", 0); thumbBent = preferences.getInt("thumbBnt", 4095);
-  indexStraight = preferences.getInt("indexStr", 0); indexBent = preferences.getInt("indexBnt", 4095);
-  middleStraight = preferences.getInt("middleStr", 0); middleBent = preferences.getInt("middleBnt", 4095);
-  ringStraight = preferences.getInt("ringStr", 0); ringBent = preferences.getInt("ringBnt", 4095);
-  littleStraight = preferences.getInt("littleStr", 0); littleBent = preferences.getInt("littleBnt", 4095);
-  elbowStraight = preferences.getInt("elbowStr", 0); elbowBent = preferences.getInt("elbowBnt", 4095);
-
-  if (thumbStraight == 0 && thumbBent == 4095) {
-    Serial.println("[FLEX] WARNING: Calibration required for finger flex sensors.");
-  }
+  thumbStraight = preferences.getInt("thumbStr", 1400); thumbBent = preferences.getInt("thumbBnt", 2200);
+  indexStraight = preferences.getInt("indexStr", 1350); indexBent = preferences.getInt("indexBnt", 2250);
+  middleStraight = preferences.getInt("middleStr", 1380); middleBent = preferences.getInt("middleBnt", 2280);
+  ringStraight = preferences.getInt("ringStr", 1400); ringBent = preferences.getInt("ringBnt", 2250);
+  littleStraight = preferences.getInt("littleStr", 1300); littleBent = preferences.getInt("littleBnt", 2150);
+  elbowStraight = preferences.getInt("elbowStr", 1200); elbowBent = preferences.getInt("elbowBnt", 2400);
   
   // 1. Initialize Wi-Fi Connection
   Serial.printf("\nConnecting to Wi-Fi SSID: %s\n", wifi_ssid.c_str());
@@ -310,27 +404,16 @@ void setup() {
     Serial.println("\nWi-Fi Connected successfully!");
     Serial.print("Local IP Address: ");
     Serial.println(WiFi.localIP());
-    // Disable Wi-Fi modem sleep to prevent disconnection during idle periods
     WiFi.setSleep(false);
     WiFi.setAutoReconnect(true);
   }
 
   // 2. Initialize I2C and MPU6050 with explicit ESP32 pins
-  Wire.begin(21, 22); // GPIO 21 = SDA, GPIO 22 = SCL
-  delay(200); // Allow I2C bus pins to settle
+  recoverI2CBus();
   Serial.println("Scanning I2C bus for MPU6050 on GPIO 21 (SDA) / GPIO 22 (SCL)...");
-  
-  if (!detectAndInitMPU(true)) {
-    Serial.println("Warning: MPU6050 chip not detected at 0x68 or 0x69 on boot!");
-    Serial.println("--> 1. Check if SDA is on GPIO 21 and SCL is on GPIO 22.");
-    Serial.println("--> 2. Check if AD0 pin is floating; connect AD0 to GND for address 0x68.");
-    Serial.println("--> 3. Power LED on MPU only indicates VCC/GND power, NOT I2C communication.");
-    Serial.println("--> 4. Auto-reconnect is active: will automatically connect as soon as wires are seated!");
-    mpuFound = false;
-  }
+  detectAndInitMPU(true);
 
   // 3. Initialize WebSocket client connection
-  // client_type=device query parameter informs backend this is the hardware device socket
   Serial.printf("Connecting to WebSocket server: %s:%d...\n", server_host.c_str(), server_port);
   webSocket.begin(server_host.c_str(), server_port, "/api/v1/device/ws?client_type=device");
   webSocket.onEvent(webSocketEvent);
@@ -357,7 +440,6 @@ void loop() {
     String serialData = Serial.readStringUntil('\n');
     serialData.trim();
     if (serialData.startsWith("SET_CONFIG:")) {
-      // Command format: SET_CONFIG:SSID,PASSWORD,SERVER_IP
       String configData = serialData.substring(11);
       int firstComma = configData.indexOf(',');
       int secondComma = configData.indexOf(',', firstComma + 1);
@@ -375,7 +457,6 @@ void loop() {
         Serial.printf("SSID: %s\n", newSsid.c_str());
         Serial.printf("Host: %s\n", newHost.c_str());
         
-        // Write to NVS
         preferences.begin("physio", false);
         preferences.putString("wifi_ssid", newSsid);
         preferences.putString("wifi_pass", newPass);
@@ -393,13 +474,13 @@ void loop() {
 
   unsigned long currentTime = millis();
 
-  // Background auto-reconnect for MPU if it was disconnected or plugged after boot
-  if (!mpuFound && (currentTime - lastMpuRetryTime >= 3000)) {
+  // Background auto-reconnect for MPU if disconnected or plugged in after boot
+  if (!mpuFound && (currentTime - lastMpuRetryTime >= 2000)) {
     lastMpuRetryTime = currentTime;
     detectAndInitMPU(false);
   }
 
-  // Stream data at 10Hz interval
+  // Stream data at 20Hz interval (50ms)
   if (currentTime - lastStreamTime >= streamInterval) {
     lastStreamTime = currentTime;
 
@@ -424,7 +505,7 @@ void loop() {
       f_elbow = (emaAlpha * rawElbow) + ((1.0 - emaAlpha) * f_elbow);
     }
     
-    // Check Stability (if raw variance from filtered is low across the board)
+    // Check Stability
     bool isStableNow = (abs(rawThumb - f_thumb) < 8) && (abs(rawIndex - f_index) < 8) && 
                        (abs(rawMiddle - f_middle) < 8) && (abs(rawRing - f_ring) < 8) && 
                        (abs(rawLittle - f_little) < 8) && (abs(rawElbow - f_elbow) < 8);
@@ -449,35 +530,23 @@ void loop() {
     float el_angle = mapFlexAngle(f_elbow, elbowStraight, elbowBent);
     if (abs(el_angle - a_elbow) > angleDeadband) a_elbow = el_angle;
 
-    // Grip pressure resistance force (arbitrary Newton approximation)
+    // Grip pressure resistance force
     int gripForce = map(constrain(rawPressure, 0, 3000), 0, 3000, 0, 800);
 
-    // C. Read MPU6050 orientation variables
-    float wristPitch = 0.0;
-    float wristRoll = 0.0;
-    
-    if (mpuFound) {
-      mpu.update();
-      wristPitch = mpu.getAngleX();
-      wristRoll = mpu.getAngleY();
-    }
+    // C. Read MPU6050 orientation
+    bool mpuReadSuccess = readMPUData();
 
-    // D. Always print readings to serial for user debugging/wiring tests
-    Serial.printf("[TELEMETRY] ServerWS=%s | MPU_I2C=%s | elbow=%.1f | wrist_pitch=%.1f wrist_roll=%.1f\n",
+    // D. Print readings to serial for user debugging/wiring tests
+    Serial.printf("[TELEMETRY] ServerWS=%s | MPU_I2C=%s (0x%02X) | elbow=%.1f | wrist_pitch=%.1f wrist_roll=%.1f\n",
                   wsConnected ? "CONNECTED" : "OFFLINE",
-                  mpuFound ? "CONNECTED (OK)" : "DISCONNECTED (No I2C Ack)",
+                  mpuFound ? "OK" : "NO ACK",
+                  mpuAddress,
                   a_elbow, wristPitch, wristRoll);
-    Serial.printf("[FLEX]\nThumb raw=%d filtered=%.0f angle=%.1f\nIndex raw=%d filtered=%.0f angle=%.1f\nMiddle raw=%d filtered=%.0f angle=%.1f\nRing raw=%d filtered=%.0f angle=%.1f\nLittle raw=%d filtered=%.0f angle=%.1f\n",
-                  rawThumb, f_thumb, a_thumb,
-                  rawIndex, f_index, a_index,
-                  rawMiddle, f_middle, a_middle,
-                  rawRing, f_ring, a_ring,
-                  rawLittle, f_little, a_little);
 
     // E. Serialize and send JSON string over WebSocket only if connected
     if (wsConnected) {
       StaticJsonDocument<512> doc;
-      doc["battery"] = 94; // Simulating battery status level
+      doc["battery"] = 94;
       doc["thumb"] = a_thumb;
       doc["index"] = a_index;
       doc["middle"] = a_middle;
@@ -499,7 +568,7 @@ void loop() {
       bounds["littleStr"] = littleStraight; bounds["littleBnt"] = littleBent;
       bounds["elbowStr"] = elbowStraight; bounds["elbowBnt"] = elbowBent;
 
-      // Add raw ADC telemetry fields for advanced dashboard diagnostics
+      // Raw ADC & MPU telemetry fields for advanced dashboard diagnostics
       doc["raw_thumb"] = rawThumb;
       doc["raw_index"] = rawIndex;
       doc["raw_middle"] = rawMiddle;
@@ -507,6 +576,12 @@ void loop() {
       doc["raw_little"] = rawLittle;
       doc["raw_elbow"] = rawElbow;
       doc["raw_pressure"] = rawPressure;
+      doc["raw_ax"] = mpuRawAx;
+      doc["raw_ay"] = mpuRawAy;
+      doc["raw_az"] = mpuRawAz;
+      doc["raw_gx"] = mpuRawGx;
+      doc["raw_gy"] = mpuRawGy;
+      doc["raw_gz"] = mpuRawGz;
 
       String jsonString;
       serializeJson(doc, jsonString);
