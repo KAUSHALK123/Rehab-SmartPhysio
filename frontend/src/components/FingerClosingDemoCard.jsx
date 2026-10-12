@@ -90,7 +90,32 @@ function FingerClosingRigScene({
     fingerNodesRef.current = nodes;
   }, [clonedScene]);
 
-  useFrame(({ clock }) => {
+// Quintic Smootherstep (Perlin): C^2 continuity with zero 1st and 2nd derivatives at t=0 and t=1
+// Eliminates all acceleration spikes and jerk at phase boundaries for buttery-smooth motion
+const smootherstep = (t) => {
+  const c = Math.max(0, Math.min(1, t));
+  return c * c * c * (c * (c * 6 - 15) + 10);
+};
+
+// Subtle biomechanical stagger offsets (seconds) for organic fist curling
+const CLOSE_STAGGER = {
+  right_index: 0.0,
+  right_middle: 0.03,
+  right_ring: 0.06,
+  right_little: 0.09,
+  right_thumb: 0.13 // Thumb smoothly wraps over fingers slightly after
+};
+
+// Return stagger (thumb uncurls first to let palm open naturally)
+const RETURN_STAGGER = {
+  right_thumb: 0.0,
+  right_little: 0.03,
+  right_ring: 0.06,
+  right_middle: 0.09,
+  right_index: 0.12
+};
+
+  useFrame(({ clock }, delta) => {
     const elapsed = clock.getElapsedTime();
     if (repStartTimeRef.current === null) {
       repStartTimeRef.current = elapsed;
@@ -116,28 +141,14 @@ function FingerClosingRigScene({
       if (onRepChange) onRepChange(activeRep);
     }
 
-    let progress = 0; // 0 = open, 1 = fully closed
     let phase = 'OPEN';
-
     if (timeInRep < DURATION_OPEN) {
-      // 1. OPEN (neutral rest)
-      progress = 0;
       phase = 'OPEN';
     } else if (timeInRep < DURATION_OPEN + DURATION_CLOSE) {
-      // 2. CLOSE (gradually bending into a fist)
-      const tClose = (timeInRep - DURATION_OPEN) / DURATION_CLOSE;
-      // Smooth sine easing 0 -> 1
-      progress = (1 - Math.cos(tClose * Math.PI)) / 2;
       phase = 'CLOSE';
     } else if (timeInRep < DURATION_OPEN + DURATION_CLOSE + DURATION_HOLD) {
-      // 3. HOLD (closed fist held clearly)
-      progress = 1;
       phase = 'HOLD';
     } else {
-      // 4. OPEN (gradual return to open hand)
-      const tOpen = (timeInRep - DURATION_OPEN - DURATION_CLOSE - DURATION_HOLD) / DURATION_RETURN;
-      // Smooth sine easing 1 -> 0
-      progress = (1 + Math.cos(tOpen * Math.PI)) / 2;
       phase = 'RETURN';
     }
 
@@ -146,29 +157,50 @@ function FingerClosingRigScene({
       if (onPhaseChange) onPhaseChange(phase);
     }
 
-    // Apply finger rotations based on approved axes
+    // Frame-rate independent exponential damping factor for liquid smoothness
+    const safeDelta = Math.min(delta || 0.016, 0.1);
+    const dampFactor = 1 - Math.exp(-24 * safeDelta);
+
+    // Apply finger rotations with organic anatomical cascade
     const fingerNames = ['right_thumb', 'right_index', 'right_middle', 'right_ring', 'right_little'];
     fingerNames.forEach((name) => {
       const node = fingers[name];
       const base = bases[name];
       if (!node || !base) return;
 
+      let fingerProgress = 0;
+      if (timeInRep < DURATION_OPEN) {
+        fingerProgress = 0;
+      } else if (timeInRep < DURATION_OPEN + DURATION_CLOSE) {
+        const tStart = DURATION_OPEN + (CLOSE_STAGGER[name] || 0);
+        const tSpan = DURATION_CLOSE - 0.15; // ensures full closure before hold phase
+        const t = (timeInRep - tStart) / tSpan;
+        fingerProgress = smootherstep(t);
+      } else if (timeInRep < DURATION_OPEN + DURATION_CLOSE + DURATION_HOLD) {
+        fingerProgress = 1;
+      } else {
+        const tStart = DURATION_OPEN + DURATION_CLOSE + DURATION_HOLD + (RETURN_STAGGER[name] || 0);
+        const tSpan = DURATION_RETURN - 0.15; // ensures full opening before open rest phase
+        const t = (timeInRep - tStart) / tSpan;
+        fingerProgress = 1 - smootherstep(t);
+      }
+
       const targetAngle = TARGET_ANGLES[name] || 70;
-      const currentAngleDeg = progress * targetAngle;
+      const currentAngleDeg = fingerProgress * targetAngle;
       const rad = degToRad(currentAngleDeg);
 
       if (name === 'right_thumb') {
-        // Thumb: LOCAL X axis ONLY (curl inward toward palm - reversed so it closes into fist); Y and Z locked to base rest
+        // Thumb: LOCAL X axis ONLY (curl inward toward palm); Y and Z locked to base rest
         const targetX = base.x - rad;
-        node.rotation.x = THREE.MathUtils.lerp(node.rotation.x, targetX, 0.25);
-        node.rotation.y = THREE.MathUtils.lerp(node.rotation.y, base.y, 0.25);
-        node.rotation.z = THREE.MathUtils.lerp(node.rotation.z, base.z, 0.25);
+        node.rotation.x = THREE.MathUtils.lerp(node.rotation.x, targetX, dampFactor);
+        node.rotation.y = THREE.MathUtils.lerp(node.rotation.y, base.y, dampFactor);
+        node.rotation.z = THREE.MathUtils.lerp(node.rotation.z, base.z, dampFactor);
       } else {
         // Index, Middle, Ring, Little: LOCAL Z axis ONLY (curl inward); X and Y locked to base rest
         const targetZ = base.z + rad;
-        node.rotation.x = THREE.MathUtils.lerp(node.rotation.x, base.x, 0.25);
-        node.rotation.y = THREE.MathUtils.lerp(node.rotation.y, base.y, 0.25);
-        node.rotation.z = THREE.MathUtils.lerp(node.rotation.z, targetZ, 0.25);
+        node.rotation.x = THREE.MathUtils.lerp(node.rotation.x, base.x, dampFactor);
+        node.rotation.y = THREE.MathUtils.lerp(node.rotation.y, base.y, dampFactor);
+        node.rotation.z = THREE.MathUtils.lerp(node.rotation.z, targetZ, dampFactor);
       }
     });
 
@@ -197,7 +229,8 @@ function FingerClosingRigScene({
         }
         cameraInitializedRef.current = true;
       } else if (controlsRef.current) {
-        controlsRef.current.target.lerp(handCenter, 0.08);
+        const camDamp = 1 - Math.exp(-8 * safeDelta);
+        controlsRef.current.target.lerp(handCenter, camDamp);
         controlsRef.current.update();
       }
     }

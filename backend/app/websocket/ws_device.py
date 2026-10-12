@@ -76,11 +76,11 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
         print("[WS] Device connected successfully!")
         try:
             while True:
-                # Receive raw telemetry reading from ESP32 with an 8.0-second timeout for wireless resilience
+                # Receive raw telemetry reading from ESP32 with a 30.0-second timeout for wireless resilience
                 try:
-                    data = await asyncio.wait_for(websocket.receive_text(), timeout=8.0)
+                    data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
                 except asyncio.TimeoutError:
-                    print("[WS] Device telemetry timeout: No data received for 8 seconds. Disconnecting...")
+                    print("[WS] Device telemetry timeout: No data received for 30 seconds. Disconnecting...")
                     break
                 try:
                     packet = json.loads(data)

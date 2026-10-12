@@ -333,7 +333,6 @@ void setup() {
   String stored_ssid = preferences.getString("wifi_ssid", "");
   String stored_pass = preferences.getString("wifi_pass", "");
   String stored_host = preferences.getString("server_host", "");
-  preferences.end();
 
   if (stored_ssid.length() > 0) {
     wifi_ssid = stored_ssid;
@@ -349,13 +348,17 @@ void setup() {
     Serial.println("[NVS] No server host stored in memory. Using code defaults.");
   }
   
-  // Load Flex Calibration
+  // Load Flex Calibration from memory
   thumbStraight = preferences.getInt("thumbStr", 1400); thumbBent = preferences.getInt("thumbBnt", 2200);
   indexStraight = preferences.getInt("indexStr", 1350); indexBent = preferences.getInt("indexBnt", 2250);
   middleStraight = preferences.getInt("middleStr", 1380); middleBent = preferences.getInt("middleBnt", 2280);
   ringStraight = preferences.getInt("ringStr", 1400); ringBent = preferences.getInt("ringBnt", 2250);
   littleStraight = preferences.getInt("littleStr", 1300); littleBent = preferences.getInt("littleBnt", 2150);
   elbowStraight = preferences.getInt("elbowStr", 1200); elbowBent = preferences.getInt("elbowBnt", 2400);
+  preferences.end();
+  
+  Serial.printf("[NVS] Flex Bounds: Thumb(%d->%d) Index(%d->%d) Mid(%d->%d) Ring(%d->%d) Lit(%d->%d)\n",
+                thumbStraight, thumbBent, indexStraight, indexBent, middleStraight, middleBent, ringStraight, ringBent, littleStraight, littleBent);
   
   // 1. Initialize Wi-Fi Connection
   Serial.printf("\nConnecting to Wi-Fi SSID: %s\n", wifi_ssid.c_str());
@@ -418,7 +421,8 @@ void setup() {
   webSocket.begin(server_host.c_str(), server_port, "/api/v1/device/ws?client_type=device");
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(3000); // Reconnect quickly (3s) if connection drops
-  webSocket.enableHeartbeat(15000, 3000, 2); // Keep-alive ping every 15s to prevent router timeouts
+  // NOTE: Heartbeat ping disabled because 20Hz continuous telemetry stream keeps connection active
+  // without triggering Starlette/FastAPI ping timeout drops.
 
   // 4. Configure ADC resolution & analog input pins (Full 12-bit, 0V - 3.3V range)
   analogReadResolution(12);
@@ -545,7 +549,7 @@ void loop() {
 
     // E. Serialize and send JSON string over WebSocket only if connected
     if (wsConnected) {
-      StaticJsonDocument<512> doc;
+      StaticJsonDocument<1536> doc;
       doc["battery"] = 94;
       doc["thumb"] = a_thumb;
       doc["index"] = a_index;

@@ -19,7 +19,8 @@ import {
   FINGER_KEYS, 
   FINGER_RIG_MAP, 
   processFingerTelemetry, 
-  mapNormalizedToGlb 
+  mapNormalizedToGlb,
+  resetDynamicRanges
 } from '../services/fingerSensorMapper';
 import { loadCalibrationConfig } from '../services/calibrationConfig';
 
@@ -28,7 +29,9 @@ export default function FingerSensorTrialPanel({
   deviceConnected = false,
   lastPacketTime = null,
   onAnglesUpdate, // Callback to parent to update 3D model with finger angles: ({ thumb, index, middle, ring, little }) => void
-  onToggleCalibrationMode // Callback to switch back to Fix 1 calibration view if needed
+  onToggleCalibrationMode, // Callback to switch back to Fix 1 calibration view if needed
+  onResetFlex,
+  isResetting = false
 }) {
   const glbConfig = useRef(loadCalibrationConfig());
 
@@ -222,6 +225,21 @@ export default function FingerSensorTrialPanel({
     onAnglesUpdate?.(result.angles);
   };
 
+  const [localResetting, setLocalResetting] = useState(false);
+  const handleResetTracking = () => {
+    if (onResetFlex) {
+      onResetFlex();
+      return;
+    }
+    setLocalResetting(true);
+    resetDynamicRanges();
+    const result = processFingerTelemetry(liveSensors, glbConfig.current);
+    setProcessedTelemetry(result);
+    onAnglesUpdate?.(result.angles);
+    setTimeout(() => setLocalResetting(false), 700);
+  };
+  const isResettingActive = isResetting || localResetting;
+
   return (
     <div className="flex flex-col h-full space-y-3.5 text-slate-800 text-xs select-none">
       
@@ -235,18 +253,35 @@ export default function FingerSensorTrialPanel({
             </span>
           </div>
 
-          {/* Mode Pill Indicator */}
-          {activeMode === 'live' ? (
-            <span className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full text-[10px] font-bold">
-              <Radio className="w-3 h-3 text-emerald-600 animate-pulse" />
-              LIVE SENSOR
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 bg-purple-50 text-purple-700 border border-purple-200 px-2.5 py-0.5 rounded-full text-[10px] font-bold animate-pulse">
-              <Sparkles className="w-3 h-3 text-purple-600" />
-              SIMULATION
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {/* Reset / Refresh Flex Tracking Button */}
+            <button
+              type="button"
+              onClick={handleResetTracking}
+              title="Reset flex sensor tracking and recalibrate baseline if values stop showing"
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer shadow-sm ${
+                isResettingActive
+                  ? 'bg-amber-100 text-amber-900 border-amber-400 ring-2 ring-amber-400/30'
+                  : 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-800 border-slate-200 hover:border-amber-300'
+              }`}
+            >
+              <RotateCcw className={`w-3 h-3 ${isResettingActive ? 'animate-spin text-amber-600' : 'text-amber-600'}`} />
+              <span>{isResettingActive ? 'Resetting...' : 'Reset Flex'}</span>
+            </button>
+
+            {/* Mode Pill Indicator */}
+            {activeMode === 'live' ? (
+              <span className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full text-[10px] font-bold">
+                <Radio className="w-3 h-3 text-emerald-600 animate-pulse" />
+                LIVE SENSOR
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 bg-purple-50 text-purple-700 border border-purple-200 px-2.5 py-0.5 rounded-full text-[10px] font-bold animate-pulse">
+                <Sparkles className="w-3 h-3 text-purple-600" />
+                SIMULATION
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Telemetry Disconnection Warning Banner */}

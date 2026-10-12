@@ -23,7 +23,8 @@ import {
   Cpu,
   ChevronLeft,
   ChevronDown,
-  RefreshCw
+  RefreshCw,
+  RotateCcw
 } from 'lucide-react';
 import { startSession, endSession } from '../services/session';
 import apiClient from '../services/auth';
@@ -35,7 +36,7 @@ import WristSensorTrialPanel from '../components/WristSensorTrialPanel';
 import ElbowSensorTrialPanel from '../components/ElbowSensorTrialPanel';
 import WristMotionDemoCard from '../components/WristMotionDemoCard';
 import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
-import { processFingerTelemetry } from '../services/fingerSensorMapper';
+import { processFingerTelemetry, resetDynamicRanges, FINGER_KEYS } from '../services/fingerSensorMapper';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
 
@@ -239,7 +240,9 @@ const FingerSyncPanel = ({
   isFlexSynced, 
   onToggleSync,
   simulatedActive = false,
-  onToggleSimulation = () => {}
+  onToggleSimulation = () => {},
+  onResetFlex = () => {},
+  isResetting = false
 }) => {
   const fingerKeys = [
     { key: 'thumb', label: 'Thumb' },
@@ -403,7 +406,7 @@ const FingerSyncPanel = ({
         </div>
       </div>
 
-      {/* SYNC VALUES & SHOW REAL TIME FLEX BUTTON */}
+      {/* SYNC VALUES & SHOW REAL TIME FLEX BUTTONS */}
       <div className="grid grid-cols-2 gap-2">
         <button
           type="button"
@@ -429,6 +432,21 @@ const FingerSyncPanel = ({
         >
           <Zap className={`w-3.5 h-3.5 ${simulatedActive ? 'text-amber-300' : 'text-slate-500'}`} />
           <span className="truncate">{simulatedActive ? 'Stop Simulation' : 'Simulate Flex Test'}</span>
+        </button>
+
+        {/* Dedicated Reset & Refresh Flex Sensors Button */}
+        <button
+          type="button"
+          onClick={onResetFlex}
+          title="Reset flex sensor tracking and recalibrate baseline if values stop showing"
+          className={`col-span-2 py-2 px-3 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-2 cursor-pointer border shadow-sm ${
+            isResetting
+              ? 'bg-amber-100 text-amber-900 border-amber-400 ring-2 ring-amber-400/30'
+              : 'bg-amber-50 hover:bg-amber-100/80 text-amber-800 border-amber-200'
+          }`}
+        >
+          <RotateCcw className={`w-3.5 h-3.5 ${isResetting ? 'animate-spin text-amber-600' : 'text-amber-600'}`} />
+          <span>{isResetting ? 'Recalibrating Flex Baseline...' : 'Reset & Refresh Flex Sensors'}</span>
         </button>
       </div>
     </div>
@@ -804,6 +822,64 @@ function LiveExercisePage() {
     });
   };
 
+  // Reset & Refresh Flex Sensors (Recalibrates resting baseline & refreshes live GLB and bars)
+  const [isResettingFlex, setIsResettingFlex] = useState(false);
+
+  const handleResetFlexSensors = () => {
+    setIsResettingFlex(true);
+    resetDynamicRanges();
+
+    // Immediately re-process with latest raw sensor data if available
+    if (rawSensorPacket && Object.keys(rawSensorPacket).length > 0) {
+      const freshComputed = processFingerTelemetry(rawSensorPacket);
+      if (freshComputed && freshComputed.angles) {
+        setSensorFingerAngles(freshComputed.angles);
+        setFingerTelemetryDetails(freshComputed);
+
+        // Update active finger percentages in sensor state
+        setSensors(prev => {
+          const updated = { ...prev };
+          FINGER_KEYS.forEach(f => {
+            const compPct = freshComputed.percentages?.[f] ?? 0;
+            const val = rawSensorPacket[f];
+            let fwPct = 0;
+            if (val !== undefined && val !== null) {
+              const deg = typeof val === 'object' ? (val.angle || 0) : Number(val);
+              if (!isNaN(deg)) {
+                fwPct = deg <= 90 ? Math.round((deg / 90) * 100) : Math.min(100, Math.max(0, Math.round((deg / 4095) * 100)));
+              }
+            }
+            updated[f] = Math.max(compPct, fwPct);
+          });
+          return updated;
+        });
+      }
+    }
+
+    // Unblock repetition state machine if held in hold/returning
+    if (repStateRef.current === 'target_hold' || repStateRef.current === 'returning') {
+      if (holdTimerIntervalRef.current) clearInterval(holdTimerIntervalRef.current);
+      setHoldCountdown(0);
+      repStateRef.current = 'rest';
+      setRepState('rest');
+    }
+
+    // Ping WebSocket status to guarantee hardware telemetry flow
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ command: 'get_status' }));
+      } catch (err) {
+        console.warn('WS ping during reset', err);
+      }
+    }
+
+    setGuidance('Flex sensors reset! Hand baseline recalibrating — move fingers to see live values.');
+
+    setTimeout(() => {
+      setIsResettingFlex(false);
+    }, 700);
+  };
+
   // Load exercise targets from database
   const isMounted = useRef(true);
   
@@ -1058,16 +1134,18 @@ function LiveExercisePage() {
           setSensorElbowAngles(null);
         }
 
-        // 4. Extract finger percentage (0-100%) directly from calibrated telemetry
+        // 4. Extract finger percentage (0-100%) directly from calibrated telemetry with firmware fallback
         const extractFinger = (name) => {
-          if (computedFingers?.percentages?.[name] !== undefined) {
-            return computedFingers.percentages[name];
-          }
+          const compPct = computedFingers?.percentages?.[name] ?? 0;
           const val = data[name];
-          if (val === undefined || val === null) return 0;
-          if (typeof val === 'object') return val.angle || 0;
-          if (val <= 90) return Math.round((val / 90) * 100);
-          return Math.min(100, Math.max(0, (val / 4095) * 100));
+          let fwPct = 0;
+          if (val !== undefined && val !== null) {
+            const rawAngle = typeof val === 'object' ? (val.angle || 0) : Number(val);
+            if (!isNaN(rawAngle)) {
+              fwPct = rawAngle <= 90 ? Math.round((rawAngle / 90) * 100) : Math.min(100, Math.max(0, Math.round((rawAngle / 4095) * 100)));
+            }
+          }
+          return Math.max(compPct, fwPct);
         };
 
         const extractElbow = () => {
@@ -1125,21 +1203,21 @@ function LiveExercisePage() {
     const startTime = Date.now();
     const interval = setInterval(() => {
       const elapsed = (Date.now() - startTime) / 1000;
-      // 4.5 second smooth repetition wave:
-      // ~2.25s closing fist (bend goes from 0 to 1), ~2.25s opening hand (bend goes from 1 to 0)
+      // 4.5 second buttery-smooth repetition wave:
+      // ~2.25s closing fist (bend smoothly rises 0 -> 1), ~2.25s opening hand (bend smoothly returns 1 -> 0)
       const cycleProgress = (elapsed % 4.5) / 4.5;
-      const bend = Math.pow(Math.sin(cycleProgress * Math.PI), 1.5);
+      const bend = (1 - Math.cos(cycleProgress * 2 * Math.PI)) * 0.5;
 
       const parsedSensors = {
         wrist_pitch: 0.0,
         wrist_roll: 0.0,
         elbow: 180.0,
         pressure: Math.round(bend * 35),
-        thumb: Math.round(bend * 80),
-        index: Math.round(bend * 92),
-        middle: Math.round(bend * 90),
-        ring: Math.round(bend * 88),
-        little: Math.round(bend * 84)
+        thumb: Number((bend * 80).toFixed(1)),
+        index: Number((bend * 92).toFixed(1)),
+        middle: Number((bend * 90).toFixed(1)),
+        ring: Number((bend * 88).toFixed(1)),
+        little: Number((bend * 84).toFixed(1))
       };
 
       const simPacket = {
@@ -2387,6 +2465,23 @@ function LiveExercisePage() {
                     <span>Sleeve Offline</span>
                   </div>
                 )}
+
+                {/* Reset & Refresh Flex Sensors Quick Button in Canvas Overlay */}
+                {(isFingerExercise || isFingerClosing || isFingerOpening) && (
+                  <button
+                    type="button"
+                    onClick={handleResetFlexSensors}
+                    title="Reset & Refresh Flex Sensors (Recalibrates baseline if values freeze)"
+                    className={`flex items-center gap-1.5 bg-slate-950/85 backdrop-blur border text-xs font-bold rounded-xl p-2 px-3 transition-all cursor-pointer shadow-sm ${
+                      isResettingFlex
+                        ? 'border-amber-500 text-amber-400 bg-amber-950/40 ring-2 ring-amber-500/30'
+                        : 'border-slate-800 hover:border-amber-500/50 text-slate-300 hover:text-amber-300'
+                    }`}
+                  >
+                    <RotateCcw className={`w-3.5 h-3.5 ${isResettingFlex ? 'animate-spin text-amber-400' : 'text-amber-400'}`} />
+                    <span>{isResettingFlex ? 'Recalibrating...' : 'Reset Flex'}</span>
+                  </button>
+                )}
               </div>
 
               {/* Animated Exercise Demonstration Card for Wrist Exercises (Top Right Overlay) */}
@@ -2568,6 +2663,8 @@ function LiveExercisePage() {
                       lastPacketTime={lastPacketTime}
                       onAnglesUpdate={(angles) => setSensorFingerAngles(angles)}
                       onToggleCalibrationMode={() => setFingerTrialView('calibration')}
+                      onResetFlex={handleResetFlexSensors}
+                      isResetting={isResettingFlex}
                     />
                   ) : (
                     <div className="space-y-3">
@@ -2806,6 +2903,8 @@ function LiveExercisePage() {
                       onToggleSync={() => setIsFlexSynced(prev => !prev)}
                       simulatedActive={simulatedFingersActive}
                       onToggleSimulation={() => setSimulatedFingersActive(prev => !prev)}
+                      onResetFlex={handleResetFlexSensors}
+                      isResetting={isResettingFlex}
                     />
                     <div className="grid grid-cols-2 gap-3">
                       <SVGGauge {...primary} />

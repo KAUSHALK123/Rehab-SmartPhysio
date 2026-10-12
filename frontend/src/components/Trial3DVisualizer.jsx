@@ -60,7 +60,7 @@ function ElbowStandaloneRig({
     }
   }, [resetKey]);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (!clonedScene || !baseRotationsRef.current.initialized) return;
 
     const forearmNode = typeof clonedScene.getObjectByName === 'function'
@@ -69,10 +69,12 @@ function ElbowStandaloneRig({
 
     if (forearmNode) {
       const base = baseRotationsRef.current.WristArm || { x: 0, y: 0, z: 0 };
+      const safeDelta = Math.min(delta || 0.016, 0.1);
+      const smoothDamp = 1 - Math.exp(-20 * safeDelta);
       if (calibrationActive) {
-        applyCalibratedElbowRotation(forearmNode, base, testAngles, 0.25);
+        applyCalibratedElbowRotation(forearmNode, base, testAngles, smoothDamp);
       } else if (sensorElbowAngles && typeof sensorElbowAngles === 'object') {
-        applyCalibratedElbowRotation(forearmNode, base, sensorElbowAngles, 0.25);
+        applyCalibratedElbowRotation(forearmNode, base, sensorElbowAngles, smoothDamp);
       }
     }
   });
@@ -182,23 +184,32 @@ function FullBodyRig({
     resetBonesToRest();
   }, [resetKey]);
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, delta) => {
     if (!clonedScene || !baseRotationsRef.current.initialized) return;
 
     const t = clock.getElapsedTime();
+    const safeDelta = Math.min(delta || 0.016, 0.1);
+    const smoothDamp = 1 - Math.exp(-20 * safeDelta);
+
     let computedControls = controls;
 
     if (demoMode && !calibrationActive && (!controls || Object.keys(controls).length === 0)) {
+      // Smooth harmonic cycles with continuous curvature and anatomical cascade
+      const fingerWave = (offset, maxAngle) => {
+        const norm = (1 - Math.cos((t * 1.5) - offset)) * 0.5;
+        return norm * maxAngle;
+      };
+
       computedControls = {
         shoulderAngle: Math.sin(t * 0.8) * 8,
         shoulderAngleX: Math.cos(t * 0.7) * 6,
-        elbowAngle: 150 - Math.abs(Math.sin(t * 1.2)) * 60,
+        elbowAngle: 150 - (1 - Math.cos(t * 1.2)) * 0.5 * 60,
         wristAngle: Math.sin(t * 1.5) * 35,
-        thumb: Math.max(0, Math.sin(t * 1.8) * 45),
-        index: Math.max(0, Math.sin(t * 1.8 + 0.2) * 55),
-        middle: Math.max(0, Math.sin(t * 1.8 + 0.4) * 60),
-        ring: Math.max(0, Math.sin(t * 1.8 + 0.6) * 55),
-        little: Math.max(0, Math.sin(t * 1.8 + 0.8) * 50),
+        thumb: fingerWave(0.28, 50),
+        index: fingerWave(0.00, 60),
+        middle: fingerWave(0.07, 65),
+        ring: fingerWave(0.14, 60),
+        little: fingerWave(0.21, 55),
       };
     }
 
@@ -223,8 +234,8 @@ function FullBodyRig({
       const base = bases.bicep_right || { x: 0, y: 0, z: 0 };
       const targetZ = base.z + degToRad(activeControls?.shoulderAngle || 0);
       const targetX = base.x + degToRad(activeControls?.shoulderAngleX || 0);
-      bicepRight.rotation.z = THREE.MathUtils.lerp(bicepRight.rotation.z, targetZ, 0.15);
-      bicepRight.rotation.x = THREE.MathUtils.lerp(bicepRight.rotation.x, targetX, 0.15);
+      bicepRight.rotation.z = THREE.MathUtils.lerp(bicepRight.rotation.z, targetZ, smoothDamp);
+      bicepRight.rotation.x = THREE.MathUtils.lerp(bicepRight.rotation.x, targetX, smoothDamp);
     }
 
     // 2. Elbow Angle (right_forearm)
@@ -232,13 +243,13 @@ function FullBodyRig({
     if (rightForearm) {
       const base = bases.right_forearm || { x: 0, y: 0, z: 0 };
       if (calibrationActive && (targetBone === 'right_forearm' || targetBone === 'WristArm')) {
-        applyCalibratedElbowRotation(rightForearm, base, testAngles, 0.25);
+        applyCalibratedElbowRotation(rightForearm, base, testAngles, smoothDamp);
       } else if (sensorElbowAngles && typeof sensorElbowAngles === 'object') {
-        applyCalibratedElbowRotation(rightForearm, base, sensorElbowAngles, 0.25);
+        applyCalibratedElbowRotation(rightForearm, base, sensorElbowAngles, smoothDamp);
       } else {
         const bendDeg = 180 - (activeControls?.elbowAngle || 180); // 180 = straight -> 0 bend
         const targetElbowZ = base.z - degToRad(bendDeg);
-        rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, targetElbowZ, 0.15);
+        rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, targetElbowZ, smoothDamp);
       }
     }
 
@@ -248,16 +259,16 @@ function FullBodyRig({
       const base = bases.Circle || { x: 0, y: 0, z: 0 };
       if (calibrationActive && targetBone === 'Circle') {
         // Calibration override: combine 3D test angles directly on top of rest pose
-        applyCalibratedWristRotation(circleWrist, base, testAngles, 0.25);
+        applyCalibratedWristRotation(circleWrist, base, testAngles, smoothDamp);
       } else if (sensorWristAngles && typeof sensorWristAngles === 'object') {
         // Real-time sensor-driven GLB movement (Fix 4 shared logic)
-        applyCalibratedWristRotation(circleWrist, base, sensorWristAngles, 0.25);
+        applyCalibratedWristRotation(circleWrist, base, sensorWristAngles, smoothDamp);
       } else {
         // Standard runtime / sensor test mode
         const targetWristX = base.x + degToRad(activeControls?.wristAngle || 0);
-        circleWrist.rotation.x = THREE.MathUtils.lerp(circleWrist.rotation.x, targetWristX, 0.15);
-        circleWrist.rotation.y = THREE.MathUtils.lerp(circleWrist.rotation.y, base.y, 0.15);
-        circleWrist.rotation.z = THREE.MathUtils.lerp(circleWrist.rotation.z, base.z, 0.15);
+        circleWrist.rotation.x = THREE.MathUtils.lerp(circleWrist.rotation.x, targetWristX, smoothDamp);
+        circleWrist.rotation.y = THREE.MathUtils.lerp(circleWrist.rotation.y, base.y, smoothDamp);
+        circleWrist.rotation.z = THREE.MathUtils.lerp(circleWrist.rotation.z, base.z, smoothDamp);
       }
     }
 
@@ -275,7 +286,6 @@ function FullBodyRig({
       if (!fingerNode) return;
 
       const base = bases[nodeName] || { x: 0, y: 0, z: 0 };
-
       const isThumb = nodeName === 'right_thumb';
 
       if (calibrationActive && targetBone === nodeName) {
@@ -284,39 +294,39 @@ function FullBodyRig({
         // Index, Middle, Ring, Little: LOCAL Z axis only (X and Y stay locked to base rest)
         if (isThumb) {
           const targetX = base.x + degToRad(testAngles?.x || 0);
-          fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, targetX, 0.25);
-          fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, 0.25);
-          fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, base.z, 0.25);
+          fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, targetX, smoothDamp);
+          fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, smoothDamp);
+          fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, base.z, smoothDamp);
         } else {
           const targetZ = base.z + degToRad(testAngles?.z || 0);
-          fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, base.x, 0.25);
-          fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, 0.25);
-          fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, targetZ, 0.25);
+          fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, base.x, smoothDamp);
+          fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, smoothDamp);
+          fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, targetZ, smoothDamp);
         }
       } else if (sensorFingerAngles && typeof sensorFingerAngles === 'object') {
-        // Real-time sensor-driven or simulated GLB movement (Fix 2 & Fix 3 shared logic)
+        // Real-time sensor-driven or simulated GLB movement with delta damping
         const fingerKey = nodeName.replace('right_', '');
         const mappedAngleDeg = sensorFingerAngles[fingerKey] !== undefined ? sensorFingerAngles[fingerKey] : 0;
-        applyCalibratedFingerRotation(fingerNode, nodeName, base, mappedAngleDeg, 0.25);
+        applyCalibratedFingerRotation(fingerNode, nodeName, base, mappedAngleDeg, 0.25, delta);
       } else {
         // In calibration mode, non-target fingers remain steady at rest pose
         if (calibrationActive) {
-          fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, base.x, 0.15);
-          fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, 0.15);
-          fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, base.z, 0.15);
+          fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, base.x, smoothDamp);
+          fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, smoothDamp);
+          fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, base.z, smoothDamp);
         } else {
           // Normal exercise flexion behavior (demo or trial without calibration)
           const flexRad = degToRad(Math.max(0, Math.min(90, val)));
           if (isThumb) {
             const targetX = base.x + flexRad;
-            fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, targetX, 0.15);
-            fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, 0.15);
-            fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, base.z, 0.15);
+            fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, targetX, smoothDamp);
+            fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, smoothDamp);
+            fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, base.z, smoothDamp);
           } else {
             const targetZ = base.z + flexRad;
-            fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, base.x, 0.15);
-            fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, 0.15);
-            fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, targetZ, 0.15);
+            fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, base.x, smoothDamp);
+            fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, smoothDamp);
+            fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, targetZ, smoothDamp);
           }
         }
       }
