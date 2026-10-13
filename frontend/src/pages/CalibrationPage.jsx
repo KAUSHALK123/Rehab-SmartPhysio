@@ -795,6 +795,22 @@ function CalibrationPage() {
 
   // Evaluate Threshold Criteria for Calibration
   useEffect(() => {
+    // Flex logic - requires variance >= 20 on at least 3 fingers
+    if (activeSensorIndex === 1 && sensorStatuses.flex === 'calibrating' && minSeen.flex && maxSeen.flex) {
+      const fingers = ['thumb', 'index', 'middle', 'ring', 'little'];
+      const passedCount = fingers.filter(f => (maxSeen.flex[f] - minSeen.flex[f]) >= 20).length;
+      if (passedCount >= 3) {
+        setSensorStatuses(prev => ({ ...prev, flex: 'ready' }));
+      }
+    }
+
+    // Elbow logic - requires elbow variance >= 20
+    if (activeSensorIndex === 2 && sensorStatuses.elbow === 'calibrating' && minSeen.elbow !== undefined && maxSeen.elbow !== undefined) {
+      if (maxSeen.elbow - minSeen.elbow >= 20) {
+        setSensorStatuses(prev => ({ ...prev, elbow: 'ready' }));
+      }
+    }
+
     // Wrist MPU logic - requires real MPU working signal and rotation variance >= 5 degrees
     if (activeSensorIndex === 3 && sensorStatuses.mpu === 'calibrating') {
       if (lastTelemetry?.mpu_working === false) {
@@ -1085,7 +1101,7 @@ function CalibrationPage() {
                                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">GPIO Pin Health Status</span>
                                       <div className="grid grid-cols-2 gap-1.5 text-[10px] font-semibold">
                                         <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                          <span className="text-slate-500 font-medium">GPIO 32 (Thumb)</span>
+                                          <span className="text-slate-500 font-medium">GPIO 39 (Thumb)</span>
                                           <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
                                             {lastTelemetry ? "● OK" : "○ OFFLINE"}
                                           </span>
@@ -1109,13 +1125,13 @@ function CalibrationPage() {
                                           </span>
                                         </div>
                                         <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                          <span className="text-slate-500 font-medium">GPIO 36 (Little)</span>
+                                          <span className="text-slate-500 font-medium">GPIO 32 (Little)</span>
                                           <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
                                             {lastTelemetry ? "● OK" : "○ OFFLINE"}
                                           </span>
                                         </div>
                                         <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                          <span className="text-slate-500 font-medium">GPIO 39 (Elbow)</span>
+                                          <span className="text-slate-500 font-medium">GPIO 36 (Elbow)</span>
                                           <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
                                             {lastTelemetry ? "● OK" : "○ OFFLINE"}
                                           </span>
@@ -1307,11 +1323,11 @@ function CalibrationPage() {
 
               <div className="pt-2">
                 <button
-                  onClick={() => setStep(3)}
+                  onClick={() => setStep(2)}
                   disabled={Object.values(sensorStatuses).some(s => s === 'pending' || s === 'calibrating')}
                   className="w-full py-3 neu-button-primary rounded-xl transition cursor-pointer disabled:opacity-50"
                 >
-                  Continue to Save Calibration &rarr;
+                  Continue to Motion Verification &rarr;
                 </button>
               </div>
 

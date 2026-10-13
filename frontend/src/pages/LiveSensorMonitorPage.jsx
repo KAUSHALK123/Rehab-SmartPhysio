@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -16,12 +16,12 @@ import { useTheme } from '../context/ThemeContext';
 
 // ─── GPIO reference (matches sleeve_firmware.ino PIN_ constants) ─────────────
 const GPIO_ROWS = [
-  ['Thumb',    'PIN_THUMB',    'GPIO 32 (D32)', 'ADC1_CH4'],
-  ['Index',    'PIN_INDEX',    'GPIO 35 (D35)', 'ADC1_CH7'],
+  ['Thumb',    'PIN_THUMB',    'GPIO 39 (VN)',  'ADC1_CH3'],
+  ['Index',    'PIN_INDEX',    'GPIO 33 (D33)', 'ADC1_CH5'],
   ['Middle',   'PIN_MIDDLE',   'GPIO 34 (D34)', 'ADC1_CH6'],
-  ['Ring',     'PIN_RING',     'GPIO 33 (D33)', 'ADC1_CH5'],
-  ['Little',   'PIN_LITTLE',   'GPIO 36 (VP)',  'ADC1_CH0'],
-  ['Elbow',    'PIN_ELBOW',    'GPIO 39 (VN)',  'ADC1_CH3'],
+  ['Ring',     'PIN_RING',     'GPIO 35 (D35)', 'ADC1_CH7'],
+  ['Little',   'PIN_LITTLE',   'GPIO 32 (D32)', 'ADC1_CH4'],
+  ['Elbow',    'PIN_ELBOW',    'GPIO 36 (VP)',  'ADC1_CH0'],
   ['Pressure', 'PIN_PRESSURE', 'GPIO 25 (D25)', 'DAC1 / Analog'],
   ['MPU SDA',  'Wire.begin()', 'GPIO 21',       'I\u00b2C Data'],
   ['MPU SCL',  'Wire.begin()', 'GPIO 22',       'I\u00b2C Clock'],
@@ -29,11 +29,11 @@ const GPIO_ROWS = [
 
 // Finger sensor definitions
 const FINGER_SENSORS = [
-  { key: 'thumb',  label: 'Thumb',  gpio: 'GPIO 32 (D32)', color: '#8b5cf6' },
-  { key: 'index',  label: 'Index',  gpio: 'GPIO 35 (D35)', color: '#3b82f6' },
+  { key: 'thumb',  label: 'Thumb',  gpio: 'VN / GPIO 39',  color: '#8b5cf6' },
+  { key: 'index',  label: 'Index',  gpio: 'GPIO 33 (D33)', color: '#3b82f6' },
   { key: 'middle', label: 'Middle', gpio: 'GPIO 34 (D34)', color: '#10b981' },
-  { key: 'ring',   label: 'Ring',   gpio: 'GPIO 33 (D33)', color: '#f59e0b' },
-  { key: 'little', label: 'Little', gpio: 'VP / GPIO 36',  color: '#ef4444' },
+  { key: 'ring',   label: 'Ring',   gpio: 'GPIO 35 (D35)', color: '#f59e0b' },
+  { key: 'little', label: 'Little', gpio: 'GPIO 32 (D32)', color: '#ef4444' },
 ];
 
 const ADC_MAX = 4095; // ESP32 12-bit ADC
@@ -108,10 +108,10 @@ function RawBar({ pct, color }) {
 }
 
 // ─── Single sensor row ────────────────────────────────────────────────────────
-function SensorRow({ label, gpio, color, sensorData, isDark }) {
+function SensorRow({ label, gpio, color, sensorData, isDark, isTimedOut }) {
   const { raw, angle, pct, hasValue } = sensorData;
   return (
-    <tr className={`border-b ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+    <tr className={`border-b transition-colors ${isDark ? 'border-slate-800' : 'border-slate-100'} ${isTimedOut ? 'opacity-65' : ''}`}>
       {/* Label */}
       <td className="py-3 px-4 w-40">
         <div className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>{label}</div>
@@ -119,12 +119,17 @@ function SensorRow({ label, gpio, color, sensorData, isDark }) {
       </td>
 
       {/* Raw ADC reading */}
-      <td className="py-3 px-4 w-36">
+      <td className="py-3 px-4 w-44">
         <div className="flex items-baseline gap-1.5">
           <span className={`font-mono text-xl font-black ${hasValue ? (isDark ? 'text-white' : 'text-slate-800') : 'text-slate-600'}`}>
             {raw !== null ? raw : '\u2014'}
           </span>
           <span className="text-[10px] text-slate-500 font-mono">/ {ADC_MAX}</span>
+          {isTimedOut && (
+            <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/40">
+              STALE
+            </span>
+          )}
         </div>
         {angle !== null && (
           <div className="text-[10px] font-mono text-cyan-400 font-semibold">
@@ -146,6 +151,7 @@ export default function LiveSensorMonitorPage() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
   const wsRef = useRef(null);
+  const reconnectTimerRef = useRef(null);
 
   const [packet, setPacket]                 = useState(null);
   const [isMock, setIsMock]                 = useState(false);
@@ -155,71 +161,92 @@ export default function LiveSensorMonitorPage() {
   const [lastPacketTime, setLastPacketTime] = useState(null);
   const [wsState, setWsState]               = useState('disconnected');
   const [showJsonInspector, setShowJsonInspector] = useState(false);
+  const [isRefreshing, setIsRefreshing]     = useState(false);
 
   // ── WebSocket Connection ───────────────────────────────────────────────────
-  useEffect(() => {
-    let ws;
-    let reconnectTimer = null;
-
-    function connect() {
-      setWsState('connecting');
-      ws = new WebSocket(getWsUrl());
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        setWsState('open');
-      };
-
-      ws.onmessage = (ev) => {
-        try {
-          const data = JSON.parse(ev.data);
-
-          if (data.type === 'status_update') {
-            setConnected(!!data.hardware_connected);
-          }
-
-          // Accept sensor packets with or without explicit type === 'sensor_data'
-          if (
-            data.type === 'sensor_data' ||
-            data.thumb !== undefined ||
-            data.raw_thumb !== undefined ||
-            data.elbow !== undefined ||
-            data.raw_elbow !== undefined
-          ) {
-            const mock = !!data.is_mock;
-            setIsMock(mock);
-            setIsHardware(!mock);
-            setConnected(true);
-            setPacket(data);
-            setLastPacketTime(Date.now());
-            setPacketCount(n => n + 1);
-          }
-        } catch (_) {}
-      };
-
-      ws.onclose = () => {
-        setWsState('closed');
-        setConnected(false);
-        reconnectTimer = setTimeout(connect, 3000);
-      };
-
-      ws.onerror = () => setWsState('error');
+  const connect = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch (_) {}
     }
 
-    connect();
-    return () => {
-      clearTimeout(reconnectTimer);
-      if (ws) ws.close();
+    setWsState('connecting');
+    const ws = new WebSocket(getWsUrl());
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setWsState('open');
+      setIsRefreshing(false);
+    };
+
+    ws.onmessage = (ev) => {
+      try {
+        const data = JSON.parse(ev.data);
+
+        if (data.type === 'status_update') {
+          setConnected(!!data.hardware_connected);
+        }
+
+        // Accept sensor packets with or without explicit type === 'sensor_data'
+        if (
+          data.type === 'sensor_data' ||
+          data.thumb !== undefined ||
+          data.raw_thumb !== undefined ||
+          data.elbow !== undefined ||
+          data.raw_elbow !== undefined
+        ) {
+          const mock = !!data.is_mock;
+          setIsMock(mock);
+          setIsHardware(!mock);
+          setConnected(true);
+          setPacket(data);
+          setLastPacketTime(Date.now());
+          setPacketCount(n => n + 1);
+        }
+      } catch (_) {}
+    };
+
+    ws.onclose = () => {
+      setWsState('closed');
+      setConnected(false);
+      setIsRefreshing(false);
+      reconnectTimerRef.current = setTimeout(connect, 3000);
+    };
+
+    ws.onerror = () => {
+      setWsState('error');
+      setIsRefreshing(false);
     };
   }, []);
 
-  // Age of last packet (for staleness warning)
+  useEffect(() => {
+    connect();
+    return () => {
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      if (wsRef.current) wsRef.current.close();
+    };
+  }, [connect]);
+
+  // Manual refresh connection button handler
+  const handleRefreshConnection = () => {
+    setIsRefreshing(true);
+    setPacketCount(0);
+    connect();
+  };
+
+  // Age of last packet (for staleness / timeout warning)
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(t);
   }, []);
   const msSince = lastPacketTime ? now - lastPacketTime : null;
+  const isTimedOut = connected && msSince !== null && msSince > 3000;
 
   // MPU raw values
   const pitch   = packet?.wrist_pitch ?? packet?.pitch;
@@ -263,11 +290,32 @@ export default function LiveSensorMonitorPage() {
           </div>
         </div>
 
-        {/* Status badges */}
+        {/* Status badges & Refresh Connection button */}
         <div className="flex items-center gap-3 flex-wrap">
+          {/* Refresh Connection Button */}
+          <button
+            type="button"
+            onClick={handleRefreshConnection}
+            disabled={isRefreshing}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+              isDark
+                ? 'bg-slate-800 hover:bg-slate-700 text-cyan-400 border-slate-700 hover:border-cyan-500/50'
+                : 'bg-white hover:bg-slate-100 text-cyan-700 border-slate-200 shadow-xs'
+            }`}
+            title="Refresh WebSocket connection immediately"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-cyan-400' : ''}`} />
+            Refresh Connection
+          </button>
+
           {wsState === 'connecting' && !connected ? (
             <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-slate-800 text-slate-400 border border-slate-700">
               <RefreshCw className="w-3 h-3 animate-spin" /> Connecting&hellip;
+            </span>
+          ) : isTimedOut ? (
+            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-950/80 text-amber-300 border border-amber-500/50 animate-pulse">
+              <AlertTriangle className="w-3 h-3 text-amber-400" />
+              TIMED OUT ({(msSince / 1000).toFixed(1)}s)
             </span>
           ) : connected && isHardware ? (
             <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-950/70 text-emerald-400 border border-emerald-500/30">
@@ -292,12 +340,38 @@ export default function LiveSensorMonitorPage() {
           </div>
 
           {msSince !== null && (
-            <span className={`text-[11px] font-mono ${msSince > 3000 ? 'text-red-400' : 'text-slate-500'}`}>
+            <span className={`text-[11px] font-mono ${isTimedOut ? 'text-amber-400 font-bold' : msSince > 3000 ? 'text-red-400' : 'text-slate-500'}`}>
               {(msSince / 1000).toFixed(1)}s ago
             </span>
           )}
         </div>
       </div>
+
+      {/* ── TIMEOUT WARNING BANNER ─────────────────────────────────────────────── */}
+      {isTimedOut && (
+        <div className="flex items-center justify-between gap-4 px-5 py-4 rounded-xl border-2 border-amber-500/70 bg-amber-950/40 text-amber-200 shadow-md">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 animate-pulse" />
+            <div>
+              <p className="text-sm font-bold text-amber-300">
+                Sensor Readings Timed Out &mdash; No packets received for {(msSince / 1000).toFixed(1)}s
+              </p>
+              <p className="text-xs text-amber-400/80 mt-0.5">
+                Telemetry has stopped updating. Readings shown below are stale. The ESP32 may be idle, asleep, or connection was interrupted.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleRefreshConnection}
+            disabled={isRefreshing}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm transition cursor-pointer flex-shrink-0"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Refresh Connection
+          </button>
+        </div>
+      )}
 
       {/* ── MOCK DATA WARNING — shown whenever is_mock=true ──────────────────── */}
       {isMock && packet && (
@@ -393,6 +467,7 @@ export default function LiveSensorMonitorPage() {
                 color={color}
                 sensorData={extractSensor(packet, key)}
                 isDark={isDark}
+                isTimedOut={isTimedOut}
               />
             ))}
           </tbody>
@@ -405,7 +480,7 @@ export default function LiveSensorMonitorPage() {
           <span className="text-lg">💪</span>
           <div>
             <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Elbow Flex Sensor</h3>
-            <p className="text-[10px] text-slate-500">VN / GPIO 39 &mdash; ADC1_CH3</p>
+            <p className="text-[10px] text-slate-500">VP / GPIO 36 &mdash; ADC1_CH0</p>
           </div>
         </div>
         <table className="w-full text-left">
@@ -419,10 +494,11 @@ export default function LiveSensorMonitorPage() {
           <tbody>
             <SensorRow
               label="Elbow"
-              gpio="VN / GPIO 39"
+              gpio="VP / GPIO 36"
               color="#3b82f6"
               sensorData={elbowData}
               isDark={isDark}
+              isTimedOut={isTimedOut}
             />
           </tbody>
         </table>

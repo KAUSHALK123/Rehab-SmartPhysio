@@ -76,14 +76,23 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
         print("[WS] Device connected successfully!")
         try:
             while True:
-                # Receive raw telemetry reading from ESP32 with a 30.0-second timeout for wireless resilience
+                # Receive raw telemetry reading from ESP32 with resilient timeout (120s) and ping keepalive
                 try:
-                    data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                    data = await asyncio.wait_for(websocket.receive_text(), timeout=120.0)
                 except asyncio.TimeoutError:
-                    print("[WS] Device telemetry timeout: No data received for 30 seconds. Disconnecting...")
-                    break
+                    # Device might be idle or flex sensors unattended; send keep-alive ping before disconnecting
+                    try:
+                        print("[WS] Telemetry paused for 120s. Sending keep-alive ping to device...")
+                        await websocket.send_text(json.dumps({"type": "ping"}))
+                        data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                    except Exception:
+                        print("[WS] Device telemetry timeout: No data received for 150 seconds. Disconnecting...")
+                        break
+
                 try:
                     packet = json.loads(data)
+                    if packet.get("type") == "pong":
+                        continue
                     # Enforce type and is_mock flag
                     packet["type"] = "sensor_data"
                     packet["is_mock"] = False

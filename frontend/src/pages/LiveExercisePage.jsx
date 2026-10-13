@@ -682,6 +682,13 @@ function LiveExercisePage() {
   const [sensorElbowAngles, setSensorElbowAngles] = useState(null);
   const [rawSensorPacket, setRawSensorPacket] = useState({});
   const [lastPacketTime, setLastPacketTime] = useState(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const reconnectTimerRef = useRef(null);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, []);
   const [isFlexSynced, setIsFlexSynced] = useState(true);
   const [fingerTelemetryDetails, setFingerTelemetryDetails] = useState(null);
   const [wristTelemetryDetails, setWristTelemetryDetails] = useState(null);
@@ -732,6 +739,7 @@ function LiveExercisePage() {
 
   // Live Telemetry states
   const [deviceConnected, setDeviceConnected] = useState(false);
+  const isTelemetryTimedOut = deviceConnected && lastPacketTime && (now - lastPacketTime > 3500);
   const [isHardwareDevice, setIsHardwareDevice] = useState(false);
   const [simulatedFingersActive, setSimulatedFingersActive] = useState(false);
   const [battery, setBattery] = useState(100);
@@ -1064,6 +1072,10 @@ function LiveExercisePage() {
   }, [location.pathname, location.search, exerciseId, trialType]);
 
   const cleanupSession = () => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     if (wsRef.current) wsRef.current.close();
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     if (holdTimerIntervalRef.current) clearInterval(holdTimerIntervalRef.current);
@@ -1071,6 +1083,16 @@ function LiveExercisePage() {
 
   // WebSocket Connection
   const connectWebSocket = () => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch (_) {}
+    }
+
     const getWsUrl = () => {
       if (import.meta.env.VITE_WS_URL) {
         return import.meta.env.VITE_WS_URL;
@@ -1086,6 +1108,7 @@ function LiveExercisePage() {
 
     ws.onopen = () => {
       setDeviceConnected(true);
+      setIsRefreshing(false);
       setGuidance('Device connected. Move arm to rest position to initiate repetitions.');
     };
 
@@ -1192,8 +1215,20 @@ function LiveExercisePage() {
     ws.onclose = () => {
       setDeviceConnected(false);
       setIsHardwareDevice(false);
+      setIsRefreshing(false);
       setGuidance('Wearable sleeve disconnected. Attempting to reconnect...');
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = setTimeout(connectWebSocket, 2500);
     };
+
+    ws.onerror = () => {
+      setIsRefreshing(false);
+    };
+  };
+
+  const handleRefreshConnection = () => {
+    setIsRefreshing(true);
+    connectWebSocket();
   };
 
   // Simulated Finger Movement Loop (for testing fist curl, sensor sync & 12-rep counting without hardware)
@@ -2465,6 +2500,26 @@ function LiveExercisePage() {
                     <span>Sleeve Offline</span>
                   </div>
                 )}
+
+                {/* Timed Out Telemetry Warning Pill */}
+                {isTelemetryTimedOut && (
+                  <div className="bg-slate-950/90 backdrop-blur border border-amber-500/80 rounded-xl p-2 px-3 flex items-center gap-2 text-xs font-bold text-amber-300 animate-pulse shadow-sm">
+                    <AlertTriangle className="w-4 h-4 text-amber-400" />
+                    <span>Readings Timed Out ({((now - lastPacketTime) / 1000).toFixed(1)}s)</span>
+                  </div>
+                )}
+
+                {/* Refresh Connection Quick Button in Canvas Overlay */}
+                <button
+                  type="button"
+                  onClick={handleRefreshConnection}
+                  disabled={isRefreshing}
+                  title="Refresh device WebSocket connection immediately"
+                  className="flex items-center gap-1.5 bg-slate-950/85 backdrop-blur border border-cyan-800/60 hover:border-cyan-500 text-cyan-300 hover:text-cyan-200 text-xs font-bold rounded-xl p-2 px-3 transition-all cursor-pointer shadow-sm"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-cyan-400' : 'text-cyan-400'}`} />
+                  <span>{isRefreshing ? 'Refreshing...' : 'Refresh Link'}</span>
+                </button>
 
                 {/* Reset & Refresh Flex Sensors Quick Button in Canvas Overlay */}
                 {(isFingerExercise || isFingerClosing || isFingerOpening) && (
