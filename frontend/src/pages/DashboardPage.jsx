@@ -48,6 +48,7 @@ import { getPatients, createPatient, getBodyParts, getConditions, getRehabilitat
 import apiClient from '../services/auth';
 import Arm3DVisualizer from '../components/Arm3DVisualizer';
 import SensorCard from '../components/SensorCard';
+import { processFingerTelemetry } from '../services/fingerSensorMapper';
 import { useTheme } from '../context/ThemeContext';
 
 function DashboardPage() {
@@ -257,23 +258,29 @@ function DashboardPage() {
             if (now - lastRenderTime >= 55) {
               lastRenderTime = now;
 
+              const computedFingers = processFingerTelemetry(data);
+
               const extractFinger = (name) => {
-                const rawKey = 'raw_' + name;
-                if (data[rawKey] !== undefined) return Math.min(100, Math.max(0, (data[rawKey] / 4095) * 100));
+                const compPct = computedFingers?.percentages?.[name] ?? 0;
                 const val = data[name];
-                if (val === undefined || val === null) return 0;
-                if (typeof val === 'object') return val.raw !== undefined ? Math.min(100, Math.max(0, (val.raw / 4095) * 100)) : (val.angle || 0);
-                if (val > 100) return Math.min(100, Math.max(0, (val / 4095) * 100));
-                return val;
+                let fwPct = 0;
+                if (val !== undefined && val !== null) {
+                  const rawAngle = typeof val === 'object' ? (val.angle || 0) : Number(val);
+                  if (!isNaN(rawAngle)) {
+                    fwPct = rawAngle <= 90 ? Math.round((rawAngle / 90) * 100) : Math.min(100, Math.max(0, Math.round((rawAngle / 4095) * 100)));
+                  }
+                }
+                return Math.max(compPct, fwPct);
               };
 
               const extractElbow = () => {
-                if (data.raw_elbow !== undefined) return Math.min(180, Math.max(0, 180 - (data.raw_elbow / 4095) * 180));
                 const val = data.elbow;
-                if (val === undefined || val === null) return 180;
-                if (typeof val === 'object') return val.angle !== undefined ? val.angle : 180;
-                if (val > 180) return Math.min(180, Math.max(0, (val / 4095) * 180));
-                return val;
+                if (val !== undefined && val !== null) {
+                  if (typeof val === 'object') return val.angle !== undefined ? val.angle : 180;
+                  return val;
+                }
+                if (data.raw_elbow !== undefined) return Math.min(180, Math.max(0, 180 - (data.raw_elbow / 4095) * 180));
+                return 180;
               };
 
               const parsedData = {
@@ -285,7 +292,8 @@ function DashboardPage() {
                 index: extractFinger('index'),
                 middle: extractFinger('middle'),
                 ring: extractFinger('ring'),
-                little: extractFinger('little')
+                little: extractFinger('little'),
+                computedFingers
               };
 
               setLiveTelemetry(parsedData);

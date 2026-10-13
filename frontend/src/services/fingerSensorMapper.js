@@ -172,16 +172,32 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
   const resolveSensorBounds = (finger) => {
     const strKey = finger + 'Str';
     const bntKey = finger + 'Bnt';
-    // Check embedded hardware bounds from firmware NVS
-    if (packetBounds[strKey] !== undefined && packetBounds[bntKey] !== undefined &&
-        !(packetBounds[strKey] === 0 && packetBounds[bntKey] === 4095) &&
-        Math.abs(packetBounds[bntKey] - packetBounds[strKey]) > 30) {
-      return { straight: packetBounds[strKey], bent: packetBounds[bntKey], isExplicit: true };
-    }
     // Check saved calibration from localStorage
     const saved = sensorBounds[finger];
-    if (saved && saved.straight !== undefined && saved.bent !== undefined && Math.abs(saved.bent - saved.straight) > 30) {
+    if (saved && saved.isCustom && saved.straight !== undefined && saved.bent !== undefined && Math.abs(saved.bent - saved.straight) > 30) {
       return { ...saved, isExplicit: true };
+    }
+    // Check embedded hardware bounds from firmware NVS
+    const isPacketBound = packetBounds[strKey] !== undefined && packetBounds[bntKey] !== undefined &&
+        !(packetBounds[strKey] === 0 && packetBounds[bntKey] === 4095) &&
+        Math.abs(packetBounds[bntKey] - packetBounds[strKey]) > 30;
+
+    const isPlaceholder = isPacketBound && (
+      (finger === 'thumb'  && packetBounds[strKey] === 1400 && packetBounds[bntKey] === 2200) ||
+      (finger === 'index'  && packetBounds[strKey] === 1350 && packetBounds[bntKey] === 2250) ||
+      (finger === 'middle' && packetBounds[strKey] === 1380 && packetBounds[bntKey] === 2280) ||
+      (finger === 'ring'   && packetBounds[strKey] === 1400 && packetBounds[bntKey] === 2250) ||
+      (finger === 'little' && packetBounds[strKey] === 1300 && packetBounds[bntKey] === 2150)
+    );
+
+    if (isPacketBound && !isPlaceholder) {
+      return { straight: packetBounds[strKey], bent: packetBounds[bntKey], isExplicit: true };
+    }
+    if (isPlaceholder) {
+      return { straight: packetBounds[strKey], bent: packetBounds[bntKey], isExplicit: false };
+    }
+    if (saved && saved.straight !== undefined && saved.bent !== undefined && Math.abs(saved.bent - saved.straight) > 30) {
+      return { ...saved, isExplicit: false };
     }
     return { ...DEFAULT_SENSOR_BOUNDS[finger], isExplicit: false };
   };
@@ -231,34 +247,28 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       let effectiveStraight = bounds.straight;
       let effectiveBent = bounds.bent;
 
-      // Only apply dynamic auto-range override if explicit calibration is NOT provided
-      if (!bounds.isExplicit) {
-        const dynSpan = (tracker.max || 0) - (tracker.min || 0);
-        if (dynSpan >= 80) {
-          const baseline = tracker.baseline !== null ? tracker.baseline : bounds.straight;
-          // Determine polarity once per session to prevent sudden inversion flip-flop
-          if (!tracker.polarity) {
-            const diffAbove = tracker.max - baseline;
-            const diffBelow = baseline - tracker.min;
-            tracker.polarity = diffBelow > diffAbove ? 'active_low' : 'active_high';
-          }
+      const lower = Math.min(bounds.straight, bounds.bent);
+      const upper = Math.max(bounds.straight, bounds.bent);
+      const isOutOfBounds = rawVal < (lower - 50) || rawVal > (upper + 50);
 
-          if (tracker.polarity === 'active_low') {
-            effectiveStraight = tracker.max;
-            effectiveBent = tracker.min;
-          } else {
-            effectiveStraight = tracker.min;
-            effectiveBent = tracker.max;
-          }
+      // Apply dynamic auto-range if explicit calibration is not set or signal is out of bounds
+      if (!bounds.isExplicit || isOutOfBounds) {
+        const baseline = tracker.baseline !== null ? tracker.baseline : rawVal;
+        const diffBelow = baseline - (tracker.min ?? baseline);
+        const diffAbove = (tracker.max ?? baseline) - baseline;
+
+        // If sensor reading deflects downward more than upward, it's active-low (voltage drops on bend)
+        const isBendingDown = diffBelow >= diffAbove;
+        effectiveStraight = baseline;
+
+        // Dynamic span: adapt to actual deflection, min 250 counts for smooth sensitivity
+        const maxDeflection = Math.max(diffBelow, diffAbove);
+        const dynamicSpan = Math.max(250, maxDeflection);
+
+        if (isBendingDown) {
+          effectiveBent = Math.max(0, baseline - dynamicSpan);
         } else {
-          // When motion span is small, anchor straight to baseline so subtle bends immediately show
-          const lower = Math.min(bounds.straight, bounds.bent);
-          const upper = Math.max(bounds.straight, bounds.bent);
-          if (rawVal < lower - 50 || rawVal > upper + 50) {
-            const baseline = tracker.baseline !== null ? tracker.baseline : rawVal;
-            effectiveStraight = baseline;
-            effectiveBent = baseline > 2000 ? (baseline - 600) : (baseline + 600);
-          }
+          effectiveBent = Math.min(4095, baseline + dynamicSpan);
         }
       }
 

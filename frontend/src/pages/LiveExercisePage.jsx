@@ -1176,6 +1176,10 @@ function LiveExercisePage() {
         };
 
         const extractElbow = () => {
+          if (data.elbow !== undefined && data.elbow !== null) {
+            const ev = typeof data.elbow === 'object' ? data.elbow.angle : data.elbow;
+            if (ev !== undefined && ev !== null && !isNaN(ev)) return ev;
+          }
           if (data.raw_elbow !== undefined) return Math.min(180, Math.max(0, 180 - (data.raw_elbow / 4095) * 180));
           const val = data.elbow;
           if (val === undefined || val === null) return 180;

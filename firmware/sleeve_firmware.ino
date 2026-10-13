@@ -82,6 +82,7 @@ int16_t mpuRawAx = 0, mpuRawAy = 0, mpuRawAz = 0;
 int16_t mpuRawGx = 0, mpuRawGy = 0, mpuRawGz = 0;
 
 // Finger and Elbow calibration storage variables (Defaults tuned for high sensitivity flex response)
+bool hasCalib = false;
 int thumbStraight = 1400, thumbBent = 2200;
 int indexStraight = 1350, indexBent = 2250;
 int middleStraight = 1380, middleBent = 2280;
@@ -98,14 +99,29 @@ const float angleDeadband = 0.1;
 float a_thumb = 0, a_index = 0, a_middle = 0, a_ring = 0, a_little = 0, a_elbow = 0;
 bool sensorsStable = false;
 
-// Helper maps filtered ADC values to angles (0 to 90 degrees)
+// Helper maps filtered ADC values to angles (0 to 90 degrees, bidirectional)
 float mapFlexAngle(float filteredVal, int straightVal, int bentVal) {
-  float low = min(straightVal, bentVal);
-  float high = max(straightVal, bentVal);
-  float val = constrain(filteredVal, low, high);
-  if (bentVal == straightVal) return 0.0;
-  float angle = (val - straightVal) * 90.0 / (float)(bentVal - straightVal);
+  if (straightVal == bentVal) return 0.0;
+  float angle = 0.0;
+  if (bentVal > straightVal) {
+    angle = (filteredVal - straightVal) * 90.0 / (float)(bentVal - straightVal);
+  } else {
+    angle = (straightVal - filteredVal) * 90.0 / (float)(straightVal - bentVal);
+  }
   return constrain(angle, 0.0, 90.0);
+}
+
+// Helper maps filtered ADC values to elbow angle (180 deg straight down to 60 deg bent)
+float mapElbowAngle(float filteredVal, int straightVal, int bentVal) {
+  if (straightVal == bentVal) return 180.0;
+  float ratio = 0.0;
+  if (bentVal > straightVal) {
+    ratio = (filteredVal - straightVal) / (float)(bentVal - straightVal);
+  } else {
+    ratio = (straightVal - filteredVal) / (float)(straightVal - bentVal);
+  }
+  ratio = constrain(ratio, 0.0, 1.0);
+  return 180.0 - (ratio * 120.0);
 }
 
 // ─── MPU-6050 Direct Hardware Driver (Universal 0x68 / 0x69 support) ─────────
@@ -297,6 +313,8 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           }
           
           preferences.begin("physio", false);
+          preferences.putBool("calibrated", true);
+          hasCalib = true;
           if (strcmp(sensor, "thumb") == 0) {
             thumbStraight = strVal; thumbBent = bntVal;
             preferences.putInt("thumbStr", strVal); preferences.putInt("thumbBnt", bntVal);
@@ -349,16 +367,20 @@ void setup() {
   }
   
   // Load Flex Calibration from memory
-  thumbStraight = preferences.getInt("thumbStr", 1400); thumbBent = preferences.getInt("thumbBnt", 2200);
-  indexStraight = preferences.getInt("indexStr", 1350); indexBent = preferences.getInt("indexBnt", 2250);
-  middleStraight = preferences.getInt("middleStr", 1380); middleBent = preferences.getInt("middleBnt", 2280);
-  ringStraight = preferences.getInt("ringStr", 1400); ringBent = preferences.getInt("ringBnt", 2250);
-  littleStraight = preferences.getInt("littleStr", 1300); littleBent = preferences.getInt("littleBnt", 2150);
-  elbowStraight = preferences.getInt("elbowStr", 1200); elbowBent = preferences.getInt("elbowBnt", 2400);
+  hasCalib = preferences.getBool("calibrated", false);
+  if (hasCalib) {
+    thumbStraight = preferences.getInt("thumbStr", 1400); thumbBent = preferences.getInt("thumbBnt", 2200);
+    indexStraight = preferences.getInt("indexStr", 1350); indexBent = preferences.getInt("indexBnt", 2250);
+    middleStraight = preferences.getInt("middleStr", 1380); middleBent = preferences.getInt("middleBnt", 2280);
+    ringStraight = preferences.getInt("ringStr", 1400); ringBent = preferences.getInt("ringBnt", 2250);
+    littleStraight = preferences.getInt("littleStr", 1300); littleBent = preferences.getInt("littleBnt", 2150);
+    elbowStraight = preferences.getInt("elbowStr", 1200); elbowBent = preferences.getInt("elbowBnt", 2400);
+    Serial.printf("[NVS] Loaded Calibration: Thumb(%d->%d) Index(%d->%d) Mid(%d->%d) Ring(%d->%d) Lit(%d->%d) Elbow(%d->%d)\n",
+                  thumbStraight, thumbBent, indexStraight, indexBent, middleStraight, middleBent, ringStraight, ringBent, littleStraight, littleBent, elbowStraight, elbowBent);
+  } else {
+    Serial.println("[NVS] No user calibration saved. Dynamic auto-baseline learning will engage on startup.");
+  }
   preferences.end();
-  
-  Serial.printf("[NVS] Flex Bounds: Thumb(%d->%d) Index(%d->%d) Mid(%d->%d) Ring(%d->%d) Lit(%d->%d)\n",
-                thumbStraight, thumbBent, indexStraight, indexBent, middleStraight, middleBent, ringStraight, ringBent, littleStraight, littleBent);
   
   // 1. Initialize Wi-Fi Connection
   Serial.printf("\nConnecting to Wi-Fi SSID: %s\n", wifi_ssid.c_str());
@@ -525,6 +547,37 @@ void loop() {
                        (abs(rawLittle - f_little) < 8) && (abs(rawElbow - f_elbow) < 8);
     sensorsStable = isStableNow;
 
+    // Auto-learn resting baseline during the first 30 frames (~1.5s) if uncalibrated
+    static int initSamples = 0;
+    static long sumThumb = 0, sumIndex = 0, sumMid = 0, sumRing = 0, sumLit = 0, sumElb = 0;
+    if (!hasCalib && initSamples < 30) {
+      sumThumb += rawThumb;
+      sumIndex += rawIndex;
+      sumMid   += rawMiddle;
+      sumRing  += rawRing;
+      sumLit   += rawLittle;
+      sumElb   += rawElbow;
+      initSamples++;
+      if (initSamples == 30) {
+        thumbStraight  = sumThumb / 30;
+        indexStraight  = sumIndex / 30;
+        middleStraight = sumMid / 30;
+        ringStraight   = sumRing / 30;
+        littleStraight = sumLit / 30;
+        elbowStraight  = sumElb / 30;
+
+        thumbBent  = (thumbStraight > 1800) ? (thumbStraight - 600) : (thumbStraight + 600);
+        indexBent  = (indexStraight > 1800) ? (indexStraight - 600) : (indexStraight + 600);
+        middleBent = (middleStraight > 1800) ? (middleStraight - 600) : (middleStraight + 600);
+        ringBent   = (ringStraight > 1800) ? (ringStraight - 600) : (ringStraight + 600);
+        littleBent = (littleStraight > 1800) ? (littleStraight - 600) : (littleStraight + 600);
+        elbowBent  = (elbowStraight > 1800) ? (elbowStraight - 700) : (elbowStraight + 700);
+
+        Serial.printf("[AUTO-BASELINE] Baseline captured (T:%d I:%d M:%d R:%d L:%d Elb:%d)\n",
+                      thumbStraight, indexStraight, middleStraight, ringStraight, littleStraight, elbowStraight);
+      }
+    }
+
     // B. Calculate mapped angles
     float t_angle = mapFlexAngle(f_thumb, thumbStraight, thumbBent);
     if (abs(t_angle - a_thumb) > angleDeadband) a_thumb = t_angle;
@@ -541,7 +594,7 @@ void loop() {
     float l_angle = mapFlexAngle(f_little, littleStraight, littleBent);
     if (abs(l_angle - a_little) > angleDeadband) a_little = l_angle;
     
-    float el_angle = mapFlexAngle(f_elbow, elbowStraight, elbowBent);
+    float el_angle = mapElbowAngle(f_elbow, elbowStraight, elbowBent);
     if (abs(el_angle - a_elbow) > angleDeadband) a_elbow = el_angle;
 
     // Grip pressure resistance force
@@ -550,17 +603,21 @@ void loop() {
     // C. Read MPU6050 orientation
     bool mpuReadSuccess = readMPUData();
 
-    // D. Print readings to serial for user debugging/wiring tests
-    Serial.printf("[TELEMETRY] ServerWS=%s | MPU_I2C=%s (0x%02X) | elbow=%.1f | wrist_pitch=%.1f wrist_roll=%.1f\n",
-                  wsConnected ? "CONNECTED" : "OFFLINE",
-                  mpuFound ? "OK" : "NO ACK",
-                  mpuAddress,
-                  a_elbow, wristPitch, wristRoll);
+    // D. Print full readings to serial every 250ms for immediate visual debugging
+    static unsigned long lastSerialPrint = 0;
+    if (currentTime - lastSerialPrint >= 250) {
+      lastSerialPrint = currentTime;
+      Serial.printf("[FLEX] T:%d(%.0f°) I:%d(%.0f°) M:%d(%.0f°) R:%d(%.0f°) L:%d(%.0f°) | Elb:%d(%.0f°) | Press:%d | MPU:%s(P:%.1f,R:%.1f)\n",
+                    rawThumb, a_thumb, rawIndex, a_index, rawMiddle, a_middle,
+                    rawRing, a_ring, rawLittle, a_little, rawElbow, a_elbow,
+                    rawPressure, mpuFound ? "OK" : "NO", wristPitch, wristRoll);
+    }
 
     // E. Serialize and send JSON string over WebSocket only if connected
     if (wsConnected) {
       StaticJsonDocument<1536> doc;
       doc["battery"] = 94;
+      doc["calibrated"] = hasCalib;
       doc["thumb"] = a_thumb;
       doc["index"] = a_index;
       doc["middle"] = a_middle;

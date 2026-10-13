@@ -77,7 +77,12 @@ export const normalizeElbowSensor = (value, straight = 180, bent = 90) => {
   const num = Number(value);
   if (straight === bent) return 0;
 
-  const ratio = (num - straight) / (bent - straight);
+  let ratio = 0;
+  if (bent > straight) {
+    ratio = (num - straight) / (bent - straight);
+  } else {
+    ratio = (straight - num) / (straight - bent);
+  }
   return Math.max(0, Math.min(1, ratio));
 };
 
@@ -144,14 +149,20 @@ export const processElbowTelemetry = (telemetry = null, exercise = null, glbConf
   let normalized = 0;
   let displayRaw = 0;
 
-  if (rawVal !== undefined && rawVal !== null) {
-    // 12-bit ADC flex sensor reading available
-    displayRaw = rawVal;
-    normalized = normalizeElbowSensor(rawVal, 1200, 2950);
+  if (rawVal !== undefined && rawVal !== null && Number(rawVal) > 30) {
+    const num = Number(rawVal);
+    displayRaw = num;
+    if (num >= 1150 && num <= 3100) {
+      normalized = normalizeElbowSensor(num, 1200, 2950);
+    } else {
+      // Auto-range fallback if physical divider rest value is outside 1200-2950
+      normalized = num > 1800 ? normalizeElbowSensor(num, 2400, 1400) : normalizeElbowSensor(num, 1000, 1800);
+    }
   } else if (elbowAngleVal !== undefined && elbowAngleVal !== null) {
     // Angle in degrees from firmware or backend mock (180° -> 90°)
-    displayRaw = elbowAngleVal;
-    normalized = normalizeElbowSensor(elbowAngleVal, 180, 90);
+    const angle = typeof elbowAngleVal === 'object' ? (elbowAngleVal.angle ?? 180) : Number(elbowAngleVal);
+    displayRaw = angle;
+    normalized = normalizeElbowSensor(angle, 180, 90);
   } else {
     normalized = 0;
     displayRaw = 180;
