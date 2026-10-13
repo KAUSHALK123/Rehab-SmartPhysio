@@ -774,6 +774,8 @@ function LiveExercisePage() {
   // Refs for tracking telemetry metrics to calculate averages
   const telemetryHistoryRef = useRef([]);
   const wsRef = useRef(null);
+  const reconnectBackoffRef = useRef(1000);
+  const renderThrottleRef = useRef(0);
   const timerIntervalRef = useRef(null);
   const holdTimerIntervalRef = useRef(null);
   const activeExerciseRef = useRef(null);
@@ -1106,13 +1108,35 @@ function LiveExercisePage() {
     const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
 
+    const DEBUG_WS = true;
+    let msgCountSec = 0;
+    let lastLogTime = Date.now();
+    let lastMsgTime = Date.now();
+
     ws.onopen = () => {
+      if (DEBUG_WS) console.log('[WS DEBUG LiveExercise] onopen: Connected to', ws.url);
+      reconnectBackoffRef.current = 1000;
       setDeviceConnected(true);
       setIsRefreshing(false);
       setGuidance('Device connected. Move arm to rest position to initiate repetitions.');
     };
 
     ws.onmessage = (event) => {
+      msgCountSec += 1;
+      const now = Date.now();
+      const msSinceLast = now - lastMsgTime;
+      lastMsgTime = now;
+
+      if (DEBUG_WS && (now - lastLogTime >= 1000)) {
+        const elapsed = (now - lastLogTime) / 1000;
+        const rate = (msgCountSec / elapsed).toFixed(1);
+        console.log(
+          `[WS DEBUG LiveExercise] Rate: ${rate} msg/s | ms since last: ${msSinceLast}ms | history buffer: ${telemetryHistoryRef.current.length} | stream buffer: ${telemetryStream.length}`
+        );
+        msgCountSec = 0;
+        lastLogTime = now;
+      }
+
       const data = JSON.parse(event.data);
       if (data.type === 'status_update' && data.status === 'hardware_status_changed') {
         setDeviceConnected(data.hardware_connected);
@@ -1120,41 +1144,21 @@ function LiveExercisePage() {
 
       if (data.type === 'sensor_data') {
         const isHardware = !data.is_mock;
-        setIsHardwareDevice(isHardware);
-        setDeviceConnected(true);
-        if (data.battery !== undefined) setBattery(data.battery);
-        setRawSensorPacket(data);
-        setLastPacketTime(Date.now());
 
         // 1. Process finger telemetry continuously with dynamic auto-range
         const computedFingers = processFingerTelemetry(data);
-        if (computedFingers && computedFingers.angles) {
-          setSensorFingerAngles(computedFingers.angles);
-          setFingerTelemetryDetails(computedFingers);
-        }
 
         // 2. Process wrist telemetry ONLY if the active exercise is a wrist exercise!
-        // For finger or elbow exercises, strictly lock wrist to neutral rest pose (0°)
+        let wristComputed = null;
         if (isWristExercise) {
           const currentWristEx = activeExerciseRef.current || exerciseDetails || { exercise_name: exerciseName, primary_sensor: 'wrist_pitch', target_angle: 60 };
-          const wristComputed = processWristTelemetry(data, currentWristEx);
-          if (wristComputed && wristComputed.angles) {
-            setSensorWristAngles(wristComputed.angles);
-            setWristTelemetryDetails(wristComputed);
-          }
-        } else {
-          setSensorWristAngles({ x: 0, y: 0, z: 0 });
-          setWristTelemetryDetails(null);
+          wristComputed = processWristTelemetry(data, currentWristEx);
         }
 
         // 3. Process elbow telemetry if applicable
+        let elbowComputed = null;
         if (isElbowExercise) {
-          const elbowComputed = processElbowTelemetry(data, activeExerciseRef.current || exerciseDetails);
-          if (elbowComputed && elbowComputed.angles) {
-            setSensorElbowAngles(elbowComputed);
-          }
-        } else {
-          setSensorElbowAngles(null);
+          elbowComputed = processElbowTelemetry(data, activeExerciseRef.current || exerciseDetails);
         }
 
         // 4. Extract finger percentage (0-100%) directly from calibrated telemetry with firmware fallback
@@ -1192,36 +1196,74 @@ function LiveExercisePage() {
           little: extractFinger('little')
         };
 
-        setSensors(parsedSensors);
-
-        // Store history for averages & charting
+        // Bounded ring buffer: Cap history buffer to max 200 items (Item 6)
         telemetryHistoryRef.current.push(parsedSensors);
-        
-        setTelemetryStream(prev => {
-          const updated = [...prev, {
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            elbow: parsedSensors.elbow,
-            pitch: parsedSensors.wrist_pitch,
-            pressure: parsedSensors.pressure
-          }];
-          return updated.slice(-50); // Keep last 50 ticks
-        });
+        if (telemetryHistoryRef.current.length > 200) {
+          telemetryHistoryRef.current.shift();
+        }
 
-        // Process movement state machine
+        // Real-time repetition state machine (evaluated on EVERY 50ms frame without throttling!)
         evaluateRepetitionStateRef.current?.(parsedSensors);
+
+        // Throttle React state updates to ~18 fps (~55 ms) to prevent UI thread lockup (Item 7)
+        const renderNow = Date.now();
+        if (renderNow - renderThrottleRef.current >= 55) {
+          renderThrottleRef.current = renderNow;
+
+          setIsHardwareDevice(isHardware);
+          setDeviceConnected(true);
+          if (data.battery !== undefined) setBattery(data.battery);
+          setRawSensorPacket(data);
+          setLastPacketTime(renderNow);
+          setSensors(parsedSensors);
+
+          if (computedFingers && computedFingers.angles) {
+            setSensorFingerAngles(computedFingers.angles);
+            setFingerTelemetryDetails(computedFingers);
+          }
+
+          if (isWristExercise && wristComputed && wristComputed.angles) {
+            setSensorWristAngles(wristComputed.angles);
+            setWristTelemetryDetails(wristComputed);
+          } else if (!isWristExercise) {
+            setSensorWristAngles({ x: 0, y: 0, z: 0 });
+            setWristTelemetryDetails(null);
+          }
+
+          if (isElbowExercise && elbowComputed && elbowComputed.angles) {
+            setSensorElbowAngles(elbowComputed);
+          } else if (!isElbowExercise) {
+            setSensorElbowAngles(null);
+          }
+
+          setTelemetryStream(prev => {
+            const updated = [...prev, {
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              elbow: parsedSensors.elbow,
+              pitch: parsedSensors.wrist_pitch,
+              pressure: parsedSensors.pressure
+            }];
+            return updated.slice(-50); // Keep last 50 ticks
+          });
+        }
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      if (DEBUG_WS) console.log(`[WS DEBUG LiveExercise] onclose: code=${event.code}, reason=${event.reason}`);
+      if (!isMounted.current) return;
       setDeviceConnected(false);
       setIsHardwareDevice(false);
       setIsRefreshing(false);
       setGuidance('Wearable sleeve disconnected. Attempting to reconnect...');
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = setTimeout(connectWebSocket, 2500);
+      const backoff = reconnectBackoffRef.current;
+      reconnectBackoffRef.current = Math.min(5000, Math.round(backoff * 1.5));
+      reconnectTimerRef.current = setTimeout(connectWebSocket, backoff);
     };
 
-    ws.onerror = () => {
+    ws.onerror = (err) => {
+      if (DEBUG_WS) console.error('[WS DEBUG LiveExercise] onerror:', err);
       setIsRefreshing(false);
     };
   };

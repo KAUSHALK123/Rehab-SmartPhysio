@@ -152,6 +152,8 @@ export default function LiveSensorMonitorPage() {
   const { isDark } = useTheme();
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
+  const backoffRef = useRef(1000);
+  const renderThrottleRef = useRef(0);
 
   const [packet, setPacket]                 = useState(null);
   const [isMock, setIsMock]                 = useState(false);
@@ -182,6 +184,7 @@ export default function LiveSensorMonitorPage() {
     ws.onopen = () => {
       setWsState('open');
       setIsRefreshing(false);
+      backoffRef.current = 1000;
     };
 
     ws.onmessage = (ev) => {
@@ -200,13 +203,17 @@ export default function LiveSensorMonitorPage() {
           data.elbow !== undefined ||
           data.raw_elbow !== undefined
         ) {
-          const mock = !!data.is_mock;
-          setIsMock(mock);
-          setIsHardware(!mock);
-          setConnected(true);
-          setPacket(data);
-          setLastPacketTime(Date.now());
-          setPacketCount(n => n + 1);
+          const nowTime = Date.now();
+          if (nowTime - renderThrottleRef.current >= 55) {
+            renderThrottleRef.current = nowTime;
+            const mock = !!data.is_mock;
+            setIsMock(mock);
+            setIsHardware(!mock);
+            setConnected(true);
+            setPacket(data);
+            setLastPacketTime(nowTime);
+            setPacketCount(n => n + 1);
+          }
         }
       } catch (_) {}
     };
@@ -215,7 +222,9 @@ export default function LiveSensorMonitorPage() {
       setWsState('closed');
       setConnected(false);
       setIsRefreshing(false);
-      reconnectTimerRef.current = setTimeout(connect, 3000);
+      const backoff = backoffRef.current;
+      backoffRef.current = Math.min(5000, Math.round(backoff * 1.5));
+      reconnectTimerRef.current = setTimeout(connect, backoff);
     };
 
     ws.onerror = () => {

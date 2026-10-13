@@ -9,24 +9,45 @@ router = APIRouter(
     tags=["device-websocket"]
 )
 
+DEBUG_WS = True
+
 # Helper to manage connected websocket clients
 class ConnectionManager:
     def __init__(self):
         self.device_connections: list[WebSocket] = []
         self.viewer_connections: list[WebSocket] = []
+        self.viewer_queues: dict[WebSocket, asyncio.Queue] = {}
+        self.viewer_tasks: dict[WebSocket, asyncio.Task] = {}
+        self.device_msg_count_sec = 0
+        self.last_metrics_log = time.time()
+        self.last_broadcast_duration_ms = 0.0
+
+    def record_device_msg(self):
+        self.device_msg_count_sec += 1
+        now = time.time()
+        if DEBUG_WS and (now - self.last_metrics_log >= 1.0):
+            elapsed = now - self.last_metrics_log
+            rate = self.device_msg_count_sec / elapsed if elapsed > 0 else 0
+            print(f"[WS DEBUG] Device rate: {rate:.1f} msg/s | Connected viewers: {len(self.viewer_connections)} | Last broadcast: {self.last_broadcast_duration_ms:.2f}ms")
+            self.device_msg_count_sec = 0
+            self.last_metrics_log = now
 
     async def connect_device(self, websocket: WebSocket):
         await websocket.accept()
         self.device_connections.append(websocket)
+        if DEBUG_WS:
+            print(f"[WS DEBUG] CONNECT device socket. Total devices: {len(self.device_connections)}")
         await self.broadcast_to_viewers({
             "type": "status_update",
             "status": "hardware_status_changed",
             "hardware_connected": True
         })
 
-    def disconnect_device(self, websocket: WebSocket):
+    def disconnect_device(self, websocket: WebSocket, code: int = None, exception: Exception = None):
         if websocket in self.device_connections:
             self.device_connections.remove(websocket)
+            if DEBUG_WS:
+                print(f"[WS DEBUG] DISCONNECT device socket. Code: {code}, Exception: {exception}. Remaining devices: {len(self.device_connections)}")
             # Notify viewers that hardware is disconnected (causes fallback to mock)
             asyncio.create_task(self.broadcast_to_viewers({
                 "type": "status_update",
@@ -34,30 +55,67 @@ class ConnectionManager:
                 "hardware_connected": False
             }))
 
+    async def _viewer_sender_loop(self, websocket: WebSocket, queue: asyncio.Queue):
+        try:
+            while True:
+                message_str = await queue.get()
+                try:
+                    await asyncio.wait_for(websocket.send_text(message_str), timeout=0.5)
+                except Exception as e:
+                    if DEBUG_WS:
+                        print(f"[WS DEBUG] Dropping slow/dead viewer client: {e}")
+                    break
+        except asyncio.CancelledError:
+            pass
+        except Exception as loop_e:
+            if DEBUG_WS:
+                print(f"[WS DEBUG] Viewer sender loop error: {loop_e}")
+        finally:
+            self.disconnect_viewer(websocket)
+
     async def connect_viewer(self, websocket: WebSocket):
         await websocket.accept()
         self.viewer_connections.append(websocket)
-        # Notify about current hardware status
-        await websocket.send_text(json.dumps({
+        queue = asyncio.Queue(maxsize=1)
+        self.viewer_queues[websocket] = queue
+        sender_task = asyncio.create_task(self._viewer_sender_loop(websocket, queue))
+        self.viewer_tasks[websocket] = sender_task
+        if DEBUG_WS:
+            print(f"[WS DEBUG] CONNECT viewer socket. Total viewers: {len(self.viewer_connections)}")
+        
+        # Enqueue initial hardware status update to viewer
+        init_msg = json.dumps({
             "type": "status_update",
             "status": "hardware_status_changed",
             "hardware_connected": len(self.device_connections) > 0
-        }))
+        })
+        queue.put_nowait(init_msg)
 
-    def disconnect_viewer(self, websocket: WebSocket):
+    def disconnect_viewer(self, websocket: WebSocket, code: int = None, exception: Exception = None):
         if websocket in self.viewer_connections:
             self.viewer_connections.remove(websocket)
+            if DEBUG_WS:
+                print(f"[WS DEBUG] DISCONNECT viewer socket. Code: {code}, Exception: {exception}. Remaining viewers: {len(self.viewer_connections)}")
+        self.viewer_queues.pop(websocket, None)
+        task = self.viewer_tasks.pop(websocket, None)
+        if task and not task.done():
+            task.cancel()
 
     async def broadcast_to_viewers(self, message: dict):
+        start_t = time.perf_counter()
         message_str = json.dumps(message)
-        dead_connections = []
-        for connection in self.viewer_connections:
+        for ws, q in list(self.viewer_queues.items()):
             try:
-                await connection.send_text(message_str)
-            except Exception:
-                dead_connections.append(connection)
-        for dc in dead_connections:
-            self.disconnect_viewer(dc)
+                if q.full():
+                    try:
+                        q.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                q.put_nowait(message_str)
+            except Exception as e:
+                if DEBUG_WS:
+                    print(f"[WS DEBUG] Exception enqueuing to viewer: {e}")
+        self.last_broadcast_duration_ms = (time.perf_counter() - start_t) * 1000.0
 
 manager = ConnectionManager()
 
@@ -69,11 +127,10 @@ global_calibration_state = {
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
-    print(f"[WS] Incoming connection request from client_type={client_type}")
+    if DEBUG_WS:
+        print(f"[WS DEBUG] Incoming connection request from client_type={client_type}")
     if client_type == "device":
-        print("[WS] Device connecting...")
         await manager.connect_device(websocket)
-        print("[WS] Device connected successfully!")
         try:
             while True:
                 # Receive raw telemetry reading from ESP32 with resilient timeout (120s) and ping keepalive
@@ -82,11 +139,11 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                 except asyncio.TimeoutError:
                     # Device might be idle or flex sensors unattended; send keep-alive ping before disconnecting
                     try:
-                        print("[WS] Telemetry paused for 120s. Sending keep-alive ping to device...")
+                        print("[WS DEBUG] Telemetry paused for 120s. Sending keep-alive ping to device...")
                         await websocket.send_text(json.dumps({"type": "ping"}))
                         data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
-                    except Exception:
-                        print("[WS] Device telemetry timeout: No data received for 150 seconds. Disconnecting...")
+                    except Exception as ping_exc:
+                        print(f"[WS DEBUG] Device ping timeout: {ping_exc}. Disconnecting...")
                         break
 
                 try:
@@ -97,21 +154,24 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                     packet["type"] = "sensor_data"
                     packet["is_mock"] = False
                     packet["timestamp"] = int(time.time())
-                    # Broadcast telemetry to all listening viewer sockets
+                    manager.record_device_msg()
+                    # Broadcast telemetry to all listening viewer sockets (never echoing back to device)
                     await manager.broadcast_to_viewers(packet)
-                except json.JSONDecodeError:
-                    pass
-        except WebSocketDisconnect:
-            print("[WS] Device disconnected (WebSocketDisconnect)")
+                except json.JSONDecodeError as json_err:
+                    if DEBUG_WS:
+                        print(f"[WS DEBUG] JSON decode error from device: {json_err}")
+                except Exception as proc_err:
+                    if DEBUG_WS:
+                        print(f"[WS DEBUG] Error processing device packet: {proc_err}")
+        except WebSocketDisconnect as ws_disc:
+            manager.disconnect_device(websocket, code=getattr(ws_disc, 'code', None))
         except Exception as e:
-            print(f"[WS] Device connection error: {e}")
+            manager.disconnect_device(websocket, exception=e)
         finally:
             manager.disconnect_device(websocket)
             
     else: # viewer
-        print("[WS] Viewer connecting...")
         await manager.connect_viewer(websocket)
-        print("[WS] Viewer connected successfully!")
         
         # State flags for local simulation loop if no physical device is active
         streaming_task = None
@@ -129,20 +189,16 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                         mock_time += 0.1  # Advance time by 100ms per tick
                         
                         # Sinusoidal animation: fingers smoothly open (0°) and close (70°)
-                        # Period ~6 seconds, one full open-close cycle
                         import math
                         flex_cycle = (math.sin(mock_time * 1.05) + 1.0) / 2.0  # 0.0 to 1.0
                         
                         if step == "close_hand":
-                            # Force close position for calibration steps
                             finger_val = 75 + random.randint(-2, 2)
                         elif step == "bend_elbow":
                             finger_val = 5 + random.randint(-1, 1)
                         else:
-                            # Smooth animated open/close (0=straight, 70=bent)
                             finger_val = int(flex_cycle * 70)
                         
-                        # Approximate raw ADC values (0-4095)
                         def to_adc(deg):
                             return max(0, min(4095, int((deg / 90.0) * 4095) + random.randint(-20, 20)))
 
@@ -152,14 +208,12 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                             "timestamp": int(time.time()),
                             "battery": global_calibration_state["battery"],
                             
-                            # Angles in degrees 0=straight, 90=fully bent — matching real firmware
                             "thumb":  finger_val + random.randint(-2, 2),
                             "index":  finger_val + random.randint(-2, 2),
                             "middle": finger_val + random.randint(-2, 2),
                             "ring":   finger_val + random.randint(-2, 2),
                             "little": finger_val + random.randint(-2, 2),
                             
-                            # Raw ADC fields (0-4095) for Live Sensor Monitor
                             "raw_thumb":    to_adc(finger_val),
                             "raw_index":    to_adc(finger_val),
                             "raw_middle":   to_adc(finger_val),
@@ -168,7 +222,6 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                             "raw_elbow":    to_adc(180 - (180 if step != "bend_elbow" else 90)),
                             "raw_pressure": 5 + random.randint(-1, 2) if step != "close_hand" else 650 + random.randint(-10, 10),
                             
-                            # Elbow: 180=straight, 90=bent
                             "elbow": 180 + random.randint(-3, 3) if step != "bend_elbow" else 90 + random.randint(-2, 2),
                             "pressure": 5 + random.randint(-1, 2) if step != "close_hand" else 650 + random.randint(-10, 10),
                             
@@ -176,7 +229,14 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                             "wrist_roll": 0.0 if step == "raise_arm" else 0.0,
                             "mpu_working": False,
                         }
-                        await websocket.send_text(json.dumps(packet))
+                        q = manager.viewer_queues.get(websocket)
+                        if q:
+                            if q.full():
+                                try:
+                                    q.get_nowait()
+                                except asyncio.QueueEmpty:
+                                    pass
+                            q.put_nowait(json.dumps(packet))
                     await asyncio.sleep(0.05) # 20Hz stream (matches firmware streamInterval=50ms)
             except asyncio.CancelledError:
                 pass
@@ -213,7 +273,7 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                             pass
                 
                 elif command == "get_status":
-                    await websocket.send_text(json.dumps({
+                    status_packet = {
                         "type": "status_update",
                         "status": "current_state",
                         "state": {
@@ -221,13 +281,21 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                             "hardware_connected": len(manager.device_connections) > 0,
                             "battery": global_calibration_state["battery"]
                         }
-                    }))
+                    }
+                    q = manager.viewer_queues.get(websocket)
+                    if q:
+                        if q.full():
+                            try:
+                                q.get_nowait()
+                            except asyncio.QueueEmpty:
+                                pass
+                        q.put_nowait(json.dumps(status_packet))
                     
-        except WebSocketDisconnect:
-            manager.disconnect_viewer(websocket)
+        except WebSocketDisconnect as ws_disc:
+            manager.disconnect_viewer(websocket, code=getattr(ws_disc, 'code', None))
             if streaming_task:
                 streaming_task.cancel()
-        except Exception:
-            manager.disconnect_viewer(websocket)
+        except Exception as e:
+            manager.disconnect_viewer(websocket, exception=e)
             if streaming_task:
                 streaming_task.cancel()

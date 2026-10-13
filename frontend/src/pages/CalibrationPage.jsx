@@ -487,6 +487,7 @@ function CalibrationPage() {
   const [tempMax, setTempMax] = useState(0);
 
   const wsRef = useRef(null);
+  const renderThrottleRef = useRef(0);
 
   const sendDeviceCommand = (command, payload = {}) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -622,14 +623,6 @@ function CalibrationPage() {
     const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
 
-    const connectionTimeout = setTimeout(() => {
-      if (!physicalDeviceConnected) {
-        setErrorMsg('Physical ESP32 device not detected. Ensure your ESP32 sleeve is powered on and connected to the same Wi-Fi subnet as your computer.');
-        ws.close();
-        setConnecting(false);
-      }
-    }, 12000);
-
     ws.onopen = () => {
       console.log("[WS] WebSocket link opened. Waiting for ESP32 connection broadcast...");
     };
@@ -640,7 +633,6 @@ function CalibrationPage() {
       // Hardware status checks
       if (data.type === 'status_update' && data.status === 'hardware_status_changed') {
         if (data.hardware_connected) {
-          clearTimeout(connectionTimeout);
           setPhysicalDeviceConnected(true);
           setConnecting(false);
           setDeviceConnected(true);
@@ -708,14 +700,12 @@ function CalibrationPage() {
     ws.onerror = () => {
       setErrorMsg('Failed to connect to the backend server. Make sure uvicorn is running.');
       setConnecting(false);
-      clearTimeout(connectionTimeout);
     };
 
     ws.onclose = () => {
       setDeviceConnected(false);
       setPhysicalDeviceConnected(false);
       setConnecting(false);
-      clearTimeout(connectionTimeout);
     };
   };
 

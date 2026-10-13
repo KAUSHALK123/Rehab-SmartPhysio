@@ -193,6 +193,12 @@ function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+    let ws = null;
+    let reconnectTimer = null;
+    let backoffMs = 1000;
+    let lastRenderTime = 0;
+
     const getWsUrl = () => {
       if (import.meta.env.VITE_WS_URL) {
         return import.meta.env.VITE_WS_URL;
@@ -203,52 +209,121 @@ function DashboardPage() {
       const wsHost = host.includes(':5173') ? host.replace(':5173', ':8000') : host;
       return `${protocol}//${wsHost}/api/v1/device/ws`;
     };
-    const ws = new WebSocket(getWsUrl());
-    
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'status_update' && data.status === 'hardware_status_changed') {
-        setDeviceConnected(data.hardware_connected);
+    const DEBUG_WS = true;
+    let msgCountSec = 0;
+    let lastLogTime = Date.now();
+    let lastMsgTime = Date.now();
+
+    const connectWebSocket = () => {
+      if (!isMounted) return;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
       }
-      if (data.type === 'sensor_data') {
-        const extractFinger = (name) => {
-          const rawKey = 'raw_' + name;
-          if (data[rawKey] !== undefined) return Math.min(100, Math.max(0, (data[rawKey] / 4095) * 100));
-          const val = data[name];
-          if (val === undefined || val === null) return 0;
-          if (typeof val === 'object') return val.raw !== undefined ? Math.min(100, Math.max(0, (val.raw / 4095) * 100)) : (val.angle || 0);
-          if (val > 100) return Math.min(100, Math.max(0, (val / 4095) * 100));
-          return val;
-        };
-
-        const extractElbow = () => {
-          if (data.raw_elbow !== undefined) return Math.min(180, Math.max(0, 180 - (data.raw_elbow / 4095) * 180));
-          const val = data.elbow;
-          if (val === undefined || val === null) return 180;
-          if (typeof val === 'object') return val.angle !== undefined ? val.angle : 180;
-          if (val > 180) return Math.min(180, Math.max(0, (val / 4095) * 180));
-          return val;
-        };
-
-        const parsedData = {
-          ...data,
-          elbow: extractElbow(),
-          wrist_pitch: data.wrist_pitch ?? data.pitch ?? 0.0,
-          wrist_roll: data.wrist_roll ?? data.roll ?? 0.0,
-          thumb: extractFinger('thumb'),
-          index: extractFinger('index'),
-          middle: extractFinger('middle'),
-          ring: extractFinger('ring'),
-          little: extractFinger('little')
-        };
-
-        setLiveTelemetry(parsedData);
-        setDeviceConnected(!data.is_mock);
+      try {
+        ws = new WebSocket(getWsUrl());
+      } catch (err) {
+        if (DEBUG_WS) console.error('[WS DEBUG Dashboard] connection error:', err);
+        scheduleReconnect();
+        return;
       }
+
+      ws.onopen = () => {
+        if (DEBUG_WS) console.log('[WS DEBUG Dashboard] onopen: Connected');
+        backoffMs = 1000;
+      };
+      
+      ws.onmessage = (event) => {
+        msgCountSec += 1;
+        const now = Date.now();
+        const msSinceLast = now - lastMsgTime;
+        lastMsgTime = now;
+
+        if (DEBUG_WS && (now - lastLogTime >= 1000)) {
+          const elapsed = (now - lastLogTime) / 1000;
+          const rate = (msgCountSec / elapsed).toFixed(1);
+          console.log(`[WS DEBUG Dashboard] Rate: ${rate} msg/s | ms since last: ${msSinceLast}ms`);
+          msgCountSec = 0;
+          lastLogTime = now;
+        }
+
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'status_update' && data.status === 'hardware_status_changed') {
+            setDeviceConnected(data.hardware_connected);
+          }
+          if (data.type === 'sensor_data') {
+            // Throttle React state updates to ~18 fps (~55 ms)
+            if (now - lastRenderTime >= 55) {
+              lastRenderTime = now;
+
+              const extractFinger = (name) => {
+                const rawKey = 'raw_' + name;
+                if (data[rawKey] !== undefined) return Math.min(100, Math.max(0, (data[rawKey] / 4095) * 100));
+                const val = data[name];
+                if (val === undefined || val === null) return 0;
+                if (typeof val === 'object') return val.raw !== undefined ? Math.min(100, Math.max(0, (val.raw / 4095) * 100)) : (val.angle || 0);
+                if (val > 100) return Math.min(100, Math.max(0, (val / 4095) * 100));
+                return val;
+              };
+
+              const extractElbow = () => {
+                if (data.raw_elbow !== undefined) return Math.min(180, Math.max(0, 180 - (data.raw_elbow / 4095) * 180));
+                const val = data.elbow;
+                if (val === undefined || val === null) return 180;
+                if (typeof val === 'object') return val.angle !== undefined ? val.angle : 180;
+                if (val > 180) return Math.min(180, Math.max(0, (val / 4095) * 180));
+                return val;
+              };
+
+              const parsedData = {
+                ...data,
+                elbow: extractElbow(),
+                wrist_pitch: data.wrist_pitch ?? data.pitch ?? 0.0,
+                wrist_roll: data.wrist_roll ?? data.roll ?? 0.0,
+                thumb: extractFinger('thumb'),
+                index: extractFinger('index'),
+                middle: extractFinger('middle'),
+                ring: extractFinger('ring'),
+                little: extractFinger('little')
+              };
+
+              setLiveTelemetry(parsedData);
+              setDeviceConnected(!data.is_mock);
+            }
+          }
+        } catch (_) {}
+      };
+
+      const scheduleReconnect = () => {
+        if (!isMounted) return;
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        const nextBackoff = backoffMs;
+        backoffMs = Math.min(5000, Math.round(backoffMs * 1.5));
+        reconnectTimer = setTimeout(connectWebSocket, nextBackoff);
+      };
+
+      ws.onclose = (event) => {
+        if (DEBUG_WS) console.log(`[WS DEBUG Dashboard] onclose: code=${event.code}, reason=${event.reason}`);
+        setDeviceConnected(false);
+        scheduleReconnect();
+      };
+
+      ws.onerror = (err) => {
+        if (DEBUG_WS) console.error('[WS DEBUG Dashboard] onerror:', err);
+      };
     };
-    
+
+    connectWebSocket();
+
     return () => {
-      ws.close();
+      isMounted = false;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (ws) {
+        try {
+          ws.close();
+        } catch (_) {}
+      }
     };
   }, []);
 

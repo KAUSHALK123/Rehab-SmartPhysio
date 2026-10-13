@@ -17,7 +17,7 @@ goto INVALID
 :LOCAL
 echo.
 echo [+] Launching FastAPI Backend (port 8000) in new shell...
-start cmd /k "cd /d %~dp0backend && set PYTHONPATH=.&& .\venv\Scripts\uvicorn app.main:app --host 0.0.0.0 --port 8000"
+start cmd /k "cd /d %~dp0backend && set PYTHONPATH=.&& .\venv\Scripts\uvicorn app.main:app --host 0.0.0.0 --port 8000 --ws-ping-interval 20 --ws-ping-timeout 30"
 
 echo [+] Launching React Frontend (port 5173) in new shell...
 start cmd /k "cd /d %~dp0frontend && npm run dev"

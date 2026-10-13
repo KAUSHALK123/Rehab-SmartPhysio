@@ -409,8 +409,8 @@ function AnalyticsPage() {
                         <YAxis domain={[0, 180]} stroke={isDark ? '#64748b' : '#94a3b8'} fontSize={10} />
                         <Tooltip labelFormatter={(t) => formatDate(t)} contentStyle={isDark ? { backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' } : {}} />
                         <Legend />
-                        <Line type="monotone" name="Peak Angle (°)" dataKey="max_angle" stroke="#4f46e5" strokeWidth={2.5} activeDot={{ r: 6 }} />
-                        <Line type="monotone" name="Avg Angle (°)" dataKey="average_angle" stroke="#818cf8" strokeWidth={1.5} strokeDasharray="4 4" />
+                        <Line isAnimationActive={false} type="monotone" name="Peak Angle (°)" dataKey="max_angle" stroke="#4f46e5" strokeWidth={2.5} activeDot={{ r: 6 }} />
+                        <Line isAnimationActive={false} type="monotone" name="Avg Angle (°)" dataKey="average_angle" stroke="#818cf8" strokeWidth={1.5} strokeDasharray="4 4" />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
@@ -432,7 +432,7 @@ function AnalyticsPage() {
                         <YAxis stroke={isDark ? '#64748b' : '#94a3b8'} fontSize={10} />
                         <Tooltip labelFormatter={(t) => formatDate(t)} contentStyle={isDark ? { backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' } : {}} />
                         <Legend />
-                        <Line type="monotone" name="Avg Grip Force (N)" dataKey="average_pressure" stroke="#ec4899" strokeWidth={2.5} activeDot={{ r: 6 }} />
+                        <Line isAnimationActive={false} type="monotone" name="Avg Grip Force (N)" dataKey="average_pressure" stroke="#ec4899" strokeWidth={2.5} activeDot={{ r: 6 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
@@ -454,7 +454,7 @@ function AnalyticsPage() {
                         <YAxis domain={[0, 100]} stroke={isDark ? '#64748b' : '#94a3b8'} fontSize={10} />
                         <Tooltip labelFormatter={(t) => formatDate(t)} contentStyle={isDark ? { backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' } : {}} />
                         <Legend />
-                        <Line type="monotone" name="Exercise Accuracy (%)" dataKey="exercise_accuracy" stroke="#10b981" strokeWidth={2.5} activeDot={{ r: 6 }} />
+                        <Line isAnimationActive={false} type="monotone" name="Exercise Accuracy (%)" dataKey="exercise_accuracy" stroke="#10b981" strokeWidth={2.5} activeDot={{ r: 6 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
