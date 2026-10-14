@@ -125,6 +125,11 @@ function SensorRow({ label, gpio, color, sensorData, isDark, isTimedOut }) {
             {raw !== null ? raw : '\u2014'}
           </span>
           <span className="text-[10px] text-slate-500 font-mono">/ {ADC_MAX}</span>
+          {raw === 0 && (
+            <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/40" title="Reading 0 ADC / 0V — check 3.3V positive rail on breadboard">
+              0V / GND
+            </span>
+          )}
           {isTimedOut && (
             <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/40">
               STALE
@@ -266,6 +271,15 @@ export default function LiveSensorMonitorPage() {
   const elbowData    = extractSensor(packet, 'elbow');
   const pressureData = extractSensor(packet, 'pressure');
 
+  // Detect if physical hardware is connected but all analog ADC pins are 0V (disconnected 3.3V power rail)
+  const allFlexZero = connected && isHardware && packet && (
+    Number(packet.raw_thumb ?? 0) === 0 &&
+    Number(packet.raw_index ?? 0) === 0 &&
+    Number(packet.raw_middle ?? 0) === 0 &&
+    Number(packet.raw_ring ?? 0) === 0 &&
+    Number(packet.raw_little ?? 0) === 0
+  );
+
   return (
     <div className="space-y-5 pb-10">
 
@@ -379,6 +393,24 @@ export default function LiveSensorMonitorPage() {
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
             Refresh Connection
           </button>
+        </div>
+      )}
+
+      {/* ── 0 ADC / 0V HARDWARE POWER WARNING ─────────────────────────────────── */}
+      {allFlexZero && (
+        <div className="flex items-start justify-between gap-4 px-5 py-4 rounded-xl border-2 border-amber-500/70 bg-amber-950/40 text-amber-200 shadow-md">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5 animate-pulse" />
+            <div className="space-y-1">
+              <p className="text-sm font-bold text-amber-300">
+                ESP32 Online &bull; All 5 Finger Flex Pins Reading 0 ADC (0V)
+              </p>
+              <p className="text-xs text-amber-400/90 leading-relaxed">
+                MPU6050 is communicating over digital I&sup2;C, but the analog voltage divider circuit for the flex sensors is receiving 0V.
+                <strong> Physical Fix:</strong> Check the jumper wire connecting ESP32 <strong>3.3V (or Vin)</strong> to the positive (+) power rail of the flex sensor voltage dividers on your breadboard.
+              </p>
+            </div>
+          </div>
         </div>
       )}
 

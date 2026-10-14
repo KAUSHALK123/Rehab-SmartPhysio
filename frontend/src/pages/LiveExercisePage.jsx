@@ -370,33 +370,53 @@ const FingerSyncPanel = ({
         {/* RIGHT CARD: LIVE FLEX SENSORS */}
         <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 shadow-sm flex flex-col justify-between">
           <div className="flex justify-between items-center mb-2 pb-1 border-b border-slate-200/60">
-            <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">
-              LIVE FLEX SENSORS
+            <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+              <span>LIVE FLEX SENSORS</span>
+              <span className="text-[8px] font-mono font-bold px-1 py-0.5 rounded bg-indigo-100 text-indigo-700 border border-indigo-200">
+                ADC 0-4095
+              </span>
             </span>
-            <span className="text-[9px] font-bold text-slate-400">Raw &amp; Flex %</span>
+            <span className="text-[9px] font-bold text-slate-500">Raw &amp; Bend %</span>
           </div>
 
           <div className="flex items-end justify-between gap-1.5 h-24 pt-1">
             {fingerKeys.map(({ key, label }) => {
               const debugInfo = computedFingerData?.debug?.[key];
               const flexPct = debugInfo?.normalized !== undefined ? debugInfo.normalized : 0;
-              const rawVal = debugInfo?.raw !== null && debugInfo?.raw !== undefined ? debugInfo.raw : (rawSensorPacket?.['raw_' + key] !== undefined ? rawSensorPacket['raw_' + key] : null);
+              const rawVal = debugInfo?.raw !== null && debugInfo?.raw !== undefined 
+                ? debugInfo.raw 
+                : (rawSensorPacket?.['raw_' + key] !== undefined ? rawSensorPacket['raw_' + key] : null);
 
               return (
                 <div key={key} className="flex-1 flex flex-col items-center h-full justify-end min-w-0">
-                  <span className="text-[8px] font-bold text-slate-400 leading-none mb-0.5">
-                    {rawVal !== null ? `r:${rawVal}` : 'r:--'}
+                  {/* High visibility RAW ADC Badge */}
+                  <span 
+                    title={`Raw ADC count: ${rawVal !== null ? rawVal : 'No signal'}`}
+                    className={`text-[9px] font-mono font-black px-1 py-0.5 rounded border leading-none mb-1 transition-all ${
+                      rawVal === null 
+                        ? 'bg-slate-100 text-slate-400 border-slate-200' 
+                        : rawVal === 0 
+                          ? 'bg-amber-100 text-amber-900 border-amber-300 ring-1 ring-amber-400/50' 
+                          : 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                    }`}
+                  >
+                    {rawVal !== null ? rawVal : '--'}
                   </span>
+
+                  {/* Bend Percentage */}
                   <span className="text-[9px] font-black text-slate-800 mb-1">
                     {debugInfo ? `${Math.round(flexPct)}%` : '0%'}
                   </span>
+
+                  {/* Vertical Progress Bar */}
                   <div className="w-2.5 bg-slate-200 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
                     <div 
                       className={`w-full rounded-full transition-all duration-150 ease-out ${getBarColor(flexPct)}`}
                       style={{ height: `${debugInfo ? flexPct : 0}%` }}
                     />
                   </div>
-                  <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
+
+                  <span className="text-[8px] font-extrabold text-slate-500 mt-1 select-none uppercase">
                     {label}
                   </span>
                 </div>
@@ -611,9 +631,10 @@ const FingerVolumeBars = ({ sensors }) => {
 };
 
 // Horizontal volume-style progress bar for elbow flexion
-const ElbowVolumeBar = ({ sensors, target }) => {
+const ElbowVolumeBar = ({ sensors, target, rawSensorPacket }) => {
   const currentElbowVal = 180 - (sensors.elbow || 180);
   const pct = Math.min(100, Math.max(0, (currentElbowVal / 180) * 100));
+  const rawElbow = rawSensorPacket?.raw_elbow ?? sensors?.raw_elbow ?? null;
 
   const getColorClass = (val) => {
     if (val < 45) return 'bg-gradient-to-r from-blue-500 to-indigo-400 shadow-[0_0_8px_rgba(59,130,246,0.5)]';
@@ -625,7 +646,21 @@ const ElbowVolumeBar = ({ sensors, target }) => {
     <div className="flex flex-col text-left space-y-2 bg-slate-50 border border-slate-100 rounded-xl p-3 flex-1 min-w-0 shadow-sm transition hover:shadow duration-200">
       <div className="flex justify-between items-center">
         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Elbow Joint</span>
-        <span className="text-[9px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">Aim: {target}°</span>
+        <div className="flex items-center gap-1.5">
+          <span 
+            title={`Raw ADC count: ${rawElbow !== null ? rawElbow : 'No signal'}`}
+            className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${
+              rawElbow === null
+                ? 'bg-slate-100 text-slate-400 border-slate-200'
+                : rawElbow === 0
+                  ? 'bg-amber-100 text-amber-900 border-amber-300 ring-1 ring-amber-400/50'
+                  : 'bg-indigo-100 text-indigo-800 border-indigo-200'
+            }`}
+          >
+            ADC: {rawElbow !== null ? rawElbow : '--'}
+          </span>
+          <span className="text-[9px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">Aim: {target}°</span>
+        </div>
       </div>
 
       <div className="space-y-2 py-1">
@@ -2992,9 +3027,13 @@ function LiveExercisePage() {
                 </div>
                 
                 {(exerciseDetails?.primary_sensor?.toLowerCase() === 'flex_avg' || 
+                  exerciseDetails?.secondary_sensor?.toLowerCase() === 'flex_avg' ||
                   exerciseDetails?.target_joint?.toLowerCase()?.includes('finger') ||
                   exerciseName.toLowerCase().includes('finger') || 
-                  exerciseName.toLowerCase().includes('hand')) ? (
+                  exerciseName.toLowerCase().includes('hand') ||
+                  exerciseName.toLowerCase().includes('grip') ||
+                  exerciseName.toLowerCase().includes('squeeze') ||
+                  exerciseName.toLowerCase().includes('fist')) ? (
                   <div className="space-y-3">
                     <FingerSyncPanel 
                       computedFingerData={fingerTelemetryDetails}
@@ -3019,7 +3058,11 @@ function LiveExercisePage() {
                          exerciseDetails?.target_joint?.toLowerCase()?.includes('elbow') ||
                          exerciseName.toLowerCase().includes('elbow') ||
                          exerciseName.toLowerCase().includes('curl')) ? (
-                        <ElbowVolumeBar sensors={sensors} target={exerciseDetails?.target_angle || 90} />
+                        <ElbowVolumeBar 
+                          sensors={sensors} 
+                          target={exerciseDetails?.target_angle || 90} 
+                          rawSensorPacket={rawSensorPacket}
+                        />
                       ) : (
                         <SVGGauge {...primary} />
                       )}
