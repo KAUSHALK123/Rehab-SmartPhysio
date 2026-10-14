@@ -456,6 +456,12 @@ void setup() {
   pinMode(PIN_LITTLE, INPUT);
   pinMode(PIN_ELBOW, INPUT);
   pinMode(PIN_PRESSURE, INPUT);
+
+  Serial.println("\n===============================================================================");
+  Serial.println("  SMARTPHYSIO SLEEVE ACTIVE - LIVE SENSOR MONITOR STREAMING (115200 BAUD)      ");
+  Serial.println("  Pinout: Thumb=VN(39), Index=D33, Middle=D34, Ring=D35, Little=D32            ");
+  Serial.println("          Elbow=D25, Gripper/Pressure=VP(36), MPU6050=GPIO 21/22 (I2C)         ");
+  Serial.println("===============================================================================\n");
 }
 
 void loop() {
@@ -603,14 +609,19 @@ void loop() {
     // C. Read MPU6050 orientation
     bool mpuReadSuccess = readMPUData();
 
-    // D. Print full readings to serial every 250ms for immediate visual debugging
+    // D. Print full readings to serial every 200ms (5Hz) for live inspection & hardware diagnosis
     static unsigned long lastSerialPrint = 0;
-    if (currentTime - lastSerialPrint >= 250) {
+    if (currentTime - lastSerialPrint >= 200) {
       lastSerialPrint = currentTime;
-      Serial.printf("[FLEX] T:%d(%.0f°) I:%d(%.0f°) M:%d(%.0f°) R:%d(%.0f°) L:%d(%.0f°) | Elb:%d(%.0f°) | Press:%d | MPU:%s(P:%.1f,R:%.1f)\n",
-                    rawThumb, a_thumb, rawIndex, a_index, rawMiddle, a_middle,
-                    rawRing, a_ring, rawLittle, a_little, rawElbow, a_elbow,
-                    rawPressure, mpuFound ? "OK" : "NO", wristPitch, wristRoll);
+      Serial.printf("[LIVE FLEX] Thumb(39):%4d(%2.0f deg) | Index(33):%4d(%2.0f deg) | Mid(34):%4d(%2.0f deg) | Ring(35):%4d(%2.0f deg) | Lit(32):%4d(%2.0f deg) || Elbow(25):%4d(%3.0f deg) || Grip(36):%4d || MPU:%s(P:%5.1f, R:%5.1f)\n",
+                    rawThumb, a_thumb, 
+                    rawIndex, a_index, 
+                    rawMiddle, a_middle,
+                    rawRing, a_ring, 
+                    rawLittle, a_little, 
+                    rawElbow, a_elbow,
+                    rawPressure, 
+                    mpuFound ? "OK" : "NO", wristPitch, wristRoll);
     }
 
     // E. Serialize and send JSON string over WebSocket only if connected
