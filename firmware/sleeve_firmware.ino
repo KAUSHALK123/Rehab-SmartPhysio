@@ -20,8 +20,8 @@
   Middle Flex      | Analog   | GPIO 34 (D34)| 10k Ohm Resistor in Pull-down
   Ring Flex        | Analog   | GPIO 35 (D35)| 10k Ohm Resistor in Pull-down
   Little Flex      | Analog   | GPIO 32 (D32)| 10k Ohm Resistor in Pull-down
-  Elbow Flex       | Analog   | GPIO 36 (VP)| 10k Ohm Resistor in Pull-down
-  Pressure Squeeze | Analog   | GPIO 25     | 10k Ohm Resistor in Pull-down
+  Elbow Flex       | Analog   | GPIO 25 (D25)| 10k Ohm Resistor in Pull-down
+  Pressure Squeeze | Analog   | GPIO 36 (VP) | 10k Ohm Resistor in Pull-down
   MPU6050 SDA      | I2C Data | GPIO 21   | 4.7k Ohm Pull-up to 3.3V
   MPU6050 SCL      | I2C Clock| GPIO 22   | 4.7k Ohm Pull-up to 3.3V
   MPU6050 VCC      | Power    | 3.3V or 5V| Connect to 3.3V (or 5V if module has onboard 3.3V LDO)
@@ -48,22 +48,22 @@ const int server_port = 8000;
 
 Preferences preferences;
 
-// --- Analog Input Pins Assignment (Swapped: Thumb on VN/GPIO 39, Elbow on VP/GPIO 36) ---
+// --- Analog Input Pins Assignment ---
 // User Hardware Pinout:
 // VN  (GPIO 39 / ADC1_CH3) -> Thumb Flex
 // D33 (GPIO 33 / ADC1_CH5) -> Index Flex
 // D34 (GPIO 34 / ADC1_CH6) -> Middle Flex
 // D35 (GPIO 35 / ADC1_CH7) -> Ring Flex
 // D32 (GPIO 32 / ADC1_CH4) -> Little Flex
-// VP  (GPIO 36 / ADC1_CH0) -> Elbow Flex
-// D25 (GPIO 25)            -> Grip Pressure Resistor
+// D25 (GPIO 25)            -> Elbow Flex
+// VP  (GPIO 36 / ADC1_CH0) -> Grip Pressure Resistor
 const int PIN_THUMB    = 39; // VN  (GPIO 39) -> THUMB FLEX
 const int PIN_INDEX    = 33; // D33 (GPIO 33) -> INDEX FLEX
 const int PIN_MIDDLE   = 34; // D34 (GPIO 34) -> MIDDLE FLEX
 const int PIN_RING     = 35; // D35 (GPIO 35) -> RING FLEX
 const int PIN_LITTLE   = 32; // D32 (GPIO 32) -> LITTLE FLEX
-const int PIN_ELBOW    = 36; // VP  (GPIO 36) -> ELBOW FLEX
-const int PIN_PRESSURE = 25; // D25 (GPIO 25) -> SQUEEZE FORCE
+const int PIN_ELBOW    = 25; // D25 (GPIO 25) -> ELBOW FLEX
+const int PIN_PRESSURE = 36; // VP  (GPIO 36) -> SQUEEZE FORCE
 
 // --- Sensors Variables & Objects ---
 WebSocketsClient webSocket;
@@ -348,17 +348,11 @@ void setup() {
 
   // Load preferences from non-volatile storage (NVS)
   preferences.begin("physio", false);
-  String stored_ssid = preferences.getString("wifi_ssid", "");
-  String stored_pass = preferences.getString("wifi_pass", "");
-  String stored_host = preferences.getString("server_host", "");
-
-  // Always sync current credentials to NVS so Wi-Fi updates take immediate effect
-  preferences.begin("physio", false);
+  // Synchronize new uploaded Wi-Fi credentials & Server IP directly into NVS
   preferences.putString("wifi_ssid", wifi_ssid);
   preferences.putString("wifi_pass", wifi_pass);
   preferences.putString("server_host", server_host);
-  preferences.end();
-  Serial.printf("[NET] Configured SSID: %s, Server: %s:%d\n", wifi_ssid.c_str(), server_host.c_str(), server_port);
+  Serial.printf("[CONFIG] Active Wi-Fi SSID: %s | Server: %s:%d\n", wifi_ssid.c_str(), server_host.c_str(), server_port);
   
   // Load Flex Calibration from memory
   hasCalib = preferences.getBool("calibrated", false);
@@ -450,6 +444,12 @@ void setup() {
   pinMode(PIN_LITTLE, INPUT);
   pinMode(PIN_ELBOW, INPUT);
   pinMode(PIN_PRESSURE, INPUT);
+
+  Serial.println("\n===============================================================================");
+  Serial.println("  SMARTPHYSIO SLEEVE ACTIVE - LIVE SENSOR MONITOR STREAMING (115200 BAUD)      ");
+  Serial.println("  Pinout: Thumb=VN(39), Index=D33, Middle=D34, Ring=D35, Little=D32            ");
+  Serial.println("          Elbow=D25, Gripper/Pressure=VP(36), MPU6050=GPIO 21/22 (I2C)         ");
+  Serial.println("===============================================================================\n");
 }
 
 void loop() {
@@ -597,14 +597,19 @@ void loop() {
     // C. Read MPU6050 orientation
     bool mpuReadSuccess = readMPUData();
 
-    // D. Print full readings to serial every 250ms for immediate visual debugging
+    // D. Print full readings to serial every 200ms (5Hz) for live inspection & hardware diagnosis
     static unsigned long lastSerialPrint = 0;
-    if (currentTime - lastSerialPrint >= 250) {
+    if (currentTime - lastSerialPrint >= 200) {
       lastSerialPrint = currentTime;
-      Serial.printf("[FLEX] T:%d(%.0f°) I:%d(%.0f°) M:%d(%.0f°) R:%d(%.0f°) L:%d(%.0f°) | Elb:%d(%.0f°) | Press:%d | MPU:%s(P:%.1f,R:%.1f)\n",
-                    rawThumb, a_thumb, rawIndex, a_index, rawMiddle, a_middle,
-                    rawRing, a_ring, rawLittle, a_little, rawElbow, a_elbow,
-                    rawPressure, mpuFound ? "OK" : "NO", wristPitch, wristRoll);
+      Serial.printf("[LIVE FLEX] Thumb(39):%4d(%2.0f deg) | Index(33):%4d(%2.0f deg) | Mid(34):%4d(%2.0f deg) | Ring(35):%4d(%2.0f deg) | Lit(32):%4d(%2.0f deg) || Elbow(25):%4d(%3.0f deg) || Grip(36):%4d || MPU:%s(P:%5.1f, R:%5.1f)\n",
+                    rawThumb, a_thumb, 
+                    rawIndex, a_index, 
+                    rawMiddle, a_middle,
+                    rawRing, a_ring, 
+                    rawLittle, a_little, 
+                    rawElbow, a_elbow,
+                    rawPressure, 
+                    mpuFound ? "OK" : "NO", wristPitch, wristRoll);
     }
 
     // E. Serialize and send JSON string over WebSocket only if connected
