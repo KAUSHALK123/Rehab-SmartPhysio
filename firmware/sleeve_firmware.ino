@@ -41,9 +41,9 @@
 #include <Preferences.h>
 
 // --- Wi-Fi & Server Configurations (Defaults loaded from NVS if present) ---
-String wifi_ssid = "JioFiber-Ys2sx";
-String wifi_pass = "MBMGREEN";
-String server_host = "192.168.29.176";
+String wifi_ssid = "vivo Y51A";
+String wifi_pass = "anurag123";
+String server_host = "10.161.241.199";
 const int server_port = 8000;
 
 Preferences preferences;
@@ -348,23 +348,11 @@ void setup() {
 
   // Load preferences from non-volatile storage (NVS)
   preferences.begin("physio", false);
-  String stored_ssid = preferences.getString("wifi_ssid", "");
-  String stored_pass = preferences.getString("wifi_pass", "");
-  String stored_host = preferences.getString("server_host", "");
-
-  if (stored_ssid.length() > 0) {
-    wifi_ssid = stored_ssid;
-    wifi_pass = stored_pass;
-    Serial.printf("[NVS] Loaded Wi-Fi SSID from memory: %s\n", wifi_ssid.c_str());
-  } else {
-    Serial.println("[NVS] No Wi-Fi configuration stored in memory. Using code defaults.");
-  }
-  if (stored_host.length() > 0) {
-    server_host = stored_host;
-    Serial.printf("[NVS] Loaded server host from memory: %s\n", server_host.c_str());
-  } else {
-    Serial.println("[NVS] No server host stored in memory. Using code defaults.");
-  }
+  // Synchronize new uploaded Wi-Fi credentials & Server IP directly into NVS
+  preferences.putString("wifi_ssid", wifi_ssid);
+  preferences.putString("wifi_pass", wifi_pass);
+  preferences.putString("server_host", server_host);
+  Serial.printf("[CONFIG] Active Wi-Fi SSID: %s | Server: %s:%d\n", wifi_ssid.c_str(), server_host.c_str(), server_port);
   
   // Load Flex Calibration from memory
   hasCalib = preferences.getBool("calibrated", false);
