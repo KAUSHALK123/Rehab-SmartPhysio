@@ -343,36 +343,50 @@ export default function FingerSensorTrialPanel({
               <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">
                 LIVE FLEX SENSORS
               </span>
-              <span className="text-[9px] font-bold text-slate-400">Raw &amp; Flex %</span>
+              <span className="text-[9px] font-bold text-slate-400">Raw ADC &amp; Flex %</span>
             </div>
 
-            <div className="flex items-end justify-between gap-1.5 h-24 pt-1">
+            <div className="flex items-end justify-between gap-1.5 h-28 pt-1">
               {FINGER_KEYS.map((finger) => {
                 const info = processedTelemetry.debug[finger] || {};
                 const flexPct = processedTelemetry.percentages[finger] || 0;
-                const rawVal = info.raw !== null && info.raw !== undefined ? info.raw : '--';
+                const directRaw = liveSensors?.['raw_' + finger];
+                const rawVal = directRaw !== undefined && directRaw !== null ? directRaw : (info.raw !== null && info.raw !== undefined ? info.raw : '--');
+                const isZero = Number(rawVal) === 0;
 
                 return (
                   <div key={finger} className="flex-1 flex flex-col items-center h-full justify-end min-w-0">
-                    <span className="text-[8px] font-bold text-slate-400 leading-none mb-0.5">
-                      r:{rawVal}
+                    <span className={`text-[9px] font-mono font-bold leading-none mb-0.5 px-1 py-0.5 rounded ${
+                      isZero ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700'
+                    }`}>
+                      {rawVal}
                     </span>
-                    <span className="text-[9px] font-black text-slate-800 mb-1">
+                    <span className="text-[10px] font-black text-slate-800 mb-1">
                       {Math.round(flexPct)}%
                     </span>
-                    <div className="w-2.5 bg-slate-100 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
+                    <div className="w-3 bg-slate-100 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
                       <div 
-                        className="w-full rounded-full transition-all duration-150 ease-out bg-gradient-to-t from-emerald-500 to-teal-400 shadow-sm"
-                        style={{ height: `${flexPct}%` }}
+                        className={`w-full rounded-full transition-all duration-150 ease-out shadow-sm ${
+                          isZero ? 'bg-amber-400' : 'bg-gradient-to-t from-emerald-500 to-teal-400'
+                        }`}
+                        style={{ height: `${Math.max(4, flexPct)}%` }}
                       />
                     </div>
-                    <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
+                    <span className="text-[9px] font-extrabold text-slate-500 mt-1 select-none uppercase">
                       {finger.substring(0, 3)}
+                    </span>
+                    <span className="text-[7px] text-slate-400 font-mono">
+                      {FINGER_RIG_MAP[finger]?.axis.toUpperCase()}
                     </span>
                   </div>
                 );
               })}
             </div>
+            {deviceConnected && FINGER_KEYS.every(f => Number(liveSensors?.['raw_' + f] ?? 0) === 0) && (
+              <div className="mt-2 p-1.5 bg-amber-50 border border-amber-200 rounded-lg text-[9px] text-amber-800 text-center font-semibold">
+                ⚠️ All flex ADCs reading 0 — check 3.3V power jumper to flex divider rail
+              </div>
+            )}
           </div>
         </div>
       </div>

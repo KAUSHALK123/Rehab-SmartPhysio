@@ -817,11 +817,11 @@ function DashboardPage() {
               name="MPU-6050 6-Axis IMU"
               type="imu"
               role="Wrist Pronation/Supination & Pitch"
-              specs="3-Axis Gyro + Accel • I2C (0x68)"
+              specs={liveTelemetry ? `P: ${liveTelemetry.wrist_pitch}° • R: ${liveTelemetry.wrist_roll}°` : "3-Axis Gyro + Accel • I2C (0x68)"}
               pin="GPIO 21 (SDA) / 22 (SCL)"
-              value='Hardware Module'
-              unit=''
-              status={deviceConnected ? 'online' : 'streaming'}
+              value={liveTelemetry ? `${liveTelemetry.wrist_pitch}° / ${liveTelemetry.wrist_roll}°` : '--'}
+              unit=""
+              status={deviceConnected ? (liveTelemetry?.mpu_working ? 'online' : 'error') : 'offline'}
               active={activeSensorKey === 'imu'}
               onClick={() => setActiveSensorKey('imu')}
             />
@@ -830,24 +830,24 @@ function DashboardPage() {
               name="5-Finger Flex Array"
               type="flex"
               role="Finger Flexion & Grasp Dynamics"
-              specs="5x 2.2-inch Resistive Strips"
-              pin="ADC1 (GPIO 32, 33, 34, 35, 36)"
-              value='Hardware Module'
-              unit=''
-              status={deviceConnected ? 'online' : 'streaming'}
+              specs={liveTelemetry ? `T:${liveTelemetry.thumb}% I:${liveTelemetry.index}% M:${liveTelemetry.middle}% R:${liveTelemetry.ring}% L:${liveTelemetry.little}%` : "5x Flex Resistive Strips"}
+              pin={liveTelemetry ? `ADC: T:${liveTelemetry.raw_thumb ?? 0} I:${liveTelemetry.raw_index ?? 0} M:${liveTelemetry.raw_middle ?? 0} R:${liveTelemetry.raw_ring ?? 0} L:${liveTelemetry.raw_little ?? 0}` : "ADC1 (GPIO 39, 33, 34, 35, 32)"}
+              value={liveTelemetry ? `${avgFlex}% avg` : '--'}
+              unit=""
+              status={deviceConnected ? (Number(liveTelemetry?.raw_thumb ?? 0) > 0 || Number(liveTelemetry?.raw_index ?? 0) > 0 ? 'online' : '0V Signal') : 'offline'}
               active={activeSensorKey === 'flex'}
               onClick={() => setActiveSensorKey('flex')}
             />
 
             <SensorCard 
-              name="Elbow Goniometric Angle"
+              name="Elbow Flex Sensor"
               type="elbow"
-              role="Elbow Flexion & Extension (0°-180° ROM)"
-              specs="Precision Rotary Potentiometer"
-              pin="Analog ADC2 (GPIO 4)"
-              value='Hardware Module'
-              unit=''
-              status={deviceConnected ? 'online' : 'streaming'}
+              role="Elbow Flexion & Extension (ROM)"
+              specs={liveTelemetry ? `Raw ADC: ${liveTelemetry.raw_elbow ?? 0}` : "Flex Sensor Divider (GPIO 36 VP)"}
+              pin="Analog ADC1 (GPIO 36 / VP)"
+              value={liveTelemetry ? `${Math.round(180 - (liveTelemetry.elbow || 0))}°` : '--'}
+              unit="bend"
+              status={deviceConnected ? (Number(liveTelemetry?.raw_elbow ?? 0) > 0 ? 'online' : '0V Signal') : 'offline'}
               active={activeSensorKey === 'elbow'}
               onClick={() => setActiveSensorKey('elbow')}
             />
@@ -855,12 +855,12 @@ function DashboardPage() {
             <SensorCard 
               name="FSR Tactile Pressure Sensor"
               type="pressure"
-              role="Palmar Grip Compression & Squeeze Force"
-              specs="Force Sensitive Resistor (0.2N - 20N)"
-              pin="Analog ADC1 (GPIO 39)"
-              value='Hardware Module'
-              unit=''
-              status={deviceConnected ? 'online' : 'streaming'}
+              role="Palmar Grip Compression Force"
+              specs={liveTelemetry ? `ADC Count: ${liveTelemetry.raw_pressure ?? 0}` : "Force Sensitive Resistor (0.2N - 20N)"}
+              pin="Analog (GPIO 25)"
+              value={liveTelemetry ? `${liveTelemetry.pressure || 0}` : '--'}
+              unit="units"
+              status={deviceConnected ? 'online' : 'offline'}
               active={activeSensorKey === 'pressure'}
               onClick={() => setActiveSensorKey('pressure')}
             />
@@ -869,11 +869,11 @@ function DashboardPage() {
               name="ESP-32 IoT Edge Node"
               type="mcu"
               role="240MHz Edge Telemetry Engine"
-              specs="Wi-Fi 802.11 b/g/n + BLE 4.2"
-              pin="50Hz WebSocket JSON Stream"
-              value='Hardware Module'
-              unit=''
-              status={deviceConnected ? 'online' : 'streaming'}
+              specs="Wi-Fi 802.11 b/g/n + WebSockets"
+              pin="20Hz Telemetry Stream"
+              value={deviceConnected ? '20Hz Active' : 'Disconnected'}
+              unit=""
+              status={deviceConnected ? 'online' : 'offline'}
               active={activeSensorKey === 'mcu'}
               onClick={() => setActiveSensorKey('mcu')}
             />
