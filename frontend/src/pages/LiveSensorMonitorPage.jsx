@@ -21,8 +21,8 @@ const GPIO_ROWS = [
   ['Middle',   'PIN_MIDDLE',   'GPIO 34 (D34)', 'ADC1_CH6'],
   ['Ring',     'PIN_RING',     'GPIO 35 (D35)', 'ADC1_CH7'],
   ['Little',   'PIN_LITTLE',   'GPIO 32 (D32)', 'ADC1_CH4'],
-  ['Elbow',    'PIN_ELBOW',    'GPIO 36 (VP)',  'ADC1_CH0'],
-  ['Pressure', 'PIN_PRESSURE', 'GPIO 25 (D25)', 'DAC1 / Analog'],
+  ['Elbow',    'PIN_ELBOW',    'GPIO 25 (D25)', 'DAC1 / Analog'],
+  ['Pressure', 'PIN_PRESSURE', 'GPIO 36 (VP)',  'ADC1_CH0'],
   ['MPU SDA',  'Wire.begin()', 'GPIO 21',       'I\u00b2C Data'],
   ['MPU SCL',  'Wire.begin()', 'GPIO 22',       'I\u00b2C Clock'],
 ];
@@ -521,7 +521,7 @@ export default function LiveSensorMonitorPage() {
           <span className="text-lg">💪</span>
           <div>
             <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Elbow Flex Sensor</h3>
-            <p className="text-[10px] text-slate-500">VP / GPIO 36 &mdash; ADC1_CH0</p>
+            <p className="text-[10px] text-slate-500">D25 / GPIO 25 &mdash; Analog</p>
           </div>
         </div>
         <table className="w-full text-left">
@@ -535,7 +535,7 @@ export default function LiveSensorMonitorPage() {
           <tbody>
             <SensorRow
               label="Elbow"
-              gpio="VP / GPIO 36"
+              gpio="D25 / GPIO 25"
               color="#3b82f6"
               sensorData={elbowData}
               isDark={isDark}
@@ -600,7 +600,7 @@ export default function LiveSensorMonitorPage() {
             </div>
             <div>
               <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>Grip Pressure (FSR)</h3>
-              <p className="text-[10px] text-slate-500">GPIO 25 (D25) &mdash; Analog</p>
+              <p className="text-[10px] text-slate-500">VP / GPIO 36 &mdash; ADC1_CH0</p>
             </div>
           </div>
           <div className={`rounded-xl p-4 border mb-3 ${isDark ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>

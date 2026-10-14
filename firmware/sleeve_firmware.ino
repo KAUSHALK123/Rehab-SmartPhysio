@@ -20,8 +20,8 @@
   Middle Flex      | Analog   | GPIO 34 (D34)| 10k Ohm Resistor in Pull-down
   Ring Flex        | Analog   | GPIO 35 (D35)| 10k Ohm Resistor in Pull-down
   Little Flex      | Analog   | GPIO 32 (D32)| 10k Ohm Resistor in Pull-down
-  Elbow Flex       | Analog   | GPIO 36 (VP)| 10k Ohm Resistor in Pull-down
-  Pressure Squeeze | Analog   | GPIO 25     | 10k Ohm Resistor in Pull-down
+  Elbow Flex       | Analog   | GPIO 25 (D25)| 10k Ohm Resistor in Pull-down
+  Pressure Squeeze | Analog   | GPIO 36 (VP) | 10k Ohm Resistor in Pull-down
   MPU6050 SDA      | I2C Data | GPIO 21   | 4.7k Ohm Pull-up to 3.3V
   MPU6050 SCL      | I2C Clock| GPIO 22   | 4.7k Ohm Pull-up to 3.3V
   MPU6050 VCC      | Power    | 3.3V or 5V| Connect to 3.3V (or 5V if module has onboard 3.3V LDO)
@@ -48,22 +48,22 @@ const int server_port = 8000;
 
 Preferences preferences;
 
-// --- Analog Input Pins Assignment (Swapped: Thumb on VN/GPIO 39, Elbow on VP/GPIO 36) ---
+// --- Analog Input Pins Assignment ---
 // User Hardware Pinout:
 // VN  (GPIO 39 / ADC1_CH3) -> Thumb Flex
 // D33 (GPIO 33 / ADC1_CH5) -> Index Flex
 // D34 (GPIO 34 / ADC1_CH6) -> Middle Flex
 // D35 (GPIO 35 / ADC1_CH7) -> Ring Flex
 // D32 (GPIO 32 / ADC1_CH4) -> Little Flex
-// VP  (GPIO 36 / ADC1_CH0) -> Elbow Flex
-// D25 (GPIO 25)            -> Grip Pressure Resistor
+// D25 (GPIO 25)            -> Elbow Flex
+// VP  (GPIO 36 / ADC1_CH0) -> Grip Pressure Resistor
 const int PIN_THUMB    = 39; // VN  (GPIO 39) -> THUMB FLEX
 const int PIN_INDEX    = 33; // D33 (GPIO 33) -> INDEX FLEX
 const int PIN_MIDDLE   = 34; // D34 (GPIO 34) -> MIDDLE FLEX
 const int PIN_RING     = 35; // D35 (GPIO 35) -> RING FLEX
 const int PIN_LITTLE   = 32; // D32 (GPIO 32) -> LITTLE FLEX
-const int PIN_ELBOW    = 36; // VP  (GPIO 36) -> ELBOW FLEX
-const int PIN_PRESSURE = 25; // D25 (GPIO 25) -> SQUEEZE FORCE
+const int PIN_ELBOW    = 25; // D25 (GPIO 25) -> ELBOW FLEX
+const int PIN_PRESSURE = 36; // VP  (GPIO 36) -> SQUEEZE FORCE
 
 // --- Sensors Variables & Objects ---
 WebSocketsClient webSocket;
