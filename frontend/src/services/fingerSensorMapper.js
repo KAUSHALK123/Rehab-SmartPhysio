@@ -261,9 +261,9 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
         const isBendingDown = diffBelow >= diffAbove;
         effectiveStraight = baseline;
 
-        // Dynamic span: adapt to actual deflection, min 250 counts for smooth sensitivity
+        // Dynamic span: adapt to actual deflection, min 180 counts for ultra-sensitive micro-bends
         const maxDeflection = Math.max(diffBelow, diffAbove);
-        const dynamicSpan = Math.max(250, maxDeflection);
+        const dynamicSpan = Math.max(180, maxDeflection);
 
         if (isBendingDown) {
           effectiveBent = Math.max(0, baseline - dynamicSpan);
@@ -352,9 +352,9 @@ export const applyCalibratedFingerRotation = (fingerNode, nodeName, base, angleD
   const isThumb = nodeName === 'right_thumb' || nodeName === 'thumb';
   const rad = degToRad(angleDeg);
 
-  // Smooth frame-rate independent exponential damping factor
+  // Smooth frame-rate independent exponential damping factor (tuned for silky 60fps response)
   const effectiveFactor = (delta !== null && delta !== undefined)
-    ? (1 - Math.exp(-22 * Math.min(delta || 0.016, 0.1)))
+    ? (1 - Math.exp(-24 * Math.min(delta || 0.016, 0.1)))
     : lerpFactor;
 
   // Smooth lerp function: current + (target - current) * t
