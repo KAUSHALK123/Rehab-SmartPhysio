@@ -327,7 +327,8 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
         raw_thumb: 1400, raw_index: 1800, raw_middle: 1380, raw_ring: 1400, raw_little: 1300,
         bounds
       };
-      const initialRes = processFingerTelemetry(initialPkt, mockApprovedGlbConfig);
+      let initialRes;
+      for (let i = 0; i < 5; i++) { initialRes = processFingerTelemetry(initialPkt, mockApprovedGlbConfig); }
       const heldAngle = initialRes.angles.index;
 
       // Simulate 50 continuous packets with electrical noise (fluctuating +-8 ADC counts around 1800)
@@ -397,6 +398,134 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
       expect(res.angles.middle).toBe(-15);
       expect(res.angles.ring).toBe(-15);
       expect(res.angles.little).toBe(-15);
+    });
+
+    it('Regression Test: straight -> 4% -> 25% -> 50% -> 75% -> full bend with stable holding for EVERY finger', () => {
+      const bounds = {
+        thumbStr: 1000, thumbBnt: 2000,
+        indexStr: 1000, indexBnt: 2000,
+        middleStr: 1000, middleBnt: 2000,
+        ringStr: 1000, ringBnt: 2000,
+        littleStr: 1000, littleBnt: 2000
+      };
+
+      FINGER_KEYS.forEach((finger) => {
+        resetDynamicRanges();
+        const axis = FINGER_RIG_MAP[finger].axis;
+        const { min, max } = mockApprovedGlbConfig.fingers[finger][axis];
+
+        // 1. Straight (0%)
+        let pkt = { type: 'sensor_data', bounds };
+        FINGER_KEYS.forEach(f => { pkt['raw_' + f] = 1000; });
+        let res = processFingerTelemetry(pkt, mockApprovedGlbConfig);
+        expect(res.percentages[finger]).toBe(0);
+        expect(res.angles[finger]).toBe(min);
+
+        // 2. 4% Movement (small movement must produce visible GLB movement)
+        const raw4 = 1000 + Math.round(1000 * 0.04); // 1040
+        pkt['raw_' + finger] = raw4;
+        for (let i = 0; i < 20; i++) { res = processFingerTelemetry(pkt, mockApprovedGlbConfig); }
+        expect(res.percentages[finger]).toBeGreaterThanOrEqual(10); // boosted gamma 0.60
+        expect(Math.abs(res.angles[finger] - min)).toBeGreaterThan(1.0); // visible GLB change > 1.0 deg!
+
+        // Hold 4% pose with electrical noise (30 packets) -> must remain stable
+        const angleAt4 = res.angles[finger];
+        for (let i = 0; i < 30; i++) {
+          const jitter = (i % 2 === 0) ? -1 : 1;
+          pkt['raw_' + finger] = raw4 + jitter;
+          const noisyRes = processFingerTelemetry(pkt, mockApprovedGlbConfig);
+          expect(noisyRes.angles[finger]).toBe(angleAt4);
+        }
+
+        // 3. 25% Movement
+        const raw25 = 1000 + Math.round(1000 * 0.25);
+        pkt['raw_' + finger] = raw25;
+        for (let i = 0; i < 20; i++) { res = processFingerTelemetry(pkt, mockApprovedGlbConfig); }
+        expect(res.percentages[finger]).toBeGreaterThan(35);
+        expect(res.percentages[finger]).toBeLessThan(50);
+        expect(res.angles[finger]).toBeGreaterThan(min);
+        expect(res.angles[finger]).toBeLessThan(max);
+
+        // Hold 25% pose with electrical noise
+        const angleAt25 = res.angles[finger];
+        for (let i = 0; i < 30; i++) {
+          pkt['raw_' + finger] = raw25 + ((i % 2 === 0) ? -1 : 1);
+          const noisyRes = processFingerTelemetry(pkt, mockApprovedGlbConfig);
+          expect(noisyRes.angles[finger]).toBe(angleAt25);
+        }
+
+        // 4. 50% Movement
+        const raw50 = 1000 + Math.round(1000 * 0.50);
+        pkt['raw_' + finger] = raw50;
+        for (let i = 0; i < 20; i++) { res = processFingerTelemetry(pkt, mockApprovedGlbConfig); }
+        expect(res.percentages[finger]).toBeGreaterThan(60);
+        expect(res.percentages[finger]).toBeLessThan(75);
+
+        // Hold 50% pose with electrical noise
+        const angleAt50 = res.angles[finger];
+        for (let i = 0; i < 30; i++) {
+          pkt['raw_' + finger] = raw50 + ((i % 2 === 0) ? -1 : 1);
+          const noisyRes = processFingerTelemetry(pkt, mockApprovedGlbConfig);
+          expect(noisyRes.angles[finger]).toBe(angleAt50);
+        }
+
+        // 5. 75% Movement
+        const raw75 = 1000 + Math.round(1000 * 0.75);
+        pkt['raw_' + finger] = raw75;
+        for (let i = 0; i < 20; i++) { res = processFingerTelemetry(pkt, mockApprovedGlbConfig); }
+        expect(res.percentages[finger]).toBeGreaterThan(78);
+        expect(res.percentages[finger]).toBeLessThan(90);
+
+        // 6. Full Bend (100%)
+        pkt['raw_' + finger] = 2000;
+        for (let i = 0; i < 20; i++) { res = processFingerTelemetry(pkt, mockApprovedGlbConfig); }
+        expect(res.percentages[finger]).toBe(100);
+        expect(res.angles[finger]).toBe(max);
+
+        // Hold Full Bend pose with electrical noise
+        for (let i = 0; i < 30; i++) {
+          pkt['raw_' + finger] = 2000 + ((i % 2 === 0) ? -1 : 0);
+          const noisyRes = processFingerTelemetry(pkt, mockApprovedGlbConfig);
+          expect(noisyRes.angles[finger]).toBe(max);
+        }
+      });
+    });
+
+    it('Uncalibrated dynamic auto-range: user hand baseline adapts at rest and reaches full bend', () => {
+      resetDynamicRanges();
+      // Hardware flex sensor resting at ~1750, bending up to ~1950 (no explicit calibration)
+      const restPkt = {
+        type: 'sensor_data',
+        raw_thumb: 1750, raw_index: 1750, raw_middle: 1750, raw_ring: 1750, raw_little: 1750
+      };
+
+      // Establish resting baseline
+      let res;
+      for (let i = 0; i < 35; i++) {
+        res = processFingerTelemetry(restPkt, mockApprovedGlbConfig);
+      }
+      expect(res.percentages.index).toBe(0);
+      expect(res.angles.index).toBe(-15); // straight rest pose
+
+      // Small 4% movement (7 counts) -> visible GLB movement
+      const move4Pkt = {
+        type: 'sensor_data',
+        raw_thumb: 1750, raw_index: 1757, raw_middle: 1750, raw_ring: 1750, raw_little: 1750
+      };
+      for (let i = 0; i < 5; i++) { res = processFingerTelemetry(move4Pkt, mockApprovedGlbConfig); }
+      expect(res.percentages.index).toBeGreaterThan(0);
+      expect(res.angles.index).toBeGreaterThan(-15);
+
+      // Full fist bend reaching 1950 (deflection ~200 counts)
+      const fullFistPkt = {
+        type: 'sensor_data',
+        raw_thumb: 1750, raw_index: 1950, raw_middle: 1750, raw_ring: 1750, raw_little: 1750
+      };
+      for (let i = 0; i < 15; i++) {
+        res = processFingerTelemetry(fullFistPkt, mockApprovedGlbConfig);
+      }
+      expect(res.percentages.index).toBe(100);
+      expect(res.angles.index).toBe(65); // reaches full bend!
     });
   });
 

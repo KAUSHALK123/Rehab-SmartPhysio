@@ -39,11 +39,11 @@ const SENSOR_CALIB_STORAGE_KEY = 'smartphysio_sensor_calibration';
  * Adapts to physical flex sensor ADC output on-the-fly even before manual calibration.
  */
 const dynamicRanges = {
-  thumb:  { min: null, max: null, baseline: null, count: 0 },
-  index:  { min: null, max: null, baseline: null, count: 0 },
-  middle: { min: null, max: null, baseline: null, count: 0 },
-  ring:   { min: null, max: null, baseline: null, count: 0 },
-  little: { min: null, max: null, baseline: null, count: 0 }
+  thumb:  { min: null, max: null, baseline: null, count: 0, polarity: null, maxDeflection: 0, dynamicSpan: 180 },
+  index:  { min: null, max: null, baseline: null, count: 0, polarity: null, maxDeflection: 0, dynamicSpan: 180 },
+  middle: { min: null, max: null, baseline: null, count: 0, polarity: null, maxDeflection: 0, dynamicSpan: 180 },
+  ring:   { min: null, max: null, baseline: null, count: 0, polarity: null, maxDeflection: 0, dynamicSpan: 180 },
+  little: { min: null, max: null, baseline: null, count: 0, polarity: null, maxDeflection: 0, dynamicSpan: 180 }
 };
 
 /**
@@ -66,7 +66,7 @@ export const resetFingerFilterStates = () => {
 
 export const resetDynamicRanges = () => {
   FINGER_KEYS.forEach((f) => {
-    dynamicRanges[f] = { min: null, max: null, baseline: null, count: 0, polarity: null };
+    dynamicRanges[f] = { min: null, max: null, baseline: null, count: 0, polarity: null, maxDeflection: 0, dynamicSpan: 180 };
   });
   resetFingerFilterStates();
 };
@@ -191,33 +191,38 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
   const resolveSensorBounds = (finger) => {
     const strKey = finger + 'Str';
     const bntKey = finger + 'Bnt';
-    // Check saved calibration from localStorage
-    const saved = sensorBounds[finger];
-    if (saved && saved.isCustom && saved.straight !== undefined && saved.bent !== undefined && Math.abs(saved.bent - saved.straight) > 30) {
-      return { ...saved, isExplicit: true };
+
+    // 1. Direct customBounds parameter (e.g. from tests or caller)
+    if (customBounds && customBounds[finger] &&
+        customBounds[finger].straight !== undefined &&
+        customBounds[finger].bent !== undefined &&
+        Math.abs(customBounds[finger].bent - customBounds[finger].straight) > 30) {
+      return { straight: customBounds[finger].straight, bent: customBounds[finger].bent, isExplicit: true };
     }
-    // Check embedded hardware bounds from firmware NVS
+
+    // 2. Saved calibration from localStorage
+    const saved = sensorBounds[finger];
+    if (saved && saved.straight !== undefined && saved.bent !== undefined && Math.abs(saved.bent - saved.straight) > 30) {
+      const isDefault = saved.straight === DEFAULT_SENSOR_BOUNDS[finger].straight &&
+                        saved.bent === DEFAULT_SENSOR_BOUNDS[finger].bent;
+      if (!isDefault || saved.isCustom) {
+        return { ...saved, isExplicit: true };
+      }
+    }
+
+    // 3. Hardware bounds embedded in telemetry packet
     const isPacketBound = packetBounds[strKey] !== undefined && packetBounds[bntKey] !== undefined &&
         !(packetBounds[strKey] === 0 && packetBounds[bntKey] === 4095) &&
         Math.abs(packetBounds[bntKey] - packetBounds[strKey]) > 30;
 
-    const isPlaceholder = isPacketBound && (
-      (finger === 'thumb'  && packetBounds[strKey] === 1400 && packetBounds[bntKey] === 2200) ||
-      (finger === 'index'  && packetBounds[strKey] === 1350 && packetBounds[bntKey] === 2250) ||
-      (finger === 'middle' && packetBounds[strKey] === 1380 && packetBounds[bntKey] === 2280) ||
-      (finger === 'ring'   && packetBounds[strKey] === 1400 && packetBounds[bntKey] === 2250) ||
-      (finger === 'little' && packetBounds[strKey] === 1300 && packetBounds[bntKey] === 2150)
-    );
-
-    if (isPacketBound && !isPlaceholder) {
+    if (isPacketBound) {
       return { straight: packetBounds[strKey], bent: packetBounds[bntKey], isExplicit: true };
     }
-    if (isPlaceholder) {
-      return { straight: packetBounds[strKey], bent: packetBounds[bntKey], isExplicit: false };
-    }
+
     if (saved && saved.straight !== undefined && saved.bent !== undefined && Math.abs(saved.bent - saved.straight) > 30) {
       return { ...saved, isExplicit: false };
     }
+
     return { ...DEFAULT_SENSOR_BOUNDS[finger], isExplicit: false };
   };
 
@@ -242,17 +247,17 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
       const numRaw = Number(rawVal);
 
-      // On first reading or large step jump (> 350 counts), initialize immediately for zero lag
-      if (filter.filteredRaw === null || Math.abs(numRaw - filter.filteredRaw) > 350) {
+      // On first reading or large step jump (> 300 counts), initialize immediately for zero lag
+      if (filter.filteredRaw === null || Math.abs(numRaw - filter.filteredRaw) > 300) {
         filter.filteredRaw = numRaw;
         filter.stableRaw = numRaw;
       } else {
-        // Exponential Moving Average (EMA) - suppresses high-frequency ADC noise
-        const EMA_ALPHA = 0.28;
+        // Fast, light EMA (0.50): eliminates high-frequency electrical ADC noise without lag
+        const EMA_ALPHA = 0.35;
         filter.filteredRaw = (EMA_ALPHA * numRaw) + ((1.0 - EMA_ALPHA) * filter.filteredRaw);
 
-        // Configurable deadband (12 counts): eliminates holding-state jitter & vibration
-        const DEADBAND = 12;
+        // Lightweight deadband (5 counts): stops resting noise without suppressing 4% movements
+        const DEADBAND = 5;
         if (Math.abs(filter.filteredRaw - filter.stableRaw) >= DEADBAND) {
           filter.stableRaw = filter.filteredRaw;
         }
@@ -261,54 +266,50 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       const activeRaw = filter.stableRaw;
       filteredVal = activeRaw;
 
-      // Track dynamic physical sensor min/max and resting baseline using filtered signal
+      // Track dynamic physical sensor min/max and resting baseline
       const tracker = dynamicRanges[finger];
       if (tracker.baseline === null) {
         tracker.baseline = activeRaw;
-        tracker.min = activeRaw;
-        tracker.max = activeRaw;
         tracker.count = 1;
-      } else {
-        if (tracker.count < 50) {
-          tracker.baseline = (tracker.baseline * tracker.count + activeRaw) / (tracker.count + 1);
-          tracker.count++;
-        } else {
-          tracker.baseline = 0.998 * tracker.baseline + 0.002 * activeRaw;
-        }
-        if (activeRaw < tracker.min) tracker.min = activeRaw;
-        if (activeRaw > tracker.max) tracker.max = activeRaw;
+        tracker.maxDeflection = 0;
+        tracker.dynamicSpan = 180;
+      } else if (tracker.count < 30) {
+        tracker.baseline = (tracker.baseline * tracker.count + activeRaw) / (tracker.count + 1);
+        tracker.count++;
       }
 
       const bounds = resolveSensorBounds(finger);
       let effectiveStraight = bounds.straight;
       let effectiveBent = bounds.bent;
 
-      const lower = Math.min(bounds.straight, bounds.bent);
-      const upper = Math.max(bounds.straight, bounds.bent);
-      const isOutOfBounds = activeRaw < (lower - 50) || activeRaw > (upper + 50);
-
-      // Apply dynamic auto-range if explicit calibration is not set or signal is out of bounds
-      if (!bounds.isExplicit && isOutOfBounds) {
+      // When explicit calibration is NOT set, adapt to user hand resting baseline and active deflection
+      if (!bounds.isExplicit) {
         const baseline = tracker.baseline !== null ? tracker.baseline : activeRaw;
-        const diffBelow = baseline - (tracker.min ?? baseline);
-        const diffAbove = (tracker.max ?? baseline) - baseline;
+        const diff = activeRaw - baseline;
 
-        const isBendingDown = diffBelow >= diffAbove;
+        if (!tracker.polarity && Math.abs(diff) >= 15) {
+          tracker.polarity = diff < 0 ? 'active_low' : 'active_high';
+        }
+
+        const isBendingDown = tracker.polarity === 'active_low';
         effectiveStraight = baseline;
 
-        const maxDeflection = Math.max(diffBelow, diffAbove);
-        const dynamicSpan = Math.max(180, maxDeflection);
+        const deflection = Math.abs(diff);
+        if (deflection > (tracker.maxDeflection || 0)) {
+          tracker.maxDeflection = deflection;
+          tracker.dynamicSpan = Math.max(160, deflection);
+        }
 
         if (isBendingDown) {
-          effectiveBent = Math.max(0, baseline - dynamicSpan);
+          effectiveBent = Math.max(0, baseline - (tracker.dynamicSpan || 180));
         } else {
-          effectiveBent = Math.min(4095, baseline + dynamicSpan);
+          effectiveBent = Math.min(4095, baseline + (tracker.dynamicSpan || 180));
         }
       }
 
       normalized = normalizeFlexValue(activeRaw, effectiveStraight, effectiveBent, true);
-      if (normalized < 0.01) normalized = 0;
-      if (normalized > 0.99) normalized = 1;
+      if (normalized < 0.015) normalized = 0;
+      if (normalized > 0.985) normalized = 1;
     } else if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
       // Pre-filtered angle value from firmware or backend mock (0 - 90 deg)
       const numAngle = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
@@ -316,7 +317,7 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
         filter.filteredRaw = numAngle;
         filter.stableRaw = numAngle;
       } else {
-        filter.filteredRaw = (0.35 * numAngle) + (0.65 * filter.filteredRaw);
+        filter.filteredRaw = (0.50 * numAngle) + (0.50 * filter.filteredRaw);
         if (Math.abs(filter.filteredRaw - filter.stableRaw) >= 0.5) {
           filter.stableRaw = filter.filteredRaw;
         }
@@ -335,9 +336,9 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
 
     const glbMapping = mapNormalizedToGlb(normalized, finger, activeGlbConfig);
 
-    // Subtle angle deadband (0.15 deg) to eliminate micro-fluctuations in GLB angles
+    // Subtle angle deadband (0.05 deg) ensures 4% movements (~2-3 deg) are rendered immediately
     let targetAngle = glbMapping.angle;
-    if (filter.prevAngle !== null && Math.abs(targetAngle - filter.prevAngle) < 0.15) {
+    if (filter.prevAngle !== null && Math.abs(targetAngle - filter.prevAngle) < 0.05) {
       targetAngle = filter.prevAngle;
     } else {
       filter.prevAngle = targetAngle;
@@ -385,24 +386,23 @@ export const degToRad = (degrees) => ((degrees || 0) * Math.PI) / 180;
  * @param {number} [lerpFactor=0.25] - Smoothing interpolation factor fallback
  * @param {number} [delta=null] - Frame delta time in seconds (enables frame-rate independent damping)
  */
-export const applyCalibratedFingerRotation = (fingerNode, nodeName, base, angleDeg, lerpFactor = 0.25, delta = null) => {
+export const applyCalibratedFingerRotation = (fingerNode, nodeName, base, angleDeg, lerpFactor = 0.35, delta = null) => {
   if (!fingerNode || !base) return;
 
   const isThumb = nodeName === 'right_thumb' || nodeName === 'thumb';
   const rad = degToRad(angleDeg);
 
-  // Smooth frame-rate independent exponential damping factor (tuned for silky 60fps response)
+  // Responsive frame-rate independent damping (damping rate 30 for snappy, fluid tracking)
   const effectiveFactor = (delta !== null && delta !== undefined)
-    ? (1 - Math.exp(-24 * Math.min(delta || 0.016, 0.1)))
+    ? (1 - Math.exp(-30 * Math.min(delta || 0.016, 0.1)))
     : lerpFactor;
 
-  // Smooth lerp function: current + (target - current) * t
   const lerp = (curr, target, t) => curr + (target - curr) * t;
 
   if (isThumb) {
     // Thumb: LOCAL X axis only (curl inward); Y and Z locked to base/rest
     const targetX = base.x + rad;
-    if (Math.abs(targetX - fingerNode.rotation.x) < 0.001) {
+    if (Math.abs(targetX - fingerNode.rotation.x) < 0.0005) {
       fingerNode.rotation.x = targetX;
     } else {
       fingerNode.rotation.x = lerp(fingerNode.rotation.x, targetX, effectiveFactor);
@@ -412,7 +412,7 @@ export const applyCalibratedFingerRotation = (fingerNode, nodeName, base, angleD
   } else {
     // Index, Middle, Ring, Little: LOCAL Z axis only (curl inward); X and Y locked to base/rest
     const targetZ = base.z + rad;
-    if (Math.abs(targetZ - fingerNode.rotation.z) < 0.001) {
+    if (Math.abs(targetZ - fingerNode.rotation.z) < 0.0005) {
       fingerNode.rotation.z = targetZ;
     } else {
       fingerNode.rotation.z = lerp(fingerNode.rotation.z, targetZ, effectiveFactor);
