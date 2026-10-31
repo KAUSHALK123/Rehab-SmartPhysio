@@ -1,3 +1,4 @@
+import { getWsUrl } from '../services/wsUrl';
 import React, { useState, useEffect, useRef } from 'react';
 
 const DataCollectionPage = () => {
@@ -16,12 +17,7 @@ const DataCollectionPage = () => {
   useEffect(() => {
     // Connect to WebSocket
     const connectWs = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      const wsHost = host.includes(':5173') ? host.replace(':5173', ':8000') : host;
-      const wsUrl = `${protocol}//${wsHost}/api/v1/device/ws`;
-      
-      wsRef.current = new WebSocket(wsUrl);
+      wsRef.current = new WebSocket(getWsUrl());
       
       wsRef.current.onopen = () => setIsConnected(true);
       wsRef.current.onclose = () => setIsConnected(false);

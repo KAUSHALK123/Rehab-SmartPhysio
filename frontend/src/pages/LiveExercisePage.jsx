@@ -36,7 +36,8 @@ import WristSensorTrialPanel from '../components/WristSensorTrialPanel';
 import ElbowSensorTrialPanel from '../components/ElbowSensorTrialPanel';
 import WristMotionDemoCard from '../components/WristMotionDemoCard';
 import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
-import { processFingerTelemetry, resetDynamicRanges, FINGER_KEYS } from '../services/fingerSensorMapper';
+import { processFingerTelemetry, resetDynamicRanges, FINGER_KEYS, DEFAULT_SENSOR_BOUNDS } from '../services/fingerSensorMapper';
+import { getWsUrl } from '../services/wsUrl';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
 
@@ -242,14 +243,16 @@ const FingerSyncPanel = ({
   simulatedActive = false,
   onToggleSimulation = () => {},
   onResetFlex = () => {},
-  isResetting = false
+  isResetting = false,
+  lastPacketTime = null,
+  isTelemetryTimedOut = false
 }) => {
   const fingerKeys = [
-    { key: 'thumb', label: 'Thumb' },
-    { key: 'index', label: 'Index' },
-    { key: 'middle', label: 'Mid' },
-    { key: 'ring', label: 'Ring' },
-    { key: 'little', label: 'Lit' }
+    { key: 'thumb', label: 'Thumb', short: 'Thm' },
+    { key: 'index', label: 'Index', short: 'Idx' },
+    { key: 'middle', label: 'Middle', short: 'Mid' },
+    { key: 'ring', label: 'Ring', short: 'Rng' },
+    { key: 'little', label: 'Little', short: 'Lit' }
   ];
 
   const getBarColor = (pct) => {
@@ -372,52 +375,81 @@ const FingerSyncPanel = ({
           <div className="flex justify-between items-center mb-2 pb-1 border-b border-slate-200/60">
             <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
               <span>LIVE FLEX SENSORS</span>
-              <span className="text-[8px] font-mono font-bold px-1 py-0.5 rounded bg-indigo-100 text-indigo-700 border border-indigo-200">
-                ADC 0-4095
-              </span>
+              {deviceConnected && !isTelemetryTimedOut && !simulatedActive ? (
+                <span className="inline-flex items-center gap-1 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  LIVE
+                </span>
+              ) : isTelemetryTimedOut ? (
+                <span className="inline-flex items-center gap-1 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">
+                  STALE
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 border border-slate-300">
+                  OFFLINE
+                </span>
+              )}
             </span>
-            <span className="text-[9px] font-bold text-slate-500">Raw &amp; Bend %</span>
+            <span className="text-[9px] font-bold text-slate-500">ADC &amp; Bend %</span>
           </div>
 
           <div className="flex items-end justify-between gap-1.5 h-24 pt-1">
-            {fingerKeys.map(({ key, label }) => {
+            {fingerKeys.map(({ key, label, short }) => {
               const debugInfo = computedFingerData?.debug?.[key];
               const flexPct = debugInfo?.normalized !== undefined ? debugInfo.normalized : 0;
-              const rawVal = debugInfo?.raw !== null && debugInfo?.raw !== undefined 
-                ? debugInfo.raw 
-                : (rawSensorPacket?.['raw_' + key] !== undefined ? rawSensorPacket['raw_' + key] : null);
+
+              // Direct Raw ADC from hardware packet (preferred), with debug fallback
+              const directRaw = (rawSensorPacket && rawSensorPacket['raw_' + key] !== undefined && rawSensorPacket['raw_' + key] !== null)
+                ? Number(rawSensorPacket['raw_' + key])
+                : (debugInfo?.raw !== null && debugInfo?.raw !== undefined ? Number(debugInfo.raw) : null);
+
+              const isSignalActive = deviceConnected && !isTelemetryTimedOut && directRaw !== null;
+
+              // Calibration bounds from firmware NVS or defaults
+              const bounds = rawSensorPacket?.bounds;
+              const rangeMin = bounds?.[key + 'Str'] ?? DEFAULT_SENSOR_BOUNDS?.[key]?.straight ?? 0;
+              const rangeMax = bounds?.[key + 'Bnt'] ?? DEFAULT_SENSOR_BOUNDS?.[key]?.bent ?? 4095;
+              const hasCustomRange = rangeMin !== undefined && rangeMax !== undefined && (rangeMin !== 0 || rangeMax !== 4095);
 
               return (
                 <div key={key} className="flex-1 flex flex-col items-center h-full justify-end min-w-0">
                   {/* High visibility RAW ADC Badge */}
                   <span 
-                    title={`Raw ADC count: ${rawVal !== null ? rawVal : 'No signal'}`}
-                    className={`text-[9px] font-mono font-black px-1 py-0.5 rounded border leading-none mb-1 transition-all ${
-                      rawVal === null 
+                    title={`Raw ADC count: ${isSignalActive ? directRaw : 'No signal'}\nHardware Range: ${rangeMin} - ${rangeMax}`}
+                    className={`text-[9px] font-mono font-black px-1 py-0.5 rounded border leading-none mb-0.5 transition-all ${
+                      !isSignalActive
                         ? 'bg-slate-100 text-slate-400 border-slate-200' 
-                        : rawVal === 0 
+                        : directRaw === 0 
                           ? 'bg-amber-100 text-amber-900 border-amber-300 ring-1 ring-amber-400/50' 
                           : 'bg-emerald-100 text-emerald-900 border-emerald-300'
                     }`}
                   >
-                    {rawVal !== null ? rawVal : '--'}
+                    {isSignalActive ? directRaw : '--'}
+                  </span>
+
+                  {/* Range indicator */}
+                  <span 
+                    title={`Calibration Range: ${rangeMin} - ${rangeMax}`}
+                    className="text-[7.5px] font-mono text-slate-400 mb-0.5 select-none truncate max-w-full"
+                  >
+                    {hasCustomRange ? `${rangeMin}-${rangeMax}` : '0-4095'}
                   </span>
 
                   {/* Bend Percentage */}
                   <span className="text-[9px] font-black text-slate-800 mb-1">
-                    {debugInfo ? `${Math.round(flexPct)}%` : '0%'}
+                    {isSignalActive ? `${Math.round(flexPct)}%` : '--'}
                   </span>
 
                   {/* Vertical Progress Bar */}
                   <div className="w-2.5 bg-slate-200 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
                     <div 
                       className={`w-full rounded-full transition-all duration-150 ease-out ${getBarColor(flexPct)}`}
-                      style={{ height: `${debugInfo ? flexPct : 0}%` }}
+                      style={{ height: `${isSignalActive ? flexPct : 0}%` }}
                     />
                   </div>
 
-                  <span className="text-[8px] font-extrabold text-slate-500 mt-1 select-none uppercase">
-                    {label}
+                  <span className="text-[8px] font-extrabold text-slate-500 mt-1 select-none uppercase truncate max-w-full" title={label}>
+                    {short || label.substring(0, 3)}
                   </span>
                 </div>
               );
@@ -1130,16 +1162,6 @@ function LiveExercisePage() {
       } catch (_) {}
     }
 
-    const getWsUrl = () => {
-      if (import.meta.env.VITE_WS_URL) {
-        return import.meta.env.VITE_WS_URL;
-      }
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      // If running on Vite dev server (port 5173), redirect WS to FastAPI port 8000
-      const wsHost = host.includes(':5173') ? host.replace(':5173', ':8000') : host;
-      return `${protocol}//${wsHost}/api/v1/device/ws`;
-    };
     const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
 
@@ -1151,9 +1173,7 @@ function LiveExercisePage() {
     ws.onopen = () => {
       if (DEBUG_WS) console.log('[WS DEBUG LiveExercise] onopen: Connected to', ws.url);
       reconnectBackoffRef.current = 1000;
-      setDeviceConnected(true);
       setIsRefreshing(false);
-      setGuidance('Device connected. Move arm to rest position to initiate repetitions.');
     };
 
     ws.onmessage = (event) => {
@@ -3045,6 +3065,8 @@ function LiveExercisePage() {
                       onToggleSimulation={() => setSimulatedFingersActive(prev => !prev)}
                       onResetFlex={handleResetFlexSensors}
                       isResetting={isResettingFlex}
+                      lastPacketTime={lastPacketTime}
+                      isTelemetryTimedOut={isTelemetryTimedOut}
                     />
                     <div className="grid grid-cols-2 gap-3">
                       <SVGGauge {...primary} />

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/auth';
+import { getWsUrl } from '../services/wsUrl';
 import WristCalibrationViewer from '../components/WristCalibrationViewer';
 import ElbowCalibrationViewer from '../components/ElbowCalibrationViewer';
 import PressureCalibrationViewer from '../components/PressureCalibrationViewer';
@@ -610,16 +611,6 @@ function CalibrationPage() {
     setErrorMsg('');
     setPhysicalDeviceConnected(false);
     
-    const getWsUrl = () => {
-      if (import.meta.env.VITE_WS_URL) {
-        return import.meta.env.VITE_WS_URL;
-      }
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      // If running on Vite dev server (port 5173), redirect WS to FastAPI port 8000
-      const wsHost = host.includes(':5173') ? host.replace(':5173', ':8000') : host;
-      return `${protocol}//${wsHost}/api/v1/device/ws`;
-    };
     const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
 

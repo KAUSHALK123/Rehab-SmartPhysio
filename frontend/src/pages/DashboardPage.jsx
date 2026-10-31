@@ -46,6 +46,7 @@ import { getSessionHistory, getSessionDetails } from '../services/session';
 import { getDashboardAnalytics } from '../services/analytics';
 import { getPatients, createPatient, getBodyParts, getConditions, getRehabilitationGoals, getRecommendedExercises } from '../services/patient';
 import apiClient from '../services/auth';
+import { getWsUrl } from '../services/wsUrl';
 import Arm3DVisualizer from '../components/Arm3DVisualizer';
 import SensorCard from '../components/SensorCard';
 import { processFingerTelemetry } from '../services/fingerSensorMapper';
@@ -200,16 +201,7 @@ function DashboardPage() {
     let backoffMs = 1000;
     let lastRenderTime = 0;
 
-    const getWsUrl = () => {
-      if (import.meta.env.VITE_WS_URL) {
-        return import.meta.env.VITE_WS_URL;
-      }
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      // If running on Vite dev server (port 5173), redirect WS to FastAPI port 8000
-      const wsHost = host.includes(':5173') ? host.replace(':5173', ':8000') : host;
-      return `${protocol}//${wsHost}/api/v1/device/ws`;
-    };
+
     const DEBUG_WS = true;
     let msgCountSec = 0;
     let lastLogTime = Date.now();
