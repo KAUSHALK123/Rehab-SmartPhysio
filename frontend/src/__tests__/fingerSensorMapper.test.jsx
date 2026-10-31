@@ -6,7 +6,8 @@ import {
   applyCalibratedFingerRotation,
   degToRad,
   FINGER_KEYS,
-  FINGER_RIG_MAP
+  FINGER_RIG_MAP,
+  resetDynamicRanges
 } from '../services/fingerSensorMapper';
 
 describe('fingerSensorMapper Service (Fix 2)', () => {
@@ -247,4 +248,156 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
       expect(() => applyCalibratedFingerRotation({ rotation: { x: 0, y: 0, z: 0 } }, 'right_thumb', null, 10)).not.toThrow();
     });
   });
+  describe('GLB Finger Movement Stability and Continuous Position Control', () => {
+    beforeEach(() => {
+      resetDynamicRanges();
+    });
+
+    it('Test straight, middle-bend, and full-bend positions for every finger', () => {
+      const bounds = {
+        thumbStr: 1400, thumbBnt: 2200,
+        indexStr: 1350, indexBnt: 2250,
+        middleStr: 1380, middleBnt: 2280,
+        ringStr: 1400, ringBnt: 2250,
+        littleStr: 1300, littleBnt: 2150
+      };
+
+      // 1. Straight Pose (raw = straight bound)
+      const straightPkt = {
+        type: 'sensor_data',
+        raw_thumb: 1400, raw_index: 1350, raw_middle: 1380, raw_ring: 1400, raw_little: 1300,
+        bounds
+      };
+      resetDynamicRanges();
+      const straightRes = processFingerTelemetry(straightPkt, mockApprovedGlbConfig);
+      FINGER_KEYS.forEach((f) => {
+        expect(straightRes.percentages[f]).toBe(0);
+        const rigAxis = FINGER_RIG_MAP[f].axis;
+        const expectedMin = mockApprovedGlbConfig.fingers[f][rigAxis].min;
+        expect(straightRes.angles[f]).toBe(expectedMin);
+      });
+
+      // 2. Full-Bend Pose (raw = bent bound)
+      const fullBendPkt = {
+        type: 'sensor_data',
+        raw_thumb: 2200, raw_index: 2250, raw_middle: 2280, raw_ring: 2250, raw_little: 2150,
+        bounds
+      };
+      resetDynamicRanges();
+      const fullRes = processFingerTelemetry(fullBendPkt, mockApprovedGlbConfig);
+      FINGER_KEYS.forEach((f) => {
+        expect(fullRes.percentages[f]).toBe(100);
+        const rigAxis = FINGER_RIG_MAP[f].axis;
+        const expectedMax = mockApprovedGlbConfig.fingers[f][rigAxis].max;
+        expect(fullRes.angles[f]).toBe(expectedMax);
+      });
+
+      // 3. Middle-Bend Pose (raw = halfway between straight and bent)
+      const midPkt = {
+        type: 'sensor_data',
+        raw_thumb: 1800, raw_index: 1800, raw_middle: 1830, raw_ring: 1825, raw_little: 1725,
+        bounds
+      };
+      resetDynamicRanges();
+      const midRes = processFingerTelemetry(midPkt, mockApprovedGlbConfig);
+      FINGER_KEYS.forEach((f) => {
+        expect(midRes.percentages[f]).toBeGreaterThan(60);
+        expect(midRes.percentages[f]).toBeLessThan(75);
+        const rigAxis = FINGER_RIG_MAP[f].axis;
+        const { min, max } = mockApprovedGlbConfig.fingers[f][rigAxis];
+        expect(midRes.angles[f]).toBeGreaterThan(min);
+        expect(midRes.angles[f]).toBeLessThan(max);
+      });
+    });
+
+    it('Holding finger at constant bend with fluctuating sensor noise holds stable GLB angle without vibration', () => {
+      const bounds = {
+        thumbStr: 1400, thumbBnt: 2200,
+        indexStr: 1350, indexBnt: 2250,
+        middleStr: 1380, middleBnt: 2280,
+        ringStr: 1400, ringBnt: 2250,
+        littleStr: 1300, littleBnt: 2150
+      };
+
+      resetDynamicRanges();
+
+      // Initial reading at 50% bend (index ~ 1800)
+      const initialPkt = {
+        type: 'sensor_data',
+        raw_thumb: 1400, raw_index: 1800, raw_middle: 1380, raw_ring: 1400, raw_little: 1300,
+        bounds
+      };
+      const initialRes = processFingerTelemetry(initialPkt, mockApprovedGlbConfig);
+      const heldAngle = initialRes.angles.index;
+
+      // Simulate 50 continuous packets with electrical noise (fluctuating +-8 ADC counts around 1800)
+      const noiseOffsets = [-5, +7, -8, +4, -3, +8, -6, +2, -7, +6, -4, +5, -6, +7, -2, +4];
+      for (let i = 0; i < 50; i++) {
+        const jitter = noiseOffsets[i % noiseOffsets.length];
+        const noisyPkt = {
+          type: 'sensor_data',
+          raw_thumb: 1400, raw_index: 1800 + jitter, raw_middle: 1380, raw_ring: 1400, raw_little: 1300,
+          bounds
+        };
+        const noisyRes = processFingerTelemetry(noisyPkt, mockApprovedGlbConfig);
+        expect(noisyRes.angles.index).toBe(heldAngle);
+      }
+    });
+
+    it('Smooth continuous tracking: slowly bending and straightening follows progressively', () => {
+      const bounds = {
+        thumbStr: 1000, thumbBnt: 2000,
+        indexStr: 1000, indexBnt: 2000,
+        middleStr: 1000, middleBnt: 2000,
+        ringStr: 1000, ringBnt: 2000,
+        littleStr: 1000, littleBnt: 2000
+      };
+      resetDynamicRanges();
+
+      let prevAngle = -15; // index straight angle in mock config
+      // Slowly ramp ADC from 1000 to 2000 in steps of 50
+      for (let adc = 1050; adc <= 2000; adc += 50) {
+        const pkt = {
+          type: 'sensor_data',
+          raw_thumb: 1000, raw_index: adc, raw_middle: 1000, raw_ring: 1000, raw_little: 1000,
+          bounds
+        };
+        const res = processFingerTelemetry(pkt, mockApprovedGlbConfig);
+        expect(res.angles.index).toBeGreaterThanOrEqual(prevAngle);
+        prevAngle = res.angles.index;
+      }
+      let finalRes; for (let i = 0; i < 20; i++) { finalRes = processFingerTelemetry({ type: 'sensor_data', raw_thumb: 1000, raw_index: 2000, raw_middle: 1000, raw_ring: 1000, raw_little: 1000, bounds }, mockApprovedGlbConfig); } expect(finalRes.angles.index).toBe(65);
+    });
+
+    it('Preserves independent finger movement: bending one finger does not affect other fingers', () => {
+      const bounds = {
+        thumbStr: 1000, thumbBnt: 2000,
+        indexStr: 1000, indexBnt: 2000,
+        middleStr: 1000, middleBnt: 2000,
+        ringStr: 1000, ringBnt: 2000,
+        littleStr: 1000, littleBnt: 2000
+      };
+      resetDynamicRanges();
+
+      // Only bend Thumb to 2000 while others remain at 1000
+      const pkt = {
+        type: 'sensor_data',
+        raw_thumb: 2000, raw_index: 1000, raw_middle: 1000, raw_ring: 1000, raw_little: 1000,
+        bounds
+      };
+      const res = processFingerTelemetry(pkt, mockApprovedGlbConfig);
+
+      expect(res.percentages.thumb).toBe(100);
+      expect(res.percentages.index).toBe(0);
+      expect(res.percentages.middle).toBe(0);
+      expect(res.percentages.ring).toBe(0);
+      expect(res.percentages.little).toBe(0);
+
+      expect(res.angles.index).toBe(-15);
+      expect(res.angles.middle).toBe(-15);
+      expect(res.angles.ring).toBe(-15);
+      expect(res.angles.little).toBe(-15);
+    });
+  });
+
 });
