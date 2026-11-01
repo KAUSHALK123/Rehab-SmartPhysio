@@ -30,7 +30,9 @@ describe('elbowSensorMapper Service', () => {
     it('identifies elbowFlexion from exercise names and synonyms', () => {
       expect(resolveElbowMovementId({ exercise_name: 'Elbow Flexion & Extension' })).toBe('elbowFlexion');
       expect(resolveElbowMovementId({ exercise_name: 'Bicep Curl Routine' })).toBe('elbowFlexion');
+      expect(resolveElbowMovementId({ exercise_name: 'Elbow Switch Test' })).toBe('elbowFlexion');
       expect(resolveElbowMovementId({ primary_sensor: 'elbow' })).toBe('elbowFlexion');
+      expect(resolveElbowMovementId({ primary_sensor: 'elbow_switch' })).toBe('elbowFlexion');
       expect(resolveElbowMovementId({ movement_id: 'elbowFlexion' })).toBe('elbowFlexion');
     });
 
@@ -113,6 +115,32 @@ describe('elbowSensorMapper Service', () => {
       expect(res).not.toBeNull();
       expect(res.normalizedRatio).toBe(0.0);
       expect(res.angles).toEqual({ x: 0, y: 0, z: 0 });
+    });
+
+    it('processes two-wire contact switch: closed (LOW 0) = extended (ratio 0.0)', () => {
+      const packet = { type: 'sensor_data', elbow_switch: 0 };
+      const exercise = { exercise_name: 'Elbow Switch Test', primary_sensor: 'elbow_switch' };
+      const res = processElbowTelemetry(packet, exercise, mockApprovedGlbConfig);
+
+      expect(res).not.toBeNull();
+      expect(res.movementId).toBe('elbowFlexion');
+      expect(res.normalizedRatio).toBe(0.0);
+      expect(res.angles.x).toBe(0);
+      expect(res.switchState).toBe('closed');
+      expect(res.isSwitchExercise).toBe(true);
+    });
+
+    it('processes two-wire contact switch: open (HIGH 1) = bent (ratio 1.0)', () => {
+      const packet = { type: 'sensor_data', elbow_switch: 1 };
+      const exercise = { exercise_name: 'Elbow Switch Test', primary_sensor: 'elbow_switch' };
+      const res = processElbowTelemetry(packet, exercise, mockApprovedGlbConfig);
+
+      expect(res).not.toBeNull();
+      expect(res.movementId).toBe('elbowFlexion');
+      expect(res.normalizedRatio).toBe(1.0);
+      expect(res.angles.x).toBe(-110);
+      expect(res.switchState).toBe('open');
+      expect(res.isSwitchExercise).toBe(true);
     });
 
     it('returns null if exercise is not an elbow routine', () => {

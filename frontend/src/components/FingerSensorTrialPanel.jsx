@@ -19,9 +19,20 @@ import {
   FINGER_KEYS, 
   FINGER_RIG_MAP, 
   processFingerTelemetry, 
-  mapNormalizedToGlb 
+  mapNormalizedToGlb,
+  computeSwitchFingerAngles,
+  getAuthoritativeFingerMovement,
+  FINGER_SWITCH_GPIOS
 } from '../services/fingerSensorMapper';
 import { loadCalibrationConfig } from '../services/calibrationConfig';
+
+export const FINGER_SWITCH_PINS = {
+  thumb: 27,
+  index: 19,
+  middle: 23,
+  ring: 18,
+  little: 13
+};
 
 export default function FingerSensorTrialPanel({
   liveSensors = {},
@@ -34,6 +45,28 @@ export default function FingerSensorTrialPanel({
 
   // Operational mode: 'live' | 'simulation' | 'demo'
   const [activeMode, setActiveMode] = useState('live');
+
+  // Configurable per-finger input mode: 'FLEX' vs 'SWITCH'
+  const [fingerModes, setFingerModes] = useState({
+    thumb: 'FLEX',
+    index: 'FLEX',
+    middle: 'FLEX',
+    ring: 'FLEX',
+    little: 'FLEX'
+  });
+
+  // Pure Switch-Based Movement Mode (Logic Flex Movement)
+  // Pure Switch-Based Movement Mode (default active for current testing version)
+  const [isPureSwitchMode, setIsPureSwitchMode] = useState(true);
+
+  // Simulated switch states for manual testing (0 = Open / Released, 1 = Closed / Pressed)
+  const [simSwitches, setSimSwitches] = useState({
+    thumb: 0,
+    index: 0,
+    middle: 0,
+    ring: 0,
+    little: 0
+  });
 
   // Selected finger for manual simulation
   const [simFinger, setSimFinger] = useState('thumb');
@@ -78,17 +111,87 @@ export default function FingerSensorTrialPanel({
 
   // Current processed telemetry readings
   const [processedTelemetry, setProcessedTelemetry] = useState(() => 
-    processFingerTelemetry(liveSensors, glbConfig.current)
+    processFingerTelemetry(liveSensors, glbConfig.current, null, fingerModes)
   );
 
   // 1. LIVE SENSOR PIPELINE
   useEffect(() => {
     if (activeMode !== 'live') return;
 
-    const result = processFingerTelemetry(liveSensors, glbConfig.current);
-    setProcessedTelemetry(result);
-    onAnglesUpdate?.(result.angles);
-  }, [liveSensors, activeMode]);
+    if (isPureSwitchMode) {
+      // PURE SWITCH-BASED MOVEMENT MODE:
+      // Animate fingers purely using digital contact switches (GPIO 27, 19, 23, 18, 13)
+      const result = computeSwitchFingerAngles(liveSensors, simSwitches);
+      setProcessedTelemetry(result);
+      onAnglesUpdate?.(result.angles);
+    } else {
+      // CONTINUOUS ANALOG FLEX SENSOR MODE
+      const mergedModes = { ...fingerModes };
+      FINGER_KEYS.forEach(f => {
+        if (liveSensors[f + '_mode']) {
+          mergedModes[f] = liveSensors[f + '_mode'];
+        }
+      });
+
+      const result = processFingerTelemetry(liveSensors, glbConfig.current, null, mergedModes);
+      setProcessedTelemetry(result);
+      onAnglesUpdate?.(result.angles);
+    }
+  }, [liveSensors, activeMode, fingerModes, isPureSwitchMode, simSwitches]);
+
+  // Handler for Logic Flex Movement button
+  const handleTogglePureSwitchMode = () => {
+    const next = !isPureSwitchMode;
+    setIsPureSwitchMode(next);
+    if (next) {
+      const result = computeSwitchFingerAngles(liveSensors, simSwitches);
+      setProcessedTelemetry(result);
+      onAnglesUpdate?.(result.angles);
+    } else {
+      // Safe neutral pose
+      const neutral = { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 };
+      onAnglesUpdate?.(neutral);
+      const result = processFingerTelemetry(liveSensors, glbConfig.current, null, fingerModes);
+      setProcessedTelemetry(result);
+    }
+  };
+
+  // Handler to toggle mode for a finger (FLEX vs SWITCH)
+  const toggleFingerMode = (finger) => {
+    const nextMode = (fingerModes[finger] || 'FLEX') === 'FLEX' ? 'SWITCH' : 'FLEX';
+    setFingerModes(prev => ({ ...prev, [finger]: nextMode }));
+  };
+
+  // Handler to toggle digital switch in simulation (tested independently per finger)
+  const handleSimSwitchToggle = (finger, forcedVal = null) => {
+    setActiveMode('simulation');
+    setDemoRunning(false);
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+
+    const nextVal = forcedVal !== null ? forcedVal : (simSwitches[finger] === 1 ? 0 : 1);
+    const updatedSwitches = { ...simSwitches, [finger]: nextVal };
+    setSimSwitches(updatedSwitches);
+
+    const updatedModes = { ...fingerModes, [finger]: 'SWITCH' };
+    setFingerModes(updatedModes);
+
+    if (isPureSwitchMode) {
+      // In Pure Switch Mode, directly compute switch-driven angles
+      const result = getAuthoritativeFingerMovement(liveSensors, updatedSwitches, { forceSource: 'SWITCH' });
+      setProcessedTelemetry(result);
+      onAnglesUpdate?.(result.angles);
+    } else {
+      const simTelemetry = {
+        ...liveSensors,
+        [finger + '_mode']: 'SWITCH',
+        [finger + '_switch']: nextVal,
+        ['raw_' + finger + '_switch']: nextVal === 1 ? 0 : 1
+      };
+      const result = processFingerTelemetry(simTelemetry, glbConfig.current, null, updatedModes);
+      setProcessedTelemetry(result);
+      onAnglesUpdate?.(result.angles);
+    }
+  };
 
   // 2. SIMULATION PIPELINE (Manual Slider)
   const handleSimSliderChange = (newPct) => {
@@ -101,7 +204,7 @@ export default function FingerSensorTrialPanel({
 
     // Build simulated angles: selected finger bends by slider %, other fingers stay at 0%
     const currentAngles = {};
-    const currentDebug = { ...processedTelemetry.debug };
+    const currentDebug = { ...(processedTelemetry?.debug || {}) };
 
     FINGER_KEYS.forEach((f) => {
       const norm = f === simFinger ? pct / 100.0 : 0.0;
@@ -154,7 +257,7 @@ export default function FingerSensorTrialPanel({
 
       // Calculate angles
       const currentAngles = {};
-      const currentDebug = { ...processedTelemetry.debug };
+      const currentDebug = { ...(processedTelemetry?.debug || {}) };
 
       fingersSequence.forEach((f) => {
         const norm = f === currentFinger ? bendRatio : 0.0;
@@ -236,10 +339,15 @@ export default function FingerSensorTrialPanel({
           </div>
 
           {/* Mode Pill Indicator */}
-          {activeMode === 'live' ? (
+          {isPureSwitchMode ? (
+            <span className="flex items-center gap-1.5 bg-amber-50 text-amber-700 border border-amber-300 px-2.5 py-0.5 rounded-full text-[10px] font-black animate-pulse shadow-xs">
+              <Zap className="w-3 h-3 text-amber-600" />
+              Switch Mode: ACTIVE
+            </span>
+          ) : activeMode === 'live' ? (
             <span className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full text-[10px] font-bold">
               <Radio className="w-3 h-3 text-emerald-600 animate-pulse" />
-              LIVE SENSOR
+              LIVE FLEX SENSOR
             </span>
           ) : (
             <span className="flex items-center gap-1.5 bg-purple-50 text-purple-700 border border-purple-200 px-2.5 py-0.5 rounded-full text-[10px] font-bold animate-pulse">
@@ -275,7 +383,7 @@ export default function FingerSensorTrialPanel({
 
             <div className="flex items-end justify-between gap-1.5 h-24 pt-1">
               {FINGER_KEYS.map((finger) => {
-                const info = processedTelemetry.debug[finger] || {};
+                const info = processedTelemetry?.debug?.[finger] || {};
                 const angle = info.glbAngle !== undefined ? info.glbAngle : 0;
                 const min = info.min !== undefined ? info.min : 0;
                 const max = info.max !== undefined ? info.max : 60;
@@ -313,8 +421,8 @@ export default function FingerSensorTrialPanel({
 
             <div className="flex items-end justify-between gap-1.5 h-24 pt-1">
               {FINGER_KEYS.map((finger) => {
-                const info = processedTelemetry.debug[finger] || {};
-                const flexPct = processedTelemetry.percentages[finger] || 0;
+                const info = processedTelemetry?.debug?.[finger] || {};
+                const flexPct = processedTelemetry?.percentages?.[finger] || 0;
                 const rawVal = info.raw !== null && info.raw !== undefined ? info.raw : '--';
 
                 return (
@@ -344,6 +452,81 @@ export default function FingerSensorTrialPanel({
 
       {/* Developer Simulation / Playback Controls Card */}
       <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-3 shadow-sm">
+        {/* Logic Flex Movement Mode Action Button */}
+        <div className="flex items-center justify-between bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
+          <div className="flex flex-col">
+            <span className="text-[10px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1">
+              <Zap className="w-3.5 h-3.5 text-amber-600" />
+              Logic Flex Movement Controller
+            </span>
+            <span className="text-[9px] text-slate-500">
+              {isPureSwitchMode ? 'Responding ONLY to digital switch contacts' : 'Responding to continuous analog flex sensors'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleTogglePureSwitchMode}
+            className={`px-3 py-1.5 rounded-lg text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-sm ${
+              isPureSwitchMode
+                ? 'bg-amber-600 hover:bg-amber-700 text-white ring-2 ring-amber-400'
+                : 'bg-slate-800 hover:bg-slate-900 text-white'
+            }`}
+          >
+            <Zap className={`w-3.5 h-3.5 ${isPureSwitchMode ? 'text-amber-200 animate-pulse' : 'text-slate-400'}`} />
+            Logic Flex Movement
+          </button>
+        </div>
+        {/* Pure Digital Switch Test Panel (5 Independent Finger Switches) */}
+        {isPureSwitchMode && (
+          <div className="bg-slate-900 text-slate-200 p-3 rounded-xl border border-amber-500/40 space-y-2 shadow-sm">
+            <div className="flex justify-between items-center text-[10px]">
+              <span className="font-extrabold text-amber-400 uppercase tracking-wider flex items-center gap-1">
+                <Sliders className="w-3 h-3 text-amber-400" />
+                Digital Switches (GPIO 27, 19, 23, 18, 13)
+              </span>
+              <span className="text-[9px] text-slate-400">Click to press/release</span>
+            </div>
+
+            <div className="grid grid-cols-5 gap-1.5">
+              {FINGER_KEYS.map((finger) => {
+                const info = processedTelemetry?.debug?.[finger] || {};
+                const isPressed = info.pressed ?? (simSwitches[finger] === 1);
+                const targetAngle = processedTelemetry?.angles?.[finger] ?? (isPressed ? 60 : 0);
+                const gpio = FINGER_SWITCH_PINS[finger];
+
+                return (
+                  <button
+                    key={finger}
+                    type="button"
+                    onClick={() => handleSimSwitchToggle(finger)}
+                    className={`p-1.5 rounded-lg border text-center transition flex flex-col items-center justify-between cursor-pointer ${
+                      isPressed
+                        ? 'bg-amber-950/80 border-amber-500 text-amber-200 ring-1 ring-amber-400/50'
+                        : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:bg-slate-750'
+                    }`}
+                  >
+                    <span className="text-[8px] font-black uppercase text-slate-200">{finger.substring(0, 3)}</span>
+                    <span className="text-[7px] text-slate-400">G{gpio}</span>
+                    <span className={`text-[9px] font-black mt-0.5 ${isPressed ? 'text-amber-300' : 'text-slate-500'}`}>
+                      {Math.round(targetAngle)}°
+                    </span>
+                    <span className={`text-[7px] font-extrabold uppercase mt-0.5 px-1 rounded ${
+                      isPressed ? 'bg-amber-500 text-slate-950 font-black' : 'bg-slate-700 text-slate-300'
+                    }`}>
+                      {isPressed ? 'PRESSED' : 'RELEASED'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="pt-1 flex items-center justify-between text-[9px] text-slate-400 border-t border-slate-800">
+              <span>Input: <strong className="text-amber-400">Pure Switch (Flex Bypassed)</strong></span>
+              <span>Wires: <strong className="text-slate-300">LOW=Pressed &bull; HIGH=Released</strong></span>
+            </div>
+          </div>
+        )}
+
         <div className="flex justify-between items-center">
           <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <Sliders className="w-3.5 h-3.5 text-purple-600" />
@@ -382,22 +565,81 @@ export default function FingerSensorTrialPanel({
             </select>
           </div>
 
-          <div className="col-span-2 space-y-1">
-            <div className="flex justify-between items-center text-[10px]">
-              <span className="font-bold text-slate-500">Simulated Bend Ratio</span>
-              <span className="font-extrabold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
-                {simPct}% Bend
-              </span>
+          <div className="col-span-2 space-y-2">
+            {/* Mode selection toggle for selected finger */}
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-slate-500">Input Mode:</span>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => setFingerModes(prev => ({ ...prev, [simFinger]: 'FLEX' }))}
+                  className={`px-2 py-0.5 rounded text-[10px] font-extrabold transition cursor-pointer ${
+                    (fingerModes[simFinger] || 'FLEX') === 'FLEX'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  FLEX (Analog)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFingerModes(prev => ({ ...prev, [simFinger]: 'SWITCH' }))}
+                  className={`px-2 py-0.5 rounded text-[10px] font-extrabold transition cursor-pointer ${
+                    fingerModes[simFinger] === 'SWITCH'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  SWITCH (Digital GPIO {FINGER_SWITCH_PINS[simFinger]})
+                </button>
+              </div>
             </div>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              value={simPct}
-              onChange={(e) => handleSimSliderChange(e.target.value)}
-              className="w-full accent-purple-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg"
-            />
+
+            {/* Slider or Switch Buttons depending on active mode */}
+            {fingerModes[simFinger] === 'SWITCH' ? (
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleSimSwitchToggle(simFinger, 0)}
+                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                    simSwitches[simFinger] === 0
+                      ? 'bg-slate-800 text-white border-slate-900 shadow-xs'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  0: Open (Straight 0°)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSimSwitchToggle(simFinger, 1)}
+                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                    simSwitches[simFinger] === 1
+                      ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  1: Closed/GND (Bent 90°)
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <div className="flex justify-between items-center text-[10px]">
+                  <span className="font-bold text-slate-500">Continuous Flex %</span>
+                  <span className="font-extrabold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                    {simPct}% Bend
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={simPct}
+                  onChange={(e) => handleSimSliderChange(e.target.value)}
+                  className="w-full accent-purple-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg"
+                />
+              </div>
+            )}
           </div>
         </div>
 
@@ -472,26 +714,35 @@ export default function FingerSensorTrialPanel({
                   <tr className="border-b border-slate-800 text-slate-500 font-bold text-[9px] uppercase tracking-wider">
                     <th className="py-1 px-1">Finger</th>
                     <th className="py-1 px-1">Target Bone</th>
-                    <th className="py-1 px-1">Raw</th>
-                    <th className="py-1 px-1">Norm %</th>
+                    <th className="py-1 px-1">Mode</th>
+                    <th className="py-1 px-1">Switch (GPIO)</th>
+                    <th className="py-1 px-1">Raw ADC</th>
                     <th className="py-1 px-1">Axis</th>
-                    <th className="py-1 px-1">GLB Range</th>
                     <th className="py-1 px-1 text-right">GLB Angle</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-850">
                   {FINGER_KEYS.map((f) => {
-                    const info = processedTelemetry.debug[f] || {};
+                    const info = processedTelemetry?.debug?.[f] || {};
                     const isTargeted = (activeMode === 'simulation' && simFinger === f) || (activeMode === 'demo' && demoActiveFinger === f);
 
                     return (
                       <tr key={f} className={isTargeted ? 'bg-purple-950/40 text-purple-200' : 'hover:bg-slate-850/50'}>
                         <td className="py-1.5 px-1 font-bold capitalize text-slate-200">{f}</td>
                         <td className="py-1.5 px-1 text-slate-400">{info.targetBone}</td>
-                        <td className="py-1.5 px-1 text-slate-300">{info.raw ?? '--'}</td>
-                        <td className="py-1.5 px-1 text-emerald-400 font-bold">{info.normalized}%</td>
+                        <td className="py-1.5 px-1">
+                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold ${info.mode === 'SWITCH' ? 'bg-amber-900/60 text-amber-300 border border-amber-700' : 'bg-blue-900/60 text-blue-300 border border-blue-700'}`}>
+                            {info.mode || 'FLEX'}
+                          </span>
+                        </td>
+                        <td className="py-1.5 px-1 text-slate-300">
+                          <span className="text-slate-400">GPIO {FINGER_SWITCH_PINS[f]}:</span>{' '}
+                          <span className={`font-bold ${info.switchState === 'closed' ? 'text-amber-400' : 'text-slate-400'}`}>
+                            {info.switchVal ?? 0} ({info.switchState === 'closed' ? 'CLOSED/GND' : 'OPEN'})
+                          </span>
+                        </td>
+                        <td className="py-1.5 px-1 text-slate-300 font-bold">{info.raw ?? '--'}</td>
                         <td className="py-1.5 px-1 font-bold text-cyan-400">{info.axis}</td>
-                        <td className="py-1.5 px-1 text-slate-400">{info.range}</td>
                         <td className="py-1.5 px-1 text-right font-extrabold text-amber-300">{info.glbAngle}°</td>
                       </tr>
                     );

@@ -135,20 +135,23 @@ function FullBodyRig({
       bicepRight.rotation.x = THREE.MathUtils.lerp(bicepRight.rotation.x, targetX, 0.15);
     }
 
-    // 2. Elbow Angle (right_forearm)
-    const rightForearm = getNode('right_forearm');
-    if (rightForearm) {
-      const base = bases.right_forearm || { x: 0, y: 0, z: 0 };
+    // 2. Elbow Angle (right_forearm / WristArm)
+    const rightForearm = getNode('right_forearm') || getNode('WristArm');
+    if (!rightForearm) {
+      if (clock.getElapsedTime() < 1.0) {
+        console.error('[3D Arm Model Error] Elbow joint bone (right_forearm / WristArm) not found in GLB hierarchy!');
+      }
+    } else {
+      const base = bases.right_forearm || bases.WristArm || { x: 0, y: 0, z: 0 };
       if (sensorElbowAngles && typeof sensorElbowAngles === 'object') {
-        const bendDeg = sensorElbowAngles.percentage !== undefined
-          ? (sensorElbowAngles.percentage * 1.1)
-          : (sensorElbowAngles.x ? Math.abs(sensorElbowAngles.x) : 0);
-        const targetElbowZ = base.z - degToRad(bendDeg);
-        rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, targetElbowZ, 0.25);
+        const lerpFactor = sensorElbowAngles.lerpFactor ?? 0.22;
+        applyCalibratedElbowRotation(rightForearm, base, sensorElbowAngles, lerpFactor);
       } else {
-        const bendDeg = 180 - (activeControls?.elbowAngle || 180); // 180 = straight -> 0 bend
-        const targetElbowZ = base.z - degToRad(bendDeg);
-        rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, targetElbowZ, 0.15);
+        const bendDeg = 180 - (activeControls?.elbowAngle ?? 180); // 180 = straight -> 0 bend
+        const targetX = base.x - degToRad(bendDeg);
+        rightForearm.rotation.x = THREE.MathUtils.lerp(rightForearm.rotation.x, targetX, 0.22);
+        rightForearm.rotation.y = THREE.MathUtils.lerp(rightForearm.rotation.y, base.y, 0.22);
+        rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, base.z, 0.22);
       }
     }
 

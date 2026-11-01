@@ -256,6 +256,26 @@ const FALLBACK_EXERCISES = [
     secondary_sensor: "elbow"
   },
   {
+    id: "e1b03-5w17ch-7e57-a1b0-c0n7ac75w17ch",
+    exercise_name: "Elbow Switch Test",
+    description: "Test elbow flexion & extension using the two-wire contact switch on GPIO 27. Closed/Touching wires = Extended (0°), Separated = Bent (90°).",
+    body_part: "Elbow",
+    target_joint: "Elbow",
+    rehabilitation_goal: "Neuromuscular Switch Trigger",
+    difficulty: "Easy",
+    target_angle: 90.0,
+    target_pressure: 0.0,
+    repetitions: 10,
+    hold_duration: 2,
+    hold_seconds: 2,
+    rest_duration: 2,
+    rest_seconds: 2,
+    required_sensors: "Contact Switch (GPIO 27)",
+    camera_view: "elbow",
+    primary_sensor: "elbow_switch",
+    secondary_sensor: "elbow"
+  },
+  {
     id: "d2be0688-1534-4cab-8cf7-85b725be6c9a",
     exercise_name: "Elbow Flex Test",
     description: "Slowly bend and straighten your elbow to test flex sensor range and calibrate the 3D model elbow joint.",

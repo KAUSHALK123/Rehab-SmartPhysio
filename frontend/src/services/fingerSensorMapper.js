@@ -1,28 +1,171 @@
 /**
- * SmartPhysio Finger Sensor Mapping Service (Fix 2)
+ * SmartPhysio Central Movement Controller & Finger Sensor Mapping Service
  * 
- * Pipeline:
- * Real Flex Sensor / Telemetry
- *       ↓
- * Normalized 0–100% Bend
- *       ↓
- * Approved GLB Calibration Range (from smartphysio_glb_calibration)
- *       ↓
- * Local GLB Rotation Angle
- *       ↓
- * Real-time 3D Finger Movement
+ * =========================================================================
+ * LEGACY FLEX SENSOR LOGIC — PRESERVED, CURRENTLY DISABLED IN SWITCH MODE
  * 
- * Rules:
- * - Thumb: Target bone 'right_thumb', Bending Axis: LOCAL X ONLY
- * - Index: Target bone 'right_index', Bending Axis: LOCAL Z ONLY
- * - Middle: Target bone 'right_middle', Bending Axis: LOCAL Z ONLY
- * - Ring: Target bone 'right_ring', Bending Axis: LOCAL Z ONLY
- * - Little: Target bone 'right_little', Bending Axis: LOCAL Z ONLY
+ * Original Analog Flex Sensor GPIO Assignments:
+ * - Thumb:  GPIO 36 (VP / ADC1_CH0)
+ * - Index:  GPIO 33 (ADC1_CH5)
+ * - Middle: GPIO 34 (ADC1_CH6)
+ * - Ring:   GPIO 35 (ADC1_CH7)
+ * - Little: GPIO 32 (ADC1_CH4)
+ * - Elbow:  GPIO 39 (VN / ADC1_CH3)
+ * - Grip:   GPIO 25 (Pressure Resistor)
+ * 
+ * All legacy flex sensor reading, calibration, bounds, dynamic ranges, and
+ * normalization routines are fully preserved below for future reactivation.
+ * =========================================================================
+ * 
+ * CURRENT ACTIVE MOVEMENT SOURCE:
+ * Pure Digital Switch Inputs (INPUT_PULLUP to GND):
+ * - Thumb:  GPIO 27 -> Local X axis (45° inward palm curl)
+ * - Index:  GPIO 19 -> Local Z axis (65° curl)
+ * - Middle: GPIO 23 -> Local Z axis (65° curl)
+ * - Ring:   GPIO 18 -> Local Z axis (60° curl)
+ * - Little: GPIO 13 -> Local Z axis (50° curl)
+ * - Elbow:  GPIO 27 -> Local X axis (Independent elbow joint switch)
  */
 
 import { loadCalibrationConfig } from './calibrationConfig';
 
 export const FINGER_KEYS = ['thumb', 'index', 'middle', 'ring', 'little'];
+
+export const FINGER_SWITCH_GPIOS = {
+  thumb: 27,
+  index: 19,
+  middle: 23,
+  ring: 18,
+  little: 13
+};
+
+// Calibrated anatomical bend angles (degrees) for pure digital switch mode:
+// Thumb curls inward (45°), Index/Middle curl (65°), Ring (60°), Little (50°)
+export const SWITCH_BEND_ANGLES = {
+  thumb: 45,
+  index: 65,
+  middle: 65,
+  ring: 60,
+  little: 50
+};
+
+/**
+ * Robust parser for digital contact switch state.
+ * Handles numeric (1=pressed, 0=released), boolean, string, or raw GPIO level (0=LOW=pressed).
+ */
+export const isSwitchPressed = (telemetry, finger) => {
+  if (!telemetry) return false;
+  const swVal = telemetry[finger + '_switch'];
+  if (swVal === 1 || swVal === true || swVal === '1' || swVal === 'closed' || swVal === 'LOW') {
+    return true;
+  }
+  if (swVal === 0 || swVal === false || swVal === '0' || swVal === 'open' || swVal === 'HIGH') {
+    return false;
+  }
+  const rawSw = telemetry['raw_' + finger + '_switch'];
+  if (rawSw === 0 || rawSw === '0' || rawSw === 'LOW') {
+    return true;
+  }
+  if (rawSw === 1 || rawSw === '1' || rawSw === 'HIGH') {
+    return false;
+  }
+  // Seamless fallback for mock telemetry or legacy packets when digital switch pins are absent
+  if (telemetry[finger] !== undefined && typeof telemetry[finger] === 'number') {
+    return telemetry[finger] >= 35;
+  }
+  return false;
+};
+
+/**
+ * Computes pure digital switch-driven finger angles for GLB hand animation.
+ * Completely ignores analog flex sensor values.
+ * 
+ * Each switch controls only its corresponding finger:
+ * - Pressed (LOW / 1): bends to calibrated angle (e.g. 65° for index)
+ * - Released (HIGH / 0): returns to 0° neutral rest pose
+ * Multiple switches operate independently and simultaneously.
+ */
+
+// Central active movement source: 'SWITCH' (default for current testing version) vs 'FLEX' (legacy)
+export let activeMovementSource = 'SWITCH';
+
+export const setActiveMovementSource = (source) => {
+  activeMovementSource = (source === 'FLEX') ? 'FLEX' : 'SWITCH';
+  console.log('[MOVEMENT CONTROLLER] activeMovementSource set to:', activeMovementSource);
+};
+
+export const getActiveMovementSource = () => activeMovementSource;
+
+/**
+ * Authoritative Central Movement Controller for SmartPhysio GLB Finger Animation.
+ * Shared by all exercises across the Exercise Library and trial test panels.
+ * 
+ * In SWITCH mode (default):
+ * - All finger movement derives purely from digital switch states (GPIO 27, 19, 23, 18, 13).
+ * - Flex sensor ADC values are completely bypassed and cannot override switch angles.
+ * - Pressed = bends finger to calibrated angle.
+ * - Released = returns finger to neutral 0° rest pose.
+ * - Multiple pressed switches move simultaneously and independently.
+ * 
+ * In FLEX mode (preserved legacy):
+ * - Calculates angles from analog flex sensor ADC inputs.
+ */
+export const getAuthoritativeFingerMovement = (telemetry = {}, simulatedSwitches = null, options = {}) => {
+  const currentSource = options.forceSource || activeMovementSource;
+  if (currentSource === 'SWITCH') {
+    return computeSwitchFingerAngles(telemetry, simulatedSwitches, options.customBendAngles);
+  }
+  return processFingerTelemetry(telemetry, options.glbConfig, options.sensorBounds, options.fingerModes);
+};
+
+export const computeSwitchFingerAngles = (telemetry = {}, simulatedSwitches = null, customBendAngles = null) => {
+  const bendAngles = customBendAngles || SWITCH_BEND_ANGLES;
+  const angles = {};
+  const percentages = {};
+  const debug = {};
+  let anyPressed = false;
+
+  FINGER_KEYS.forEach((finger) => {
+    const hwPressed = isSwitchPressed(telemetry, finger);
+    const simPressed = simulatedSwitches ? (simulatedSwitches[finger] === 1 || simulatedSwitches[finger] === true) : false;
+    const isPressed = hwPressed || simPressed;
+
+    if (isPressed) anyPressed = true;
+
+    const targetAngle = isPressed ? (bendAngles[finger] || 50) : 0;
+
+    angles[finger] = targetAngle;
+    percentages[finger] = isPressed ? 100 : 0;
+
+    debug[finger] = {
+      finger,
+      gpio: FINGER_SWITCH_GPIOS[finger],
+      pressed: isPressed,
+      switchState: isPressed ? 'closed' : 'open',
+      switchStatus: isPressed ? 'PRESSED (LOW)' : 'RELEASED (HIGH)',
+      switchVal: isPressed ? 1 : 0,
+      targetAngle,
+      glbAngle: targetAngle,
+      normalized: isPressed ? 100 : 0,
+      mode: 'SWITCH',
+      raw: telemetry?.['raw_' + finger] ?? null,
+      filtered: targetAngle,
+      targetBone: FINGER_RIG_MAP[finger]?.bone || ('right_' + finger),
+      axis: (FINGER_RIG_MAP[finger]?.axis || 'z').toUpperCase(),
+      min: 0,
+      max: bendAngles[finger] || 50,
+      range: '0° → ' + (bendAngles[finger] || 50) + '°'
+    };
+  });
+
+  return {
+    angles,
+    percentages,
+    debug,
+    anyPressed
+  };
+};
+
 
 export const FINGER_RIG_MAP = {
   thumb:  { bone: 'right_thumb',  axis: 'x' },
@@ -155,7 +298,7 @@ export const mapNormalizedToGlb = (normalized, fingerKey, glbConfig) => {
  * 2. Pre-scaled firmware/mock angle fields: thumb, index, middle, ring, little (0-90)
  * 3. Hardware bounds embedded in packet: bounds.thumbStr, bounds.thumbBnt, etc.
  */
-export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customBounds = null) => {
+export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customBounds = null, customModes = null) => {
   const activeGlbConfig = glbConfig || loadCalibrationConfig();
   const sensorBounds = customBounds || loadSensorCalibration();
 
@@ -199,34 +342,62 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       }
     }
 
-    if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
-      // Raw 12-bit ADC reading available
-      const bounds = resolveSensorBounds(finger);
-      let effectiveStraight = bounds.straight;
-      let effectiveBent = bounds.bent;
+    // Determine active input mode for this finger: 'FLEX' (default) vs 'SWITCH'
+    const modeKey = finger + '_mode';
+    const activeMode = (customModes?.[finger] || telemetry?.[modeKey] || 'FLEX').toUpperCase();
 
-      // Ultra-sensitive dynamic auto-range adapts to micro-bends (span >= 25)
-      const dynSpan = (dynamicRanges[finger].max || 0) - (dynamicRanges[finger].min || 0);
-      if (dynSpan >= 25) {
-        effectiveStraight = dynamicRanges[finger].min;
-        effectiveBent = dynamicRanges[finger].max;
-      }
+    // Check if digital switch input is present
+    const switchKey = finger + '_switch';
+    const rawSwitchKey = 'raw_' + finger + '_switch';
+    let switchVal = null;
+    if (telemetry?.[switchKey] !== undefined && telemetry?.[switchKey] !== null) {
+      switchVal = Number(telemetry[switchKey]);
+    } else if (telemetry?.[rawSwitchKey] !== undefined && telemetry?.[rawSwitchKey] !== null) {
+      // Raw pin reading: LOW (0) = closed, HIGH (1) = open
+      switchVal = Number(telemetry[rawSwitchKey]) === 0 ? 1 : 0;
+    }
 
-      filteredVal = rawVal;
-      normalized = normalizeFlexValue(rawVal, effectiveStraight, effectiveBent, true);
-    } else if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
-      // Pre-filtered angle value from firmware or backend mock (0 - 90 deg)
-      filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
-      const linearRatio = Math.max(0, Math.min(1, filteredVal / 90.0));
-      // Apply ultra-sensitive boost for subtle angle inputs
-      normalized = linearRatio > 0 && linearRatio < 1 ? Math.pow(linearRatio, 0.60) : linearRatio;
+    if (activeMode === 'SWITCH') {
+      // --- DIGITAL CONTACT SWITCH MODE ---
+      // Open switch (HIGH / 0) = 0.0 (straight pose)
+      // Closed switch (LOW / 1) = 1.0 (fully bent 90° pose)
+      const isClosed = switchVal === 1;
+      normalized = isClosed ? 1.0 : 0.0;
+      filteredVal = isClosed ? 90.0 : 0.0;
       if (rawReading === null) {
-        rawReading = Math.round(normalized * 4095);
+        rawReading = isClosed ? 4095 : 0;
       }
     } else {
-      normalized = 0;
-      filteredVal = 0;
-      if (rawReading === null) rawReading = 0;
+      // --- CONTINUOUS ANALOG FLEX SENSOR MODE ---
+      if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
+        // Raw 12-bit ADC reading available
+        const bounds = resolveSensorBounds(finger);
+        let effectiveStraight = bounds.straight;
+        let effectiveBent = bounds.bent;
+
+        // Ultra-sensitive dynamic auto-range adapts to micro-bends (span >= 25)
+        const dynSpan = (dynamicRanges[finger].max || 0) - (dynamicRanges[finger].min || 0);
+        if (dynSpan >= 25) {
+          effectiveStraight = dynamicRanges[finger].min;
+          effectiveBent = dynamicRanges[finger].max;
+        }
+
+        filteredVal = rawVal;
+        normalized = normalizeFlexValue(rawVal, effectiveStraight, effectiveBent, true);
+      } else if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
+        // Pre-filtered angle value from firmware or backend mock (0 - 90 deg)
+        filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
+        const linearRatio = Math.max(0, Math.min(1, filteredVal / 90.0));
+        // Apply ultra-sensitive boost for subtle angle inputs
+        normalized = linearRatio > 0 && linearRatio < 1 ? Math.pow(linearRatio, 0.60) : linearRatio;
+        if (rawReading === null) {
+          rawReading = Math.round(normalized * 4095);
+        }
+      } else {
+        normalized = 0;
+        filteredVal = 0;
+        if (rawReading === null) rawReading = 0;
+      }
     }
 
     const glbMapping = mapNormalizedToGlb(normalized, finger, activeGlbConfig);
@@ -237,6 +408,9 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
 
     results.debug[finger] = {
       finger,
+      mode: activeMode,
+      switchVal: switchVal !== null ? switchVal : 0,
+      switchState: switchVal === 1 ? 'closed' : 'open',
       raw: rawReading,
       filtered: Math.round(filteredVal),
       normalized: Math.round(normalized * 100),

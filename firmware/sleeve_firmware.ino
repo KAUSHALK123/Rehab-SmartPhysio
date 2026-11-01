@@ -22,6 +22,7 @@
   Little Flex      | Analog   | GPIO 32 (D32)| 10k Ohm Resistor in Pull-down
   Elbow Flex       | Analog   | GPIO 39 (VN)| 10k Ohm Resistor in Pull-down
   Pressure Squeeze | Analog   | GPIO 25     | 10k Ohm Resistor in Pull-down
+  Elbow Switch     | Digital  | GPIO 27 (D27)| 2-Wire Switch to GND (INPUT_PULLUP)
   MPU6050 SDA      | I2C Data | GPIO 21   | 4.7k Ohm Pull-up to 3.3V
   MPU6050 SCL      | I2C Clock| GPIO 22   | 4.7k Ohm Pull-up to 3.3V
   -------------------------------------------------------------
@@ -63,6 +64,78 @@ const int PIN_RING     = 35; // D35 (GPIO 35) -> RING FLEX
 const int PIN_LITTLE   = 32; // D32 (GPIO 32) -> LITTLE FLEX
 const int PIN_ELBOW    = 39; // VN  (GPIO 39) -> ELBOW FLEX
 const int PIN_PRESSURE = 25; // D25 (GPIO 25) -> SQUEEZE FORCE
+const int PIN_ELBOW_SWITCH = -1; // D27 reassigned to Thumb switch
+
+// --- Digital Contact Switch Inputs for Hybrid Technique (INPUT_PULLUP to GND) ---
+// Configurable Constants for Finger Contact Switches:
+const int PIN_SW_THUMB    = 27; // D27 (GPIO 27) -> THUMB CONTACT SWITCH (Replaced from elbow)
+const int PIN_SW_INDEX    = 19; // D19 (GPIO 19) -> INDEX CONTACT SWITCH
+const int PIN_SW_MIDDLE   = 23; // D23 (GPIO 23) -> MIDDLE CONTACT SWITCH
+const int PIN_SW_RING     = 18; // D18 (GPIO 18) -> RING CONTACT SWITCH (Swapped with thumb)
+const int PIN_SW_RING_ALT = 17; // D17 (GPIO 17) -> RING CONTACT SWITCH ALTERNATIVE
+const int PIN_SW_LITTLE   = 13; // D13 (GPIO 13) -> LITTLE CONTACT SWITCH
+
+// Input Mode per finger: MODE_FLEX (continuous analog) or MODE_SWITCH (digital two-wire contact)
+enum FingerInputMode {
+  MODE_FLEX = 0,
+  MODE_SWITCH = 1
+};
+
+// Configurable mode per finger - defaults to MODE_FLEX so existing functionality is preserved!
+// Default to MODE_SWITCH for current testing version; legacy MODE_FLEX is fully preserved!
+FingerInputMode mode_thumb  = MODE_SWITCH;
+FingerInputMode mode_index  = MODE_SWITCH;
+FingerInputMode mode_middle = MODE_SWITCH;
+FingerInputMode mode_ring   = MODE_SWITCH;
+FingerInputMode mode_little = MODE_SWITCH;
+
+inline const char* modeToString(FingerInputMode m) {
+  return (m == MODE_SWITCH) ? "SWITCH" : "FLEX";
+}
+
+// Struct for 25ms software debounced switch inputs (with inline update method to prevent Arduino IDE prototype generation errors)
+struct DebouncedSwitch {
+  int pin;
+  int altPin;             // Optional secondary pin (-1 if none)
+  int rawState;           // Instant digitalRead: HIGH (1) = open, LOW (0) = closed
+  int debouncedState;     // Debounced stable reading: HIGH = open, LOW = closed
+  int switchVal;          // Normalized: 0 = open (straight), 1 = closed (bent)
+  int lastReading;        // Previous loop sample
+  unsigned long lastDebounceTime;
+
+  void update() {
+    if (pin < 0 && altPin < 0) {
+      rawState = HIGH;
+      debouncedState = HIGH;
+      switchVal = 0;
+      return;
+    }
+    int reading = (pin >= 0) ? digitalRead(pin) : HIGH;
+    if (altPin >= 0 && digitalRead(altPin) == LOW) {
+      reading = LOW;
+    }
+    rawState = reading;
+    if (reading != lastReading) {
+      lastDebounceTime = millis();
+    }
+    if ((millis() - lastDebounceTime) > 25) {
+      if (reading != debouncedState) {
+        debouncedState = reading;
+      }
+    }
+    lastReading = reading;
+    // Closed to GND = LOW -> switchVal = 1 (bent 90°); Open via pullup = HIGH -> switchVal = 0 (straight 0°)
+    switchVal = (debouncedState == LOW) ? 1 : 0;
+  }
+};
+
+DebouncedSwitch sw_thumb  = { PIN_SW_THUMB,    -1,                 HIGH, HIGH, 0, HIGH, 0 };
+DebouncedSwitch sw_index  = { PIN_SW_INDEX,    -1,                 HIGH, HIGH, 0, HIGH, 0 };
+DebouncedSwitch sw_middle = { PIN_SW_MIDDLE,   -1,                 HIGH, HIGH, 0, HIGH, 0 };
+DebouncedSwitch sw_ring   = { PIN_SW_RING,     PIN_SW_RING_ALT,    HIGH, HIGH, 0, HIGH, 0 };
+DebouncedSwitch sw_little = { PIN_SW_LITTLE,   -1,                 HIGH, HIGH, 0, HIGH, 0 };
+DebouncedSwitch sw_elbow  = { -1,              -1,                 HIGH, HIGH, 0, HIGH, 0 };
+
 
 // --- Sensors Variables & Objects ---
 MPU6050 mpu(Wire);
@@ -128,6 +201,20 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         if (command && strcmp(command, "set_step") == 0) {
           const char* step = doc["step"];
           Serial.printf("[WS] Step changed to: %s\n", step);
+                } else if (command && strcmp(command, "set_finger_mode") == 0) {
+          const char* finger = doc["finger"];
+          const char* modeStr = doc["mode"];
+          if (finger && modeStr) {
+            FingerInputMode newMode = (strcmp(modeStr, "SWITCH") == 0) ? MODE_SWITCH : MODE_FLEX;
+            if (strcmp(finger, "all") == 0) {
+              mode_thumb = newMode; mode_index = newMode; mode_middle = newMode; mode_ring = newMode; mode_little = newMode;
+            } else if (strcmp(finger, "thumb") == 0) mode_thumb = newMode;
+            else if (strcmp(finger, "index") == 0) mode_index = newMode;
+            else if (strcmp(finger, "middle") == 0) mode_middle = newMode;
+            else if (strcmp(finger, "ring") == 0) mode_ring = newMode;
+            else if (strcmp(finger, "little") == 0) mode_little = newMode;
+            Serial.printf("[WS] Mode change: %s -> %s\n", finger, modeStr);
+          }
         } else if (command && strcmp(command, "set_sensor_bounds") == 0) {
           const char* sensor = doc["sensor"];
           int strVal = doc["straight"];
@@ -276,7 +363,38 @@ void setup() {
     if (Serial.available() > 0) {
       String serialData = Serial.readStringUntil('\n');
       serialData.trim();
-      if (serialData.startsWith("SET_CONFIG:")) {
+            if (serialData.startsWith("SET_MODE:")) {
+        // Command format: SET_MODE:<finger>,<FLEX|SWITCH>
+        // Example: SET_MODE:index,SWITCH or SET_MODE:all,SWITCH or SET_MODE:all,FLEX
+        String cmd = serialData.substring(9);
+        int comma = cmd.indexOf(',');
+        if (comma != -1) {
+          String target = cmd.substring(0, comma);
+          String modeStr = cmd.substring(comma + 1);
+          target.trim(); target.toLowerCase();
+          modeStr.trim(); modeStr.toUpperCase();
+          FingerInputMode newMode = (modeStr == "SWITCH") ? MODE_SWITCH : MODE_FLEX;
+          if (target == "all") {
+            mode_thumb = newMode; mode_index = newMode; mode_middle = newMode; mode_ring = newMode; mode_little = newMode;
+            Serial.printf("[MODE] All fingers set to %s mode\n", modeStr.c_str());
+          } else if (target == "thumb") {
+            mode_thumb = newMode;
+            Serial.printf("[MODE] Thumb set to %s mode\n", modeStr.c_str());
+          } else if (target == "index") {
+            mode_index = newMode;
+            Serial.printf("[MODE] Index set to %s mode\n", modeStr.c_str());
+          } else if (target == "middle") {
+            mode_middle = newMode;
+            Serial.printf("[MODE] Middle set to %s mode\n", modeStr.c_str());
+          } else if (target == "ring") {
+            mode_ring = newMode;
+            Serial.printf("[MODE] Ring set to %s mode\n", modeStr.c_str());
+          } else if (target == "little") {
+            mode_little = newMode;
+            Serial.printf("[MODE] Little set to %s mode\n", modeStr.c_str());
+          }
+        }
+      } else if (serialData.startsWith("SET_CONFIG:")) {
         String configData = serialData.substring(11);
         int firstComma = configData.indexOf(',');
         int secondComma = configData.indexOf(',', firstComma + 1);
@@ -347,6 +465,13 @@ void setup() {
   pinMode(PIN_LITTLE, INPUT);
   pinMode(PIN_ELBOW, INPUT);
   pinMode(PIN_PRESSURE, INPUT);
+  if (PIN_ELBOW_SWITCH >= 0) pinMode(PIN_ELBOW_SWITCH, INPUT_PULLUP);
+  pinMode(PIN_SW_THUMB, INPUT_PULLUP);
+  pinMode(PIN_SW_INDEX, INPUT_PULLUP);
+  pinMode(PIN_SW_MIDDLE, INPUT_PULLUP);
+  pinMode(PIN_SW_RING, INPUT_PULLUP);
+  pinMode(PIN_SW_RING_ALT, INPUT_PULLUP);
+  pinMode(PIN_SW_LITTLE, INPUT_PULLUP);
 }
 
 void loop() {
@@ -356,7 +481,38 @@ void loop() {
   if (Serial.available() > 0) {
     String serialData = Serial.readStringUntil('\n');
     serialData.trim();
-    if (serialData.startsWith("SET_CONFIG:")) {
+          if (serialData.startsWith("SET_MODE:")) {
+        // Command format: SET_MODE:<finger>,<FLEX|SWITCH>
+        // Example: SET_MODE:index,SWITCH or SET_MODE:all,SWITCH or SET_MODE:all,FLEX
+        String cmd = serialData.substring(9);
+        int comma = cmd.indexOf(',');
+        if (comma != -1) {
+          String target = cmd.substring(0, comma);
+          String modeStr = cmd.substring(comma + 1);
+          target.trim(); target.toLowerCase();
+          modeStr.trim(); modeStr.toUpperCase();
+          FingerInputMode newMode = (modeStr == "SWITCH") ? MODE_SWITCH : MODE_FLEX;
+          if (target == "all") {
+            mode_thumb = newMode; mode_index = newMode; mode_middle = newMode; mode_ring = newMode; mode_little = newMode;
+            Serial.printf("[MODE] All fingers set to %s mode\n", modeStr.c_str());
+          } else if (target == "thumb") {
+            mode_thumb = newMode;
+            Serial.printf("[MODE] Thumb set to %s mode\n", modeStr.c_str());
+          } else if (target == "index") {
+            mode_index = newMode;
+            Serial.printf("[MODE] Index set to %s mode\n", modeStr.c_str());
+          } else if (target == "middle") {
+            mode_middle = newMode;
+            Serial.printf("[MODE] Middle set to %s mode\n", modeStr.c_str());
+          } else if (target == "ring") {
+            mode_ring = newMode;
+            Serial.printf("[MODE] Ring set to %s mode\n", modeStr.c_str());
+          } else if (target == "little") {
+            mode_little = newMode;
+            Serial.printf("[MODE] Little set to %s mode\n", modeStr.c_str());
+          }
+        }
+      } else if (serialData.startsWith("SET_CONFIG:")) {
       // Command format: SET_CONFIG:SSID,PASSWORD,SERVER_IP
       String configData = serialData.substring(11);
       int firstComma = configData.indexOf(',');
@@ -404,6 +560,15 @@ void loop() {
     lastStreamTime = currentTime;
 
     // A. Read raw ADC values from flex and pressure sensors (12-bit, range 0 - 4095)
+    // Update all 5 digital contact switches + elbow switch with 25ms debouncing
+    sw_thumb.update();
+    sw_index.update();
+    sw_middle.update();
+    sw_ring.update();
+    sw_little.update();
+    sw_elbow.update();
+
+    // Read raw ADC values from flex and pressure sensors (always active for diagnostics)
     int rawThumb = analogRead(PIN_THUMB);
     int rawIndex = analogRead(PIN_INDEX);
     int rawMiddle = analogRead(PIN_MIDDLE);
@@ -411,6 +576,7 @@ void loop() {
     int rawLittle = analogRead(PIN_LITTLE);
     int rawElbow = analogRead(PIN_ELBOW);
     int rawPressure = analogRead(PIN_PRESSURE);
+    int rawElbowSwitch = sw_elbow.rawState;
 
     // Initialize EMA on first run
     if (f_thumb < 0) {
@@ -430,20 +596,22 @@ void loop() {
                        (abs(rawLittle - f_little) < 8) && (abs(rawElbow - f_elbow) < 8);
     sensorsStable = isStableNow;
 
-    // B. Calculate mapped angles
-    float t_angle = mapFlexAngle(f_thumb, thumbStraight, thumbBent);
+    // B. Calculate mapped angles based on configured per-finger mode
+    // In SWITCH mode: Open (HIGH) = 0.0 deg (straight), Closed to GND (LOW) = 90.0 deg (bent)
+    // In FLEX mode: Continuous angle calculation from filtered analog flex ADC
+    float t_angle = (mode_thumb == MODE_SWITCH) ? (sw_thumb.switchVal == 1 ? 90.0 : 0.0) : mapFlexAngle(f_thumb, thumbStraight, thumbBent);
     if (abs(t_angle - a_thumb) > angleDeadband) a_thumb = t_angle;
     
-    float i_angle = mapFlexAngle(f_index, indexStraight, indexBent);
+    float i_angle = (mode_index == MODE_SWITCH) ? (sw_index.switchVal == 1 ? 90.0 : 0.0) : mapFlexAngle(f_index, indexStraight, indexBent);
     if (abs(i_angle - a_index) > angleDeadband) a_index = i_angle;
     
-    float m_angle = mapFlexAngle(f_middle, middleStraight, middleBent);
+    float m_angle = (mode_middle == MODE_SWITCH) ? (sw_middle.switchVal == 1 ? 90.0 : 0.0) : mapFlexAngle(f_middle, middleStraight, middleBent);
     if (abs(m_angle - a_middle) > angleDeadband) a_middle = m_angle;
     
-    float r_angle = mapFlexAngle(f_ring, ringStraight, ringBent);
+    float r_angle = (mode_ring == MODE_SWITCH) ? (sw_ring.switchVal == 1 ? 90.0 : 0.0) : mapFlexAngle(f_ring, ringStraight, ringBent);
     if (abs(r_angle - a_ring) > angleDeadband) a_ring = r_angle;
     
-    float l_angle = mapFlexAngle(f_little, littleStraight, littleBent);
+    float l_angle = (mode_little == MODE_SWITCH) ? (sw_little.switchVal == 1 ? 90.0 : 0.0) : mapFlexAngle(f_little, littleStraight, littleBent);
     if (abs(l_angle - a_little) > angleDeadband) a_little = l_angle;
     
     float el_angle = mapFlexAngle(f_elbow, elbowStraight, elbowBent);
@@ -462,21 +630,24 @@ void loop() {
       wristRoll = mpu.getAngleY();
     }
 
-    // D. Always print readings to serial for user debugging/wiring tests
-    Serial.printf("[TELEMETRY] ServerWS=%s | MPU_I2C=%s | elbow=%.1f | wrist_pitch=%.1f wrist_roll=%.1f\n",
+    // D. Print full telemetry to Serial Monitor (115200 baud) for hardware diagnostics
+    Serial.printf("[TELEMETRY] WS=%s | MPU=%s | ElbowSW=%d (%s) | Modes: T=%s I=%s M=%s R=%s L=%s\n",
                   wsConnected ? "CONNECTED" : "OFFLINE",
-                  mpuFound ? "CONNECTED (OK)" : "DISCONNECTED (No I2C Ack)",
-                  a_elbow, wristPitch, wristRoll);
-    Serial.printf("[FLEX]\nThumb raw=%d filtered=%.0f angle=%.1f\nIndex raw=%d filtered=%.0f angle=%.1f\nMiddle raw=%d filtered=%.0f angle=%.1f\nRing raw=%d filtered=%.0f angle=%.1f\nLittle raw=%d filtered=%.0f angle=%.1f\n",
-                  rawThumb, f_thumb, a_thumb,
-                  rawIndex, f_index, a_index,
-                  rawMiddle, f_middle, a_middle,
-                  rawRing, f_ring, a_ring,
-                  rawLittle, f_little, a_little);
+                  mpuFound ? "CONNECTED" : "OFFLINE",
+                  sw_elbow.switchVal, (sw_elbow.debouncedState == LOW ? "CLOSED=EXT" : "OPEN=BENT"),
+                  modeToString(mode_thumb), modeToString(mode_index), modeToString(mode_middle), modeToString(mode_ring), modeToString(mode_little));
+    Serial.printf("[SWITCHES] Thumb=%d(raw %d) Index=%d(raw %d) Middle=%d(raw %d) Ring=%d(raw %d) Little=%d(raw %d)\n",
+                  sw_thumb.switchVal, sw_thumb.rawState,
+                  sw_index.switchVal, sw_index.rawState,
+                  sw_middle.switchVal, sw_middle.rawState,
+                  sw_ring.switchVal, sw_ring.rawState,
+                  sw_little.switchVal, sw_little.rawState);
+    Serial.printf("[ANGLES & FLEX] T: raw=%d ang=%.1f | I: raw=%d ang=%.1f | M: raw=%d ang=%.1f | R: raw=%d ang=%.1f | L: raw=%d ang=%.1f | Elb: raw=%d ang=%.1f\n",
+                  rawThumb, a_thumb, rawIndex, a_index, rawMiddle, a_middle, rawRing, a_ring, rawLittle, a_little, rawElbow, a_elbow);
 
     // E. Serialize and send JSON string over WebSocket only if connected
     if (wsConnected) {
-      StaticJsonDocument<512> doc;
+      StaticJsonDocument<1536> doc;
       doc["battery"] = 94; // Simulating battery status level
       doc["thumb"] = a_thumb;
       doc["index"] = a_index;
@@ -490,6 +661,27 @@ void loop() {
       doc["mpu_working"] = mpuFound;
       doc["stable"] = sensorsStable;
 
+      // Active Input Mode per finger (FLEX vs SWITCH)
+      doc["thumb_mode"] = modeToString(mode_thumb);
+      doc["index_mode"] = modeToString(mode_index);
+      doc["middle_mode"] = modeToString(mode_middle);
+      doc["ring_mode"] = modeToString(mode_ring);
+      doc["little_mode"] = modeToString(mode_little);
+
+      // Debounced Switch Values: 0 = Open (HIGH / Straight 0°), 1 = Closed to GND (LOW / Bent 90°)
+      doc["thumb_switch"] = sw_thumb.switchVal;
+      doc["index_switch"] = sw_index.switchVal;
+      doc["middle_switch"] = sw_middle.switchVal;
+      doc["ring_switch"] = sw_ring.switchVal;
+      doc["little_switch"] = sw_little.switchVal;
+
+      // Raw Switch Pin States (HIGH=1, LOW=0) for hardware diagnosis
+      doc["raw_thumb_switch"] = sw_thumb.rawState;
+      doc["raw_index_switch"] = sw_index.rawState;
+      doc["raw_middle_switch"] = sw_middle.rawState;
+      doc["raw_ring_switch"] = sw_ring.rawState;
+      doc["raw_little_switch"] = sw_little.rawState;
+
       // Send Calibration Bounds for UI Display
       JsonObject bounds = doc.createNestedObject("bounds");
       bounds["thumbStr"] = thumbStraight; bounds["thumbBnt"] = thumbBent;
@@ -499,7 +691,7 @@ void loop() {
       bounds["littleStr"] = littleStraight; bounds["littleBnt"] = littleBent;
       bounds["elbowStr"] = elbowStraight; bounds["elbowBnt"] = elbowBent;
 
-      // Add raw ADC telemetry fields for advanced dashboard diagnostics
+      // Add raw ADC telemetry fields for advanced dashboard diagnostics (always preserved!)
       doc["raw_thumb"] = rawThumb;
       doc["raw_index"] = rawIndex;
       doc["raw_middle"] = rawMiddle;
@@ -507,6 +699,13 @@ void loop() {
       doc["raw_little"] = rawLittle;
       doc["raw_elbow"] = rawElbow;
       doc["raw_pressure"] = rawPressure;
+
+      // Elbow switch fields (preserved for complete backward compatibility)
+      doc["elbow_switch"] = sw_elbow.rawState; // 0 = LOW (closed, extended), 1 = HIGH (open, bent)
+      doc["raw_elbow_switch"] = sw_elbow.rawState;
+      doc["elbow_switch_closed"] = sw_elbow.switchVal;
+      doc["elbow_switch_state"] = (sw_elbow.debouncedState == LOW) ? "closed" : "open";
+      doc["elbow_switch_angle"] = (sw_elbow.debouncedState == LOW) ? 180.0 : 90.0;
 
       String jsonString;
       serializeJson(doc, jsonString);

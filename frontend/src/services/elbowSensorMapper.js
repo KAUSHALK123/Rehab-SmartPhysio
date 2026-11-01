@@ -51,7 +51,9 @@ export const resolveElbowMovementId = (exercise) => {
     nameLower.includes('elbow') ||
     nameLower.includes('bicep') ||
     nameLower.includes('curl') ||
+    nameLower.includes('switch') ||
     primarySensor === 'elbow' ||
+    primarySensor === 'elbow_switch' ||
     targetJoint.includes('elbow')
   ) {
     return 'elbowFlexion';
@@ -137,14 +139,34 @@ export const processElbowTelemetry = (telemetry = null, exercise = null, glbConf
 
   const activeConfig = glbConfig || loadCalibrationConfig();
 
-  // Extract raw ADC or angle value from telemetry packet
+  // Check if telemetry contains live switch input from ESP32 GPIO 27
+  const hasSwitchTelemetry = (telemetry.elbow_switch !== undefined && telemetry.elbow_switch !== null) ||
+                             (telemetry.raw_elbow_switch !== undefined && telemetry.raw_elbow_switch !== null);
+
+  const isSwitchExercise = (
+    exercise?.primary_sensor === 'elbow_switch' ||
+    (typeof exercise === 'string' && exercise.toLowerCase().includes('switch')) ||
+    (typeof exercise?.exercise_name === 'string' && exercise.exercise_name.toLowerCase().includes('switch')) ||
+    hasSwitchTelemetry
+  );
+
   let rawVal = telemetry.raw_elbow;
   let elbowAngleVal = telemetry.elbow;
+  let elbowSwitchVal = telemetry.elbow_switch !== undefined ? telemetry.elbow_switch : telemetry.raw_elbow_switch;
 
   let normalized = 0;
   let displayRaw = 0;
+  let switchState = null;
 
-  if (rawVal !== undefined && rawVal !== null) {
+  if (hasSwitchTelemetry && (isSwitchExercise || (rawVal === undefined && elbowAngleVal === undefined))) {
+    // Two-wire contact switch:
+    // Switch closed / touching wires to GND = LOW (0) = Elbow extended (0.0 ratio, straight arm)
+    // Switch open / separated wires (pullup) = HIGH (1) = Elbow bent (1.0 ratio, fully flexed arm)
+    const isClosed = Number(elbowSwitchVal) === 0;
+    normalized = isClosed ? 0.0 : 1.0;
+    displayRaw = isClosed ? 0 : 1;
+    switchState = isClosed ? 'closed' : 'open';
+  } else if (rawVal !== undefined && rawVal !== null) {
     // 12-bit ADC flex sensor reading available
     displayRaw = rawVal;
     normalized = normalizeElbowSensor(rawVal, 1200, 2950);
@@ -169,7 +191,10 @@ export const processElbowTelemetry = (telemetry = null, exercise = null, glbConf
     raw: displayRaw,
     normalizedRatio: normalized,
     percentage: Math.round(normalized * 100),
-    targetBone: mapping.targetBone
+    targetBone: mapping.targetBone || 'right_forearm',
+    switchVal: (elbowSwitchVal !== undefined && elbowSwitchVal !== null) ? Number(elbowSwitchVal) : null,
+    switchState: switchState || (telemetry.elbow_switch !== undefined ? (Number(telemetry.elbow_switch) === 0 ? 'closed' : 'open') : null),
+    isSwitchExercise: Boolean(isSwitchExercise)
   };
 };
 

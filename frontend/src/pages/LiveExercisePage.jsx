@@ -23,7 +23,8 @@ import {
   Cpu,
   ChevronLeft,
   ChevronDown,
-  RefreshCw
+  RefreshCw,
+  Sliders
 } from 'lucide-react';
 import { startSession, endSession } from '../services/session';
 import apiClient from '../services/auth';
@@ -33,9 +34,10 @@ import GLBCalibrationPanel from '../components/GLBCalibrationPanel';
 import FingerSensorTrialPanel from '../components/FingerSensorTrialPanel';
 import WristSensorTrialPanel from '../components/WristSensorTrialPanel';
 import ElbowSensorTrialPanel from '../components/ElbowSensorTrialPanel';
+import ElbowSwitchTrialPanel from '../components/ElbowSwitchTrialPanel';
 import WristMotionDemoCard from '../components/WristMotionDemoCard';
 import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
-import { processFingerTelemetry } from '../services/fingerSensorMapper';
+import { processFingerTelemetry, computeSwitchFingerAngles, getAuthoritativeFingerMovement, FINGER_SWITCH_GPIOS, isSwitchPressed } from '../services/fingerSensorMapper';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
 
@@ -231,32 +233,37 @@ const renderFormattedOverlayText = (text) => {
   });
 };
 
-// Real-time Flex Sensor ↔ GLB Sync Panel for Main Finger Exercises
+// Real-time Flex Sensor / Pure Digital Switch Movement Panel for Finger Exercises
 const FingerSyncPanel = ({ 
   computedFingerData, 
   rawSensorPacket, 
   deviceConnected, 
-  isFlexSynced, 
-  onToggleSync,
+  isSwitchModeActive = false,
+  onToggleSwitchMode = () => {},
+  simulatedSwitches = {},
+  onToggleSimSwitch = () => {},
   simulatedActive = false,
   onToggleSimulation = () => {}
 }) => {
   const fingerKeys = [
-    { key: 'thumb', label: 'Thumb' },
-    { key: 'index', label: 'Index' },
-    { key: 'middle', label: 'Mid' },
-    { key: 'ring', label: 'Ring' },
-    { key: 'little', label: 'Lit' }
+    { key: 'thumb', label: 'Thumb', gpio: 27 },
+    { key: 'index', label: 'Index', gpio: 19 },
+    { key: 'middle', label: 'Mid', gpio: 23 },
+    { key: 'ring', label: 'Ring', gpio: 18 },
+    { key: 'little', label: 'Lit', gpio: 13 }
   ];
 
   const getBarColor = (pct) => {
+    if (isSwitchModeActive) {
+      return 'bg-gradient-to-t from-amber-500 to-yellow-400 shadow-[0_0_8px_rgba(245,158,11,0.4)]';
+    }
     if (pct < 30) return 'bg-gradient-to-t from-emerald-500 to-green-400 shadow-[0_0_8px_rgba(16,185,129,0.4)]';
     if (pct < 70) return 'bg-gradient-to-t from-amber-500 to-yellow-400 shadow-[0_0_8px_rgba(245,158,11,0.4)]';
     return 'bg-gradient-to-t from-rose-500 to-pink-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]';
   };
 
   const hasHardwarePacket = rawSensorPacket && Object.keys(rawSensorPacket).length > 0;
-  const sensorsReadingZero = hasHardwarePacket && !simulatedActive && (
+  const sensorsReadingZero = hasHardwarePacket && !simulatedActive && !isSwitchModeActive && (
     Number(rawSensorPacket.raw_thumb ?? 0) === 0 &&
     Number(rawSensorPacket.raw_index ?? 0) === 0 &&
     Number(rawSensorPacket.raw_middle ?? 0) === 0 &&
@@ -266,64 +273,59 @@ const FingerSyncPanel = ({
 
   return (
     <div className="w-full space-y-3">
-      {/* Top Header & Sync Status Badge */}
+      {/* Top Header & Switch Movement Status Badge */}
       <div className="flex justify-between items-center bg-slate-100/70 p-2.5 px-3 rounded-xl border border-slate-200/60">
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
             <Activity className="w-3.5 h-3.5 text-primary" />
-            Flex Sensor ↔ GLB Real-Time Sync
+            {isSwitchModeActive ? 'Pure Digital Switch Movement' : 'Flex Sensor ↔ GLB Real-Time Sync'}
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className={`inline-flex items-center gap-1 text-[9px] font-extrabold px-2.5 py-1 rounded-full border ${
-            simulatedActive
-              ? 'bg-purple-50 text-purple-700 border-purple-200 animate-pulse'
-              : sensorsReadingZero
-                ? 'bg-amber-50 text-amber-700 border-amber-200'
-                : !deviceConnected
-                  ? 'bg-slate-100 text-slate-500 border-slate-200'
-                  : isFlexSynced
-                    ? 'bg-emerald-50 text-emerald-600 border-emerald-200 animate-pulse'
+          {isSwitchModeActive ? (
+            <span className="inline-flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-full border bg-amber-50 text-amber-700 border-amber-300 shadow-xs animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              Switch Mode: ACTIVE
+            </span>
+          ) : (
+            <span className={`inline-flex items-center gap-1 text-[9px] font-extrabold px-2.5 py-1 rounded-full border ${
+              simulatedActive
+                ? 'bg-purple-50 text-purple-700 border-purple-200 animate-pulse'
+                : sensorsReadingZero
+                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : !deviceConnected
+                    ? 'bg-slate-100 text-slate-500 border-slate-200'
                     : 'bg-slate-100 text-slate-500 border-slate-200'
-          }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${
-              simulatedActive ? 'bg-purple-500' : sensorsReadingZero ? 'bg-amber-500' : !deviceConnected ? 'bg-slate-400' : isFlexSynced ? 'bg-emerald-500' : 'bg-slate-400'
-            }`} />
-            {simulatedActive
-              ? 'Simulated Motion Active'
-              : sensorsReadingZero
-                ? 'Hardware 0 ADC (Check VCC)'
-                : !deviceConnected
-                  ? 'Waiting for Telemetry...'
-                  : isFlexSynced
-                    ? 'Real-Time Flex Active'
-                    : 'Flex Sync Off'}
-          </span>
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${
+                simulatedActive ? 'bg-purple-500' : sensorsReadingZero ? 'bg-amber-500' : !deviceConnected ? 'bg-slate-400' : 'bg-slate-400'
+              }`} />
+              {simulatedActive
+                ? 'Simulated Motion Active'
+                : sensorsReadingZero
+                  ? 'Hardware 0 ADC (Check VCC)'
+                  : !deviceConnected
+                    ? 'Waiting for Telemetry...'
+                    : 'Switch Mode: INACTIVE (Neutral Pose)'}
+            </span>
+          )}
         </div>
       </div>
 
-      {/* 0 ADC Diagnostic Warning Banner */}
-      {sensorsReadingZero && (
+      {/* 0 ADC Diagnostic Warning Banner (Only in flex mode) */}
+      {sensorsReadingZero && !isSwitchModeActive && (
         <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1.5">
           <div className="flex items-center gap-1.5 text-xs font-bold text-amber-800 dark:text-amber-300">
             <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
             <span>ESP32 Connected • Flex Pins Reading 0 ADC</span>
           </div>
           <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
-            The ESP32 is online, but GPIO pins 32-36 are reading 0V. Check that 3.3V power &amp; GND to the flex voltage dividers are plugged in, or click below to simulate fist movement.
+            The ESP32 is online, but flex ADC pins are reading 0V. Click <strong>Logic Flex Movement</strong> below to bypass flex sensors and animate the 3D hand using digital switches (GPIO 27, 19, 23, 18, 13).
           </p>
-          <button
-            type="button"
-            onClick={onToggleSimulation}
-            className="mt-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Zap className="w-3 h-3" />
-            Start Simulated Flex (Test Repetitions)
-          </button>
         </div>
       )}
 
-      {/* Two Side-By-Side Cards */}
+      {/* Two Side-By-Side Cards: GLB FINGER BEND & SENSOR / SWITCH STATUS */}
       <div className="grid grid-cols-2 gap-3">
         {/* LEFT CARD: GLB FINGER BEND */}
         <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 shadow-sm flex flex-col justify-between">
@@ -337,22 +339,24 @@ const FingerSyncPanel = ({
           <div className="flex items-end justify-between gap-1.5 h-24 pt-1">
             {fingerKeys.map(({ key, label }) => {
               const debugInfo = computedFingerData?.debug?.[key];
-              const angle = debugInfo?.glbAngle !== undefined ? debugInfo.glbAngle : 0;
+              const angle = debugInfo?.glbAngle !== undefined ? debugInfo.glbAngle : (computedFingerData?.angles?.[key] ?? 0);
               const min = debugInfo?.min !== undefined ? debugInfo.min : 0;
-              const max = debugInfo?.max !== undefined ? debugInfo.max : 60;
+              const max = debugInfo?.max !== undefined ? debugInfo.max : 65;
 
-              const rangeSpan = Math.abs(max - min) || 60;
-              const pct = Math.max(0, Math.min(100, (Math.abs(angle - min) / rangeSpan) * 100));
+              const rangeSpan = Math.abs(max - min) || 65;
+              const pct = isSwitchModeActive 
+                ? (debugInfo?.pressed || angle > 10 ? 100 : 0)
+                : Math.max(0, Math.min(100, (Math.abs(angle - min) / rangeSpan) * 100));
 
               return (
                 <div key={key} className="flex-1 flex flex-col items-center h-full justify-end min-w-0">
                   <span className="text-[9px] font-black text-slate-800 mb-1">
-                    {debugInfo ? `${Math.round(angle)}°` : '0°'}
+                    {`${Math.round(angle)}°`}
                   </span>
                   <div className="w-2.5 bg-slate-200 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
                     <div 
-                      className={`w-full rounded-full transition-all duration-150 ease-out ${getBarColor(pct)}`}
-                      style={{ height: `${debugInfo ? pct : 0}%` }}
+                      className={`w-full rounded-full transition-all duration-200 ease-out ${getBarColor(pct)}`}
+                      style={{ height: `${pct}%` }}
                     />
                   </div>
                   <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
@@ -364,33 +368,36 @@ const FingerSyncPanel = ({
           </div>
         </div>
 
-        {/* RIGHT CARD: LIVE FLEX SENSORS */}
+        {/* RIGHT CARD: SWITCH STATE OR FLEX SENSORS */}
         <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 shadow-sm flex flex-col justify-between">
           <div className="flex justify-between items-center mb-2 pb-1 border-b border-slate-200/60">
             <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">
-              LIVE FLEX SENSORS
+              {isSwitchModeActive ? 'DIGITAL SWITCHES' : 'LIVE FLEX SENSORS'}
             </span>
-            <span className="text-[9px] font-bold text-slate-400">Raw &amp; Flex %</span>
+            <span className="text-[9px] font-bold text-slate-400">
+              {isSwitchModeActive ? 'GPIO State' : 'Raw & Flex %'}
+            </span>
           </div>
 
           <div className="flex items-end justify-between gap-1.5 h-24 pt-1">
-            {fingerKeys.map(({ key, label }) => {
+            {fingerKeys.map(({ key, label, gpio }) => {
               const debugInfo = computedFingerData?.debug?.[key];
+              const isPressed = isSwitchModeActive ? (debugInfo?.pressed ?? (simulatedSwitches?.[key] === 1)) : false;
               const flexPct = debugInfo?.normalized !== undefined ? debugInfo.normalized : 0;
               const rawVal = debugInfo?.raw !== null && debugInfo?.raw !== undefined ? debugInfo.raw : (rawSensorPacket?.['raw_' + key] !== undefined ? rawSensorPacket['raw_' + key] : null);
 
               return (
                 <div key={key} className="flex-1 flex flex-col items-center h-full justify-end min-w-0">
                   <span className="text-[8px] font-bold text-slate-400 leading-none mb-0.5">
-                    {rawVal !== null ? `r:${rawVal}` : 'r:--'}
+                    {isSwitchModeActive ? `G${gpio}` : (rawVal !== null ? `r:${rawVal}` : 'r:--')}
                   </span>
-                  <span className="text-[9px] font-black text-slate-800 mb-1">
-                    {debugInfo ? `${Math.round(flexPct)}%` : '0%'}
+                  <span className={`text-[9px] font-black mb-1 ${isSwitchModeActive && isPressed ? 'text-amber-600' : 'text-slate-800'}`}>
+                    {isSwitchModeActive ? (isPressed ? 'LOW' : 'HIGH') : `${Math.round(flexPct)}%`}
                   </span>
                   <div className="w-2.5 bg-slate-200 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
                     <div 
-                      className={`w-full rounded-full transition-all duration-150 ease-out ${getBarColor(flexPct)}`}
-                      style={{ height: `${debugInfo ? flexPct : 0}%` }}
+                      className={`w-full rounded-full transition-all duration-200 ease-out ${getBarColor(isSwitchModeActive ? (isPressed ? 100 : 0) : flexPct)}`}
+                      style={{ height: `${isSwitchModeActive ? (isPressed ? 100 : 0) : flexPct}%` }}
                     />
                   </div>
                   <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
@@ -403,19 +410,19 @@ const FingerSyncPanel = ({
         </div>
       </div>
 
-      {/* SYNC VALUES & SHOW REAL TIME FLEX BUTTON */}
+      {/* LOGIC FLEX MOVEMENT (SWITCH-BASED MODE) ACTION BUTTON */}
       <div className="grid grid-cols-2 gap-2">
         <button
           type="button"
-          onClick={onToggleSync}
+          onClick={onToggleSwitchMode}
           className={`py-2 px-3 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${
-            isFlexSynced
-              ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-900/10 ring-2 ring-emerald-500/30'
+            isSwitchModeActive
+              ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-900/10 ring-2 ring-amber-500/40'
               : 'bg-slate-800 hover:bg-slate-900 text-white shadow-slate-900/10'
           }`}
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${isFlexSynced ? 'animate-spin' : ''}`} />
-          <span className="truncate">{isFlexSynced ? 'Sync Active' : 'Sync Values'}</span>
+          <Zap className={`w-3.5 h-3.5 ${isSwitchModeActive ? 'text-amber-300 animate-pulse' : 'text-slate-400'}`} />
+          <span className="truncate">Logic Flex Movement</span>
         </button>
 
         <button
@@ -427,10 +434,60 @@ const FingerSyncPanel = ({
               : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
           }`}
         >
-          <Zap className={`w-3.5 h-3.5 ${simulatedActive ? 'text-amber-300' : 'text-slate-500'}`} />
+          <Activity className={`w-3.5 h-3.5 ${simulatedActive ? 'text-amber-300' : 'text-slate-500'}`} />
           <span className="truncate">{simulatedActive ? 'Stop Simulation' : 'Simulate Flex Test'}</span>
         </button>
       </div>
+
+      {/* INDEPENDENT DIGITAL SWITCH CONTROLS (Active in Switch Mode & available for instant frontend testing) */}
+      {isSwitchModeActive && (
+        <div className="bg-slate-900 text-slate-200 p-3 rounded-xl border border-amber-500/40 space-y-2 shadow-sm">
+          <div className="flex justify-between items-center text-[10px]">
+            <span className="font-extrabold text-amber-400 uppercase tracking-wider flex items-center gap-1">
+              <Sliders className="w-3 h-3 text-amber-400" />
+              Digital Switches (GPIO 27, 19, 23, 18, 13)
+            </span>
+            <span className="text-[9px] text-slate-400">Click to press/release</span>
+          </div>
+
+          <div className="grid grid-cols-5 gap-1.5">
+            {fingerKeys.map(({ key, label, gpio }) => {
+              const info = computedFingerData?.debug?.[key] || {};
+              const isPressed = info.pressed ?? (simulatedSwitches?.[key] === 1);
+              const targetAngle = computedFingerData?.angles?.[key] ?? (isPressed ? 60 : 0);
+
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => onToggleSimSwitch(key)}
+                  className={`p-1.5 rounded-lg border text-center transition flex flex-col items-center justify-between cursor-pointer ${
+                    isPressed
+                      ? 'bg-amber-950/80 border-amber-500 text-amber-200 ring-1 ring-amber-400/50'
+                      : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:bg-slate-750'
+                  }`}
+                >
+                  <span className="text-[8px] font-black uppercase text-slate-200">{label}</span>
+                  <span className="text-[7px] text-slate-400">G{gpio}</span>
+                  <span className={`text-[9px] font-black mt-0.5 ${isPressed ? 'text-amber-300' : 'text-slate-500'}`}>
+                    {Math.round(targetAngle)}°
+                  </span>
+                  <span className={`text-[7px] font-extrabold uppercase mt-0.5 px-1 rounded ${
+                    isPressed ? 'bg-amber-500 text-slate-950 font-black' : 'bg-slate-700 text-slate-300'
+                  }`}>
+                    {isPressed ? 'PRESSED' : 'RELEASED'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="pt-1 flex items-center justify-between text-[9px] text-slate-400 border-t border-slate-800">
+            <span>Input: <strong className="text-amber-400">Pure Switch (Flex Bypassed)</strong></span>
+            <span>Wires: <strong className="text-slate-300">LOW=Pressed &bull; HIGH=Released</strong></span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -665,6 +722,24 @@ function LiveExercisePage() {
   const [rawSensorPacket, setRawSensorPacket] = useState({});
   const [lastPacketTime, setLastPacketTime] = useState(null);
   const [isFlexSynced, setIsFlexSynced] = useState(true);
+  // Switch mode is the default central movement source for the current testing version
+  const [isSwitchModeActive, setIsSwitchModeActive] = useState(true);
+  const isSwitchModeActiveRef = useRef(true);
+  useEffect(() => {
+    isSwitchModeActiveRef.current = isSwitchModeActive;
+  }, [isSwitchModeActive]);
+
+  const [simulatedSwitches, setSimulatedSwitches] = useState({
+    thumb: 0,
+    index: 0,
+    middle: 0,
+    ring: 0,
+    little: 0
+  });
+  const simulatedSwitchesRef = useRef(simulatedSwitches);
+  useEffect(() => {
+    simulatedSwitchesRef.current = simulatedSwitches;
+  }, [simulatedSwitches]);
   const [fingerTelemetryDetails, setFingerTelemetryDetails] = useState(null);
   const [wristTelemetryDetails, setWristTelemetryDetails] = useState(null);
 
@@ -825,6 +900,8 @@ function LiveExercisePage() {
             mockConfig = { exercise_name: 'Finger Sensor Test', primary_sensor: 'flex_avg', secondary_sensor: 'pressure', camera_view: 'hand', target_angle: 90 };
           } else if (trialType === 'wrist') {
             mockConfig = { exercise_name: 'Wrist Sensor Test', primary_sensor: 'wrist_pitch', secondary_sensor: 'wrist_roll', camera_view: 'wrist', target_angle: 45 };
+          } else if (trialType === 'elbow_switch') {
+            mockConfig = { exercise_name: 'Elbow Switch Test', primary_sensor: 'elbow_switch', secondary_sensor: 'elbow', camera_view: 'elbow', target_angle: 90 };
           } else if (trialType === 'elbow') {
             mockConfig = { exercise_name: 'Elbow Sensor Test', primary_sensor: 'elbow', secondary_sensor: 'wrist_roll', camera_view: 'elbow', target_angle: 90 };
           } else {
@@ -903,7 +980,14 @@ function LiveExercisePage() {
         activeExerciseRef.current?.primary_sensor?.toLowerCase().includes('pressure')
       );
 
-  const isElbowExercise = isTrial
+  const isElbowSwitchExercise = trialType === 'elbow_switch' || Boolean(
+    exerciseDetails?.primary_sensor === 'elbow_switch' ||
+    (typeof exerciseDetails?.exercise_name === 'string' && exerciseDetails.exercise_name.toLowerCase().includes('switch')) ||
+    (typeof exerciseName === 'string' && exerciseName.toLowerCase().includes('switch')) ||
+    activeExerciseRef.current?.primary_sensor === 'elbow_switch'
+  );
+
+  const isElbowExercise = isElbowSwitchExercise || (isTrial
     ? trialType === 'elbow'
     : Boolean(
         exerciseDetails?.body_part?.toLowerCase().includes('elbow') ||
@@ -914,7 +998,7 @@ function LiveExercisePage() {
         exerciseName?.toLowerCase().includes('elbow') ||
         exerciseName?.toLowerCase().includes('curl') ||
         activeExerciseRef.current?.primary_sensor?.toLowerCase().includes('elbow')
-      );
+      ));
 
   // Cleanly identify active body movement category
   // NOTE: Exclude finger and elbow exercises so secondary sensors (e.g. wrist_pitch for Finger Closing) do not misclassify them as wrist exercises
@@ -981,6 +1065,42 @@ function LiveExercisePage() {
     if (holdTimerIntervalRef.current) clearInterval(holdTimerIntervalRef.current);
   };
 
+  // Toggle Pure Switch-Based Movement Mode (Logic Flex Movement)
+  const handleToggleSwitchMode = () => {
+    const next = !isSwitchModeActive;
+    setIsSwitchModeActive(next);
+    isSwitchModeActiveRef.current = next;
+
+    if (next) {
+      // Activating Pure Switch Mode: immediately update with switch-derived angles
+      const switchResult = getAuthoritativeFingerMovement(rawSensorPacket, simulatedSwitchesRef.current, { forceSource: 'SWITCH' });
+      setSensorFingerAngles(switchResult.angles);
+      setFingerTelemetryDetails(switchResult);
+      console.log('[SWITCH MODE] Activated Logic Flex Movement. Finger animation driven purely by digital switches.');
+    } else {
+      // Deactivating Switch Mode: reset hand to safe neutral rest pose (0°)
+      const neutral = { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 };
+      setSensorFingerAngles(neutral);
+      const defaultResult = processFingerTelemetry(rawSensorPacket);
+      setFingerTelemetryDetails(defaultResult);
+      console.log('[SWITCH MODE] Deactivated. Fingers reset to safe neutral pose.');
+    }
+  };
+
+  // Toggle individual simulated switch state for a finger (0=released, 1=pressed)
+  const handleToggleSimSwitch = (finger) => {
+    const nextVal = simulatedSwitches[finger] === 1 ? 0 : 1;
+    const updated = { ...simulatedSwitches, [finger]: nextVal };
+    setSimulatedSwitches(updated);
+    simulatedSwitchesRef.current = updated;
+
+    if (isSwitchModeActiveRef.current) {
+      const switchResult = getAuthoritativeFingerMovement(rawSensorPacket, updated, { forceSource: 'SWITCH' });
+      setSensorFingerAngles(switchResult.angles);
+      setFingerTelemetryDetails(switchResult);
+    }
+  };
+
   // WebSocket Connection
   const connectWebSocket = () => {
     const getWsUrl = () => {
@@ -1015,10 +1135,20 @@ function LiveExercisePage() {
         setRawSensorPacket(data);
         setLastPacketTime(Date.now());
 
-        // 1. Process finger telemetry continuously with dynamic auto-range
-        const computedFingers = processFingerTelemetry(data);
-        if (computedFingers && computedFingers.angles) {
+        // 1. Process finger telemetry: Pure Switch Mode vs Flex Sensor Mode
+        // 1. Process finger telemetry: Central Switch Movement Controller vs Legacy Flex
+        let computedFingers = null;
+        if (isSwitchModeActiveRef.current) {
+          // PURE SWITCH-BASED MOVEMENT MODE (Authoritative):
+          // Completely ignores analog flex sensors. Each finger responds ONLY to its digital switch.
+          computedFingers = getAuthoritativeFingerMovement(data, simulatedSwitchesRef.current, { forceSource: 'SWITCH' });
           setSensorFingerAngles(computedFingers.angles);
+          setFingerTelemetryDetails(computedFingers);
+        } else {
+          // SWITCH MODE INACTIVE: Hold safe neutral pose (0°), preserve legacy flex for diagnostic display
+          const neutral = { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 };
+          setSensorFingerAngles(neutral);
+          computedFingers = processFingerTelemetry(data);
           setFingerTelemetryDetails(computedFingers);
         }
 
@@ -1038,9 +1168,14 @@ function LiveExercisePage() {
 
         // 3. Process elbow telemetry if applicable
         if (isElbowExercise) {
-          const elbowComputed = processElbowTelemetry(data, activeExerciseRef.current || exerciseDetails);
+          const currentElbowEx = activeExerciseRef.current || exerciseDetails || { exercise_name: exerciseName, primary_sensor: 'elbow_switch', target_angle: 90 };
+          const elbowComputed = processElbowTelemetry(data, currentElbowEx);
           if (elbowComputed && elbowComputed.angles) {
             setSensorElbowAngles(elbowComputed);
+          }
+          if (data.elbow_switch !== undefined || data.raw_elbow_switch !== undefined) {
+            const swVal = data.elbow_switch !== undefined ? Number(data.elbow_switch) : Number(data.raw_elbow_switch);
+            console.log(`[ELBOW SWITCH] Live GPIO 27 = ${swVal} (${swVal === 0 ? 'LOW / Extended (0°)' : 'HIGH / Bent (-90°)'})`);
           }
         } else {
           setSensorElbowAngles(null);
@@ -1896,9 +2031,10 @@ function LiveExercisePage() {
   };
 
   // Resolve active calibrated finger angles for 3D visualizer (lock to 0 neutral if not finger exercise)
+  // In switch mode, finger switches (GPIO 27, 19, 23, 18, 13) independently move GLB fingers across every exercise
   const activeSensorFingerAngles = (isTrial && trialType === 'fingers' && fingerTrialView === 'calibration')
     ? null
-    : (isFingerExercise ? sensorFingerAngles : { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 });
+    : (sensorFingerAngles || { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 });
 
   // Resolve active calibrated wrist angles for 3D visualizer (lock to 0 neutral if not wrist exercise)
   const activeSensorWristAngles = (isTrial && trialType === 'wrist' && wristTrialView === 'calibration')
@@ -2238,6 +2374,41 @@ function LiveExercisePage() {
                 </div>
               )}
 
+              {/* Live Switch Diagnostic Feedback Overlay for Elbow Exercise */}
+              {isElbowExercise && (
+                <div className="absolute top-4 left-4 z-20 flex flex-col gap-1.5 bg-slate-900/90 backdrop-blur-md p-3.5 rounded-2xl border border-slate-700/70 text-white shadow-xl pointer-events-auto">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2.5 h-2.5 rounded-full ${deviceConnected ? 'bg-emerald-500 animate-pulse' : 'bg-blue-400'}`} />
+                    <span className="text-xs font-bold">{deviceConnected ? 'ESP32 Streaming' : 'Live Monitor Active'}</span>
+                  </div>
+                  <div className="text-[12px] font-mono flex items-center gap-2 mt-0.5">
+                    <span className="text-slate-400">GPIO 27:</span>
+                    <span className={`font-black px-2 py-0.5 rounded text-xs ${
+                      (rawSensorPacket?.elbow_switch === 0 || rawSensorPacket?.raw_elbow_switch === 0 || sensorElbowAngles?.switchVal === 0)
+                        ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/60'
+                        : 'bg-blue-500/30 text-blue-300 border border-blue-500/60'
+                    }`}>
+                      {(rawSensorPacket?.elbow_switch !== undefined || rawSensorPacket?.raw_elbow_switch !== undefined)
+                        ? `${rawSensorPacket.elbow_switch ?? rawSensorPacket.raw_elbow_switch} (${(rawSensorPacket.elbow_switch ?? rawSensorPacket.raw_elbow_switch) === 0 ? 'LOW / GND' : 'HIGH / PULLUP'})`
+                        : (sensorElbowAngles?.switchVal !== null && sensorElbowAngles?.switchVal !== undefined 
+                            ? `${sensorElbowAngles.switchVal} (${sensorElbowAngles.switchVal === 0 ? 'LOW / GND' : 'HIGH / PULLUP'})`
+                            : '0 (LOW / GND)')}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-300 flex items-center justify-between gap-3">
+                    <span className="text-slate-400">Target Joint Pose:</span>
+                    <span className="font-bold text-white">
+                      {(rawSensorPacket?.elbow_switch === 0 || rawSensorPacket?.raw_elbow_switch === 0 || sensorElbowAngles?.switchVal === 0) 
+                        ? 'Extended (0°)' 
+                        : 'Bent (-90°)'}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-mono border-t border-slate-800 pt-1 mt-0.5">
+                    Bone: right_forearm (Euler X)
+                  </div>
+                </div>
+              )}
+
               {/* R3F Canvas container with premium model */}
               <div className="w-full h-full">
                 {cameraAngle === 'split' ? (
@@ -2462,6 +2633,18 @@ function LiveExercisePage() {
                         />
                       </div>
                     )
+                  ) : isElbowSwitchExercise ? (
+                    <ElbowSwitchTrialPanel 
+                      liveSensors={rawSensorPacket}
+                      deviceConnected={deviceConnected}
+                      lastPacketTime={lastPacketTime}
+                      onAnglesUpdate={(angles) => setSensorElbowAngles(angles)}
+                      onStateChange={(state) => {
+                        if (state.reps !== undefined && state.reps !== repsCompleted) {
+                          setRepsCompleted(state.reps);
+                        }
+                      }}
+                    />
                   ) : (
                     elbowTrialView === 'sensor' ? (
                       <ElbowSensorTrialPanel 
@@ -2631,8 +2814,10 @@ function LiveExercisePage() {
                       computedFingerData={fingerTelemetryDetails}
                       rawSensorPacket={rawSensorPacket}
                       deviceConnected={deviceConnected || simulatedFingersActive}
-                      isFlexSynced={isFlexSynced}
-                      onToggleSync={() => setIsFlexSynced(prev => !prev)}
+                      isSwitchModeActive={isSwitchModeActive}
+                      onToggleSwitchMode={handleToggleSwitchMode}
+                      simulatedSwitches={simulatedSwitches}
+                      onToggleSimSwitch={handleToggleSimSwitch}
                       simulatedActive={simulatedFingersActive}
                       onToggleSimulation={() => setSimulatedFingersActive(prev => !prev)}
                     />
@@ -2643,16 +2828,34 @@ function LiveExercisePage() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <div className="flex gap-3">
-                      {(exerciseDetails?.primary_sensor?.toLowerCase() === 'elbow' || 
-                         exerciseDetails?.target_joint?.toLowerCase()?.includes('elbow') ||
-                         exerciseName.toLowerCase().includes('elbow') ||
-                         exerciseName.toLowerCase().includes('curl')) ? (
-                        <ElbowVolumeBar sensors={sensors} target={exerciseDetails?.target_angle || 90} />
+                    <div className="flex flex-col gap-3">
+                      {isElbowSwitchExercise ? (
+                        <div className="w-full">
+                          <ElbowSwitchTrialPanel 
+                            liveSensors={rawSensorPacket}
+                            deviceConnected={deviceConnected}
+                            lastPacketTime={lastPacketTime}
+                            onAnglesUpdate={(angles) => setSensorElbowAngles(angles)}
+                            onStateChange={(state) => {
+                              if (state.reps !== undefined && state.reps !== repsCompleted) {
+                                setRepsCompleted(state.reps);
+                              }
+                            }}
+                          />
+                        </div>
                       ) : (
-                        <SVGGauge {...primary} />
+                        <div className="flex gap-3">
+                          {(exerciseDetails?.primary_sensor?.toLowerCase() === 'elbow' || 
+                             exerciseDetails?.target_joint?.toLowerCase()?.includes('elbow') ||
+                             exerciseName.toLowerCase().includes('elbow') ||
+                             exerciseName.toLowerCase().includes('curl')) ? (
+                            <ElbowVolumeBar sensors={sensors} target={exerciseDetails?.target_angle || 90} />
+                          ) : (
+                            <SVGGauge {...primary} />
+                          )}
+                          <SVGGauge {...secondary} />
+                        </div>
                       )}
-                      <SVGGauge {...secondary} />
                     </div>
 
                     {(!isTrial && (

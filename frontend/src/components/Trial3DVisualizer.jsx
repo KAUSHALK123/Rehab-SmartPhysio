@@ -227,18 +227,24 @@ function FullBodyRig({
       bicepRight.rotation.x = THREE.MathUtils.lerp(bicepRight.rotation.x, targetX, 0.15);
     }
 
-    // 2. Elbow Angle (right_forearm)
-    const rightForearm = getNode('right_forearm');
-    if (rightForearm) {
-      const base = bases.right_forearm || { x: 0, y: 0, z: 0 };
+    // 2. Elbow Angle (right_forearm / WristArm)
+    const rightForearm = getNode('right_forearm') || getNode('WristArm');
+    if (!rightForearm) {
+      if (clock.getElapsedTime() < 1.0) {
+        console.error('[3D Trial Model Error] Elbow joint bone (right_forearm / WristArm) not found in GLB hierarchy!');
+      }
+    } else {
+      const base = bases.right_forearm || bases.WristArm || { x: 0, y: 0, z: 0 };
       if (calibrationActive && (targetBone === 'right_forearm' || targetBone === 'WristArm')) {
         applyCalibratedElbowRotation(rightForearm, base, testAngles, 0.25);
       } else if (sensorElbowAngles && typeof sensorElbowAngles === 'object') {
-        applyCalibratedElbowRotation(rightForearm, base, sensorElbowAngles, 0.25);
+        applyCalibratedElbowRotation(rightForearm, base, sensorElbowAngles, 0.22);
       } else {
-        const bendDeg = 180 - (activeControls?.elbowAngle || 180); // 180 = straight -> 0 bend
-        const targetElbowZ = base.z - degToRad(bendDeg);
-        rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, targetElbowZ, 0.15);
+        const bendDeg = 180 - (activeControls?.elbowAngle ?? 180); // 180 = straight -> 0 bend
+        const targetX = base.x - degToRad(bendDeg);
+        rightForearm.rotation.x = THREE.MathUtils.lerp(rightForearm.rotation.x, targetX, 0.22);
+        rightForearm.rotation.y = THREE.MathUtils.lerp(rightForearm.rotation.y, base.y, 0.22);
+        rightForearm.rotation.z = THREE.MathUtils.lerp(rightForearm.rotation.z, base.z, 0.22);
       }
     }
 
@@ -297,7 +303,8 @@ function FullBodyRig({
         // Real-time sensor-driven or simulated GLB movement (Fix 2 & Fix 3 shared logic)
         const fingerKey = nodeName.replace('right_', '');
         const mappedAngleDeg = sensorFingerAngles[fingerKey] !== undefined ? sensorFingerAngles[fingerKey] : 0;
-        applyCalibratedFingerRotation(fingerNode, nodeName, base, mappedAngleDeg, 0.25);
+        const effectiveAngle = isThumb ? -mappedAngleDeg : mappedAngleDeg;
+        applyCalibratedFingerRotation(fingerNode, nodeName, base, effectiveAngle, 0.25);
       } else {
         // In calibration mode, non-target fingers remain steady at rest pose
         if (calibrationActive) {

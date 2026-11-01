@@ -61,10 +61,24 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# Global state for calibration steps (so viewers and simulator share it)
+# Global state for calibration steps & hybrid input modes
 global_calibration_state = {
     "calibration_step": "idle", # mpu, flex, pressure, raise_arm, bend_elbow, close_hand
-    "battery": 92
+    "battery": 92,
+    "finger_modes": {
+        "thumb": "SWITCH",
+        "index": "SWITCH",
+        "middle": "SWITCH",
+        "ring": "SWITCH",
+        "little": "SWITCH"
+    },
+    "finger_switches": {
+        "thumb": 0,
+        "index": 0,
+        "middle": 0,
+        "ring": 0,
+        "little": 0
+    }
 }
 
 @router.websocket("/ws")
@@ -159,8 +173,24 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                             "raw_elbow":    to_adc(180 - (180 if step != "bend_elbow" else 90)),
                             "raw_pressure": 5 + random.randint(-1, 2) if step != "close_hand" else 650 + random.randint(-10, 10),
                             
+                            # Per-finger input modes (FLEX vs SWITCH)
+                            "thumb_mode": global_calibration_state["finger_modes"]["thumb"],
+                            "index_mode": global_calibration_state["finger_modes"]["index"],
+                            "middle_mode": global_calibration_state["finger_modes"]["middle"],
+                            "ring_mode": global_calibration_state["finger_modes"]["ring"],
+                            "little_mode": global_calibration_state["finger_modes"]["little"],
+
+                            # Digital contact switch values (0 = open / straight, 1 = closed / bent)
+                            "thumb_switch": global_calibration_state["finger_switches"]["thumb"] if global_calibration_state["finger_modes"]["thumb"] == "SWITCH" else (1 if step == "close_hand" else 0),
+                            "index_switch": global_calibration_state["finger_switches"]["index"] if global_calibration_state["finger_modes"]["index"] == "SWITCH" else (1 if step == "close_hand" else 0),
+                            "middle_switch": global_calibration_state["finger_switches"]["middle"] if global_calibration_state["finger_modes"]["middle"] == "SWITCH" else (1 if step == "close_hand" else 0),
+                            "ring_switch": global_calibration_state["finger_switches"]["ring"] if global_calibration_state["finger_modes"]["ring"] == "SWITCH" else (1 if step == "close_hand" else 0),
+                            "little_switch": global_calibration_state["finger_switches"]["little"] if global_calibration_state["finger_modes"]["little"] == "SWITCH" else (1 if step == "close_hand" else 0),
+
                             # Elbow: 180=straight, 90=bent
                             "elbow": 180 + random.randint(-3, 3) if step != "bend_elbow" else 90 + random.randint(-2, 2),
+                            "elbow_switch": 1 if step == "bend_elbow" else 0,
+                            "elbow_switch_state": "open" if step == "bend_elbow" else "closed",
                             "pressure": 5 + random.randint(-1, 2) if step != "close_hand" else 650 + random.randint(-10, 10),
                             
                             "wrist_pitch": 0.0 if step == "raise_arm" else 0.0,
@@ -203,6 +233,32 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                         except Exception:
                             pass
                 
+                elif command == "set_finger_mode":
+                    finger = message.get("finger", "all")
+                    mode = message.get("mode", "FLEX")
+                    if finger == "all":
+                        for f in ["thumb", "index", "middle", "ring", "little"]:
+                            global_calibration_state["finger_modes"][f] = mode
+                    elif finger in global_calibration_state["finger_modes"]:
+                        global_calibration_state["finger_modes"][finger] = mode
+
+                    # Relay mode command to physical ESP32 devices
+                    for dev_conn in manager.device_connections:
+                        try:
+                            await dev_conn.send_text(json.dumps({
+                                "command": "set_finger_mode",
+                                "finger": finger,
+                                "mode": mode
+                            }))
+                        except Exception:
+                            pass
+
+                elif command == "set_mock_switch":
+                    finger = message.get("finger")
+                    val = message.get("val", 0)
+                    if finger in global_calibration_state["finger_switches"]:
+                        global_calibration_state["finger_switches"][finger] = int(val)
+
                 elif command == "get_status":
                     await websocket.send_text(json.dumps({
                         "type": "status_update",
