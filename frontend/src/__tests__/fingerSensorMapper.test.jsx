@@ -298,9 +298,9 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
       const packet = {
         type: 'sensor_data',
         ring_mode: 'SWITCH',
-        raw_ring_switch: 0, // Hardware pin LOW = contact closed to GND
+        raw_ring_switch: 1, // Hardware pin HIGH = contact not touched -> BENT
         little_mode: 'SWITCH',
-        raw_little_switch: 1 // Hardware pin HIGH = contact open via pullup
+        raw_little_switch: 0 // Hardware pin LOW = contact touched to GND -> STRAIGHT
       };
 
       const result = processFingerTelemetry(packet, mockApprovedGlbConfig);
@@ -340,12 +340,28 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
       expect(isSwitchPressed({ index_switch: true }, 'index')).toBe(true);
       expect(isSwitchPressed({ index_switch: false }, 'index')).toBe(false);
 
-      expect(isSwitchPressed({ middle_switch: 'closed' }, 'middle')).toBe(true);
-      expect(isSwitchPressed({ middle_switch: 'open' }, 'middle')).toBe(false);
+      expect(isSwitchPressed({ middle_switch: 'closed' }, 'middle')).toBe(false);
+      expect(isSwitchPressed({ middle_switch: 'open' }, 'middle')).toBe(true);
 
-      // Raw GPIO levels: LOW (0) = pressed, HIGH (1) = released
-      expect(isSwitchPressed({ raw_ring_switch: 0 }, 'ring')).toBe(true);
-      expect(isSwitchPressed({ raw_ring_switch: 1 }, 'ring')).toBe(false);
+      // Physical glove: NOT TOUCHED (HIGH / 1) = BENT; TOUCHED to GND (LOW / 0) = OPEN / STRAIGHT
+      expect(isSwitchPressed({ raw_thumb_switch: 1 }, 'thumb')).toBe(true);
+      expect(isSwitchPressed({ raw_thumb_switch: 0 }, 'thumb')).toBe(false);
+      expect(isSwitchPressed({ raw_index_switch: 1 }, 'index')).toBe(true);
+      expect(isSwitchPressed({ raw_index_switch: 0 }, 'index')).toBe(false);
+      expect(isSwitchPressed({ raw_middle_switch: 1 }, 'middle')).toBe(true);
+      expect(isSwitchPressed({ raw_middle_switch: 0 }, 'middle')).toBe(false);
+      expect(isSwitchPressed({ raw_ring_switch: 1 }, 'ring')).toBe(true);
+      expect(isSwitchPressed({ raw_ring_switch: 0 }, 'ring')).toBe(false);
+      expect(isSwitchPressed({ raw_little_switch: 1 }, 'little')).toBe(true);
+      expect(isSwitchPressed({ raw_little_switch: 0 }, 'little')).toBe(false);
+
+      // Explicit boolean pressed flags (true = bent / not touched, false = straight / touched)
+      expect(isSwitchPressed({ thumb_pressed: true }, 'thumb')).toBe(true);
+      expect(isSwitchPressed({ thumb_pressed: false }, 'thumb')).toBe(false);
+
+      // String GPIO levels
+      expect(isSwitchPressed({ index_switch: 'HIGH' }, 'index')).toBe(true);
+      expect(isSwitchPressed({ index_switch: 'LOW' }, 'index')).toBe(false);
 
       expect(isSwitchPressed(null, 'little')).toBe(false);
       expect(isSwitchPressed({}, 'little')).toBe(false);

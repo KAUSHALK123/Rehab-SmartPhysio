@@ -55,24 +55,43 @@ export const SWITCH_BEND_ANGLES = {
  */
 export const isSwitchPressed = (telemetry, finger) => {
   if (!telemetry) return false;
-  const swVal = telemetry[finger + '_switch'];
-  if (swVal === 1 || swVal === true || swVal === '1' || swVal === 'closed' || swVal === 'LOW') {
-    return true;
+
+  // 1. Explicit boolean pressed flag from firmware (true = NOT TOUCHED / HIGH = BENT)
+  if (telemetry[finger + '_pressed'] !== undefined) {
+    return Boolean(telemetry[finger + '_pressed']);
   }
-  if (swVal === 0 || swVal === false || swVal === '0' || swVal === 'open' || swVal === 'HIGH') {
-    return false;
-  }
+
+  // 2. Direct hardware GPIO reading (INPUT_PULLUP glove logic):
+  // NOT TOUCHED / open via pullup (HIGH / 1) -> BENT (return true)
+  // TOUCHED / closed to GND (LOW / 0) -> OPEN / STRAIGHT default position (return false)
   const rawSw = telemetry['raw_' + finger + '_switch'];
-  if (rawSw === 0 || rawSw === '0' || rawSw === 'LOW') {
-    return true;
+  if (rawSw !== undefined && rawSw !== null) {
+    if (rawSw === 1 || rawSw === '1' || rawSw === 'HIGH' || rawSw === true) {
+      return true; // NOT TOUCHED -> BENT
+    }
+    if (rawSw === 0 || rawSw === '0' || rawSw === 'LOW' || rawSw === false) {
+      return false; // TOUCHED to GND -> OPEN / STRAIGHT
+    }
   }
-  if (rawSw === 1 || rawSw === '1' || rawSw === 'HIGH') {
-    return false;
+
+  // 3. Processed / debounced switch value:
+  // 1 / 'bent' / 'HIGH' / 'open' = BENT (return true)
+  // 0 / 'straight' / 'LOW' / 'closed' / 'touched' = OPEN / STRAIGHT (return false)
+  const swVal = telemetry[finger + '_switch'];
+  if (swVal !== undefined && swVal !== null) {
+    if (swVal === 1 || swVal === true || swVal === '1' || swVal === 'bent' || swVal === 'open' || swVal === 'HIGH') {
+      return true;
+    }
+    if (swVal === 0 || swVal === false || swVal === '0' || swVal === 'straight' || swVal === 'closed' || swVal === 'LOW') {
+      return false;
+    }
   }
-  // Seamless fallback for mock telemetry or legacy packets when digital switch pins are absent
+
+  // 4. Seamless fallback for mock telemetry or pre-filtered angle packets (>= 35° = bent)
   if (telemetry[finger] !== undefined && typeof telemetry[finger] === 'number') {
     return telemetry[finger] >= 35;
   }
+
   return false;
 };
 
@@ -349,12 +368,17 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     // Check if digital switch input is present
     const switchKey = finger + '_switch';
     const rawSwitchKey = 'raw_' + finger + '_switch';
+    const pressedKey = finger + '_pressed';
     let switchVal = null;
-    if (telemetry?.[switchKey] !== undefined && telemetry?.[switchKey] !== null) {
-      switchVal = Number(telemetry[switchKey]);
+    if (telemetry?.[pressedKey] !== undefined) {
+      switchVal = telemetry[pressedKey] ? 1 : 0;
     } else if (telemetry?.[rawSwitchKey] !== undefined && telemetry?.[rawSwitchKey] !== null) {
-      // Raw pin reading: LOW (0) = closed, HIGH (1) = open
-      switchVal = Number(telemetry[rawSwitchKey]) === 0 ? 1 : 0;
+      // Physical glove: NOT TOUCHED (HIGH / 1) = BENT (1); TOUCHED to GND (LOW / 0) = STRAIGHT (0)
+      const r = telemetry[rawSwitchKey];
+      switchVal = (r === 1 || r === '1' || r === 'HIGH' || r === true) ? 1 : 0;
+    } else if (telemetry?.[switchKey] !== undefined && telemetry?.[switchKey] !== null) {
+      const v = telemetry[switchKey];
+      switchVal = (v === 1 || v === true || v === '1' || v === 'bent' || v === 'open' || v === 'HIGH') ? 1 : 0;
     }
 
     if (activeMode === 'SWITCH') {

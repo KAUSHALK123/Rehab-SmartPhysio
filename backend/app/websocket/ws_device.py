@@ -187,6 +187,20 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                             "ring_switch": global_calibration_state["finger_switches"]["ring"] if global_calibration_state["finger_modes"]["ring"] == "SWITCH" else (1 if step == "close_hand" else 0),
                             "little_switch": global_calibration_state["finger_switches"]["little"] if global_calibration_state["finger_modes"]["little"] == "SWITCH" else (1 if step == "close_hand" else 0),
 
+                            # Explicit boolean pressed flags (True = LOW = GND = BEND)
+                            "thumb_pressed": (global_calibration_state["finger_switches"]["thumb"] == 1) if global_calibration_state["finger_modes"]["thumb"] == "SWITCH" else (step == "close_hand"),
+                            "index_pressed": (global_calibration_state["finger_switches"]["index"] == 1) if global_calibration_state["finger_modes"]["index"] == "SWITCH" else (step == "close_hand"),
+                            "middle_pressed": (global_calibration_state["finger_switches"]["middle"] == 1) if global_calibration_state["finger_modes"]["middle"] == "SWITCH" else (step == "close_hand"),
+                            "ring_pressed": (global_calibration_state["finger_switches"]["ring"] == 1) if global_calibration_state["finger_modes"]["ring"] == "SWITCH" else (step == "close_hand"),
+                            "little_pressed": (global_calibration_state["finger_switches"]["little"] == 1) if global_calibration_state["finger_modes"]["little"] == "SWITCH" else (step == "close_hand"),
+
+                            # Raw GPIO levels: NOT TOUCHED (HIGH / 1) = BENT; TOUCHED to GND (LOW / 0) = STRAIGHT
+                            "raw_thumb_switch": 1 if (global_calibration_state["finger_switches"]["thumb"] == 1 or step == "close_hand") else 0,
+                            "raw_index_switch": 1 if (global_calibration_state["finger_switches"]["index"] == 1 or step == "close_hand") else 0,
+                            "raw_middle_switch": 1 if (global_calibration_state["finger_switches"]["middle"] == 1 or step == "close_hand") else 0,
+                            "raw_ring_switch": 1 if (global_calibration_state["finger_switches"]["ring"] == 1 or step == "close_hand") else 0,
+                            "raw_little_switch": 1 if (global_calibration_state["finger_switches"]["little"] == 1 or step == "close_hand") else 0,
+
                             # Elbow: 180=straight, 90=bent
                             "elbow": 180 + random.randint(-3, 3) if step != "bend_elbow" else 90 + random.randint(-2, 2),
                             "elbow_switch": 1 if step == "bend_elbow" else 0,

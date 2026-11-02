@@ -475,7 +475,7 @@ const FingerSyncPanel = ({
                   <span className={`text-[7px] font-extrabold uppercase mt-0.5 px-1 rounded ${
                     isPressed ? 'bg-amber-500 text-slate-950 font-black' : 'bg-slate-700 text-slate-300'
                   }`}>
-                    {isPressed ? 'PRESSED' : 'RELEASED'}
+                    {isPressed ? 'BENT (OPEN)' : 'STRAIGHT (TOUCHED)'}
                   </span>
                 </button>
               );

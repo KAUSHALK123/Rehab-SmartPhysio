@@ -124,8 +124,10 @@ struct DebouncedSwitch {
       }
     }
     lastReading = reading;
-    // Closed to GND = LOW -> switchVal = 1 (bent 90°); Open via pullup = HIGH -> switchVal = 0 (straight 0°)
-    switchVal = (debouncedState == LOW) ? 1 : 0;
+    // Physical contact glove logic:
+    // TOUCHED / closed to GND = LOW (0) -> OPEN / STRAIGHT default rest position (switchVal = 0, angle = 0.0°)
+    // NOT TOUCHED / open via pullup = HIGH (1) -> BENT flexed position (switchVal = 1, angle = 90.0°)
+    switchVal = (debouncedState == HIGH) ? 1 : 0;
   }
 };
 
@@ -668,19 +670,26 @@ void loop() {
       doc["ring_mode"] = modeToString(mode_ring);
       doc["little_mode"] = modeToString(mode_little);
 
-      // Debounced Switch Values: 0 = Open (HIGH / Straight 0°), 1 = Closed to GND (LOW / Bent 90°)
+      // Debounced Switch Values: 1 = Closed to GND / LOW (Bent 90°), 0 = Open / HIGH (Straight 0°)
       doc["thumb_switch"] = sw_thumb.switchVal;
       doc["index_switch"] = sw_index.switchVal;
       doc["middle_switch"] = sw_middle.switchVal;
       doc["ring_switch"] = sw_ring.switchVal;
       doc["little_switch"] = sw_little.switchVal;
 
-      // Raw Switch Pin States (HIGH=1, LOW=0) for hardware diagnosis
+      // Raw Switch Pin States: 0 = LOW (connected to GND / pressed), 1 = HIGH (disconnected / released)
       doc["raw_thumb_switch"] = sw_thumb.rawState;
       doc["raw_index_switch"] = sw_index.rawState;
       doc["raw_middle_switch"] = sw_middle.rawState;
       doc["raw_ring_switch"] = sw_ring.rawState;
       doc["raw_little_switch"] = sw_little.rawState;
+
+      // Explicit boolean pressed flags: NOT TOUCHED (HIGH) = BENT (true); TOUCHED to GND (LOW) = STRAIGHT (false)
+      doc["thumb_pressed"] = (sw_thumb.debouncedState == HIGH);
+      doc["index_pressed"] = (sw_index.debouncedState == HIGH);
+      doc["middle_pressed"] = (sw_middle.debouncedState == HIGH);
+      doc["ring_pressed"] = (sw_ring.debouncedState == HIGH);
+      doc["little_pressed"] = (sw_little.debouncedState == HIGH);
 
       // Send Calibration Bounds for UI Display
       JsonObject bounds = doc.createNestedObject("bounds");

@@ -35,7 +35,7 @@ describe('SmartPhysio Full Switch-Only GLB Movement Migration', () => {
     expect(resIndex.angles.little).toBe(0);
 
     // 2. Single switch press (Thumb: GPIO 18) -> only Thumb bends
-    const thumbPacket = { raw_thumb_switch: 0 }; // LOW = 0 = pressed
+    const thumbPacket = { raw_thumb_switch: 1 }; // HIGH = 1 = not touched = bent
     const resThumb = getAuthoritativeFingerMovement(thumbPacket, null, { forceSource: 'SWITCH' });
     expect(resThumb.angles.thumb).toBe(SWITCH_BEND_ANGLES.thumb);
     expect(resThumb.angles.index).toBe(0);
