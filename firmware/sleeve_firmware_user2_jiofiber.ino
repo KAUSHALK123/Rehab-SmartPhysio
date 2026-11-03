@@ -1,0 +1,739 @@
+/*
+  SmartPhysio - Intelligent Wearable Rehabilitation Sleeve ESP32 Firmware
+  
+  Description:
+  This firmware runs on an ESP32 microcontroller, reads raw sensor inputs from:
+  1. Five analog flex sensors (Thumb, Index, Middle, Ring, Little)
+  2. One elbow curl flex sensor
+  3. One force pressure resistor (Grip Squeeze)
+  4. One MPU6050 Inertial Measurement Unit (I2C) for Wrist Pitch/Roll
+  
+  And streams the telemetry as a JSON payload over a WebSocket connection to the 
+  FastAPI backend server at 20Hz (50ms interval).
+  
+  Wiring Connection Layout:
+  -------------------------------------------------------------
+  Sensor Name      | Type     | ESP32 Pin | Extra Components Required
+  -------------------------------------------------------------
+  Thumb Flex       | Analog   | GPIO 36 (VP)| 10k Ohm Resistor in Pull-down
+  Index Flex       | Analog   | GPIO 33 (D33)| 10k Ohm Resistor in Pull-down
+  Middle Flex      | Analog   | GPIO 34 (D34)| 10k Ohm Resistor in Pull-down
+  Ring Flex        | Analog   | GPIO 35 (D35)| 10k Ohm Resistor in Pull-down
+  Little Flex      | Analog   | GPIO 32 (D32)| 10k Ohm Resistor in Pull-down
+  Elbow Flex       | Analog   | GPIO 39 (VN)| 10k Ohm Resistor in Pull-down
+  Pressure Squeeze | Analog   | GPIO 25     | 10k Ohm Resistor in Pull-down
+  Elbow Switch     | Digital  | GPIO 27 (D27)| 2-Wire Switch to GND (INPUT_PULLUP)
+  MPU6050 SDA      | I2C Data | GPIO 21   | 4.7k Ohm Pull-up to 3.3V
+  MPU6050 SCL      | I2C Clock| GPIO 22   | 4.7k Ohm Pull-up to 3.3V
+  -------------------------------------------------------------
+  
+  External Libraries Required:
+  1. MPU6050_tockn (by tockn)
+  2. ArduinoJson (by Benoit Blanchon)
+  3. WebSockets (by Markus Sattler)
+*/
+
+#include <WiFi.h>
+#include <Wire.h>
+#include <MPU6050_tockn.h>
+#include <ArduinoJson.h>
+#include <WebSocketsClient.h>
+#include <Preferences.h>
+
+// ============================================================================
+// WI-FI & SERVER CONFIGURATION — USER 2 (JIOFIBER HOME WI-FI)
+// ============================================================================
+String wifi_ssid   = "JioFiber-Ys2sx";
+String wifi_pass   = "MBMGREEN";
+String server_host = "192.168.29.176";
+const int server_port = 8000;
+
+Preferences preferences;
+
+// --- Analog Input Pins Assignment ---
+// User Hardware Pinout:
+// VP  (GPIO 36 / ADC1_CH0) -> Thumb Flex
+// D33 (GPIO 33 / ADC1_CH5) -> Index Flex
+// D34 (GPIO 34 / ADC1_CH6) -> Middle Flex
+// D35 (GPIO 35 / ADC1_CH7) -> Ring Flex
+// D32 (GPIO 32 / ADC1_CH4) -> Little Flex
+// VN  (GPIO 39 / ADC1_CH3) -> Elbow Flex
+// D25 (GPIO 25)            -> Grip Pressure Resistor
+const int PIN_THUMB    = 36; // VP  (GPIO 36) -> THUMB FLEX
+const int PIN_INDEX    = 33; // D33 (GPIO 33) -> INDEX FLEX
+const int PIN_MIDDLE   = 34; // D34 (GPIO 34) -> MIDDLE FLEX
+const int PIN_RING     = 35; // D35 (GPIO 35) -> RING FLEX
+const int PIN_LITTLE   = 32; // D32 (GPIO 32) -> LITTLE FLEX
+const int PIN_ELBOW    = 39; // VN  (GPIO 39) -> ELBOW FLEX
+const int PIN_PRESSURE = 25; // D25 (GPIO 25) -> SQUEEZE FORCE
+const int PIN_ELBOW_SWITCH = -1; // D27 reassigned to Thumb switch
+
+// --- Digital Contact Switch Inputs for Hybrid Technique (INPUT_PULLUP to GND) ---
+// Configurable Constants for Finger Contact Switches:
+const int PIN_SW_THUMB    = 27; // D27 (GPIO 27) -> THUMB CONTACT SWITCH (Replaced from elbow)
+const int PIN_SW_INDEX    = 19; // D19 (GPIO 19) -> INDEX CONTACT SWITCH
+const int PIN_SW_MIDDLE   = 23; // D23 (GPIO 23) -> MIDDLE CONTACT SWITCH
+const int PIN_SW_RING     = 18; // D18 (GPIO 18) -> RING CONTACT SWITCH (Swapped with thumb)
+const int PIN_SW_RING_ALT = 17; // D17 (GPIO 17) -> RING CONTACT SWITCH ALTERNATIVE
+const int PIN_SW_LITTLE   = 13; // D13 (GPIO 13) -> LITTLE CONTACT SWITCH
+
+// Input Mode per finger: MODE_FLEX (continuous analog) or MODE_SWITCH (digital two-wire contact)
+enum FingerInputMode {
+  MODE_FLEX = 0,
+  MODE_SWITCH = 1
+};
+
+// Configurable mode per finger - defaults to MODE_FLEX so existing functionality is preserved!
+// Default to MODE_SWITCH for current testing version; legacy MODE_FLEX is fully preserved!
+FingerInputMode mode_thumb  = MODE_FLEX;
+FingerInputMode mode_index  = MODE_FLEX;
+FingerInputMode mode_middle = MODE_FLEX;
+FingerInputMode mode_ring   = MODE_FLEX;
+FingerInputMode mode_little = MODE_FLEX;
+
+inline const char* modeToString(FingerInputMode m) {
+  return (m == MODE_SWITCH) ? "SWITCH" : "FLEX";
+}
+
+// Struct for 25ms software debounced switch inputs (with inline update method to prevent Arduino IDE prototype generation errors)
+struct DebouncedSwitch {
+  int pin;
+  int altPin;             // Optional secondary pin (-1 if none)
+  int rawState;           // Instant digitalRead: HIGH (1) = open, LOW (0) = closed
+  int debouncedState;     // Debounced stable reading: HIGH = open, LOW = closed
+  int switchVal;          // Normalized: 0 = open (straight), 1 = closed (bent)
+  int lastReading;        // Previous loop sample
+  unsigned long lastDebounceTime;
+
+  void update() {
+    if (pin < 0 && altPin < 0) {
+      rawState = HIGH;
+      debouncedState = HIGH;
+      switchVal = 0;
+      return;
+    }
+    int reading = (pin >= 0) ? digitalRead(pin) : HIGH;
+    if (altPin >= 0 && digitalRead(altPin) == LOW) {
+      reading = LOW;
+    }
+    rawState = reading;
+    if (reading != lastReading) {
+      lastDebounceTime = millis();
+    }
+    if ((millis() - lastDebounceTime) > 25) {
+      if (reading != debouncedState) {
+        debouncedState = reading;
+      }
+    }
+    lastReading = reading;
+    // Physical contact glove logic:
+    // TOUCHED / closed to GND = LOW (0) -> OPEN / STRAIGHT default rest position (switchVal = 0, angle = 0.0°)
+    // NOT TOUCHED / open via pullup = HIGH (1) -> BENT flexed position (switchVal = 1, angle = 90.0°)
+    switchVal = (debouncedState == HIGH) ? 1 : 0;
+  }
+};
+
+DebouncedSwitch sw_thumb  = { PIN_SW_THUMB,    -1,                 HIGH, HIGH, 0, HIGH, 0 };
+DebouncedSwitch sw_index  = { PIN_SW_INDEX,    -1,                 HIGH, HIGH, 0, HIGH, 0 };
+DebouncedSwitch sw_middle = { PIN_SW_MIDDLE,   -1,                 HIGH, HIGH, 0, HIGH, 0 };
+DebouncedSwitch sw_ring   = { PIN_SW_RING,     PIN_SW_RING_ALT,    HIGH, HIGH, 0, HIGH, 0 };
+DebouncedSwitch sw_little = { PIN_SW_LITTLE,   -1,                 HIGH, HIGH, 0, HIGH, 0 };
+DebouncedSwitch sw_elbow  = { -1,              -1,                 HIGH, HIGH, 0, HIGH, 0 };
+
+
+// --- Sensors Variables & Objects ---
+MPU6050 mpu(Wire);
+WebSocketsClient webSocket;
+bool wsConnected = false;
+bool mpuFound = false;
+unsigned long lastStreamTime = 0;
+unsigned long lastMpuRetryTime = 0;
+const int streamInterval = 50; // 50ms = 20Hz sample rate (was 100ms/10Hz)
+
+// Finger and Elbow calibration storage variables (Defaults tuned for high sensitivity flex response)
+int thumbStraight = 1400, thumbBent = 2200;
+int indexStraight = 1350, indexBent = 2250;
+int middleStraight = 1380, middleBent = 2280;
+int ringStraight = 1400, ringBent = 2250;
+int littleStraight = 1300, littleBent = 2150;
+int elbowStraight = 1200, elbowBent = 2400;
+
+// EMA Filter variables — alpha=0.7 gives instant response to micro-bends with clean filtering
+const float emaAlpha = 0.7;
+float f_thumb = -1, f_index = -1, f_middle = -1, f_ring = -1, f_little = -1, f_elbow = -1;
+
+// Last sent angle (fine deadband 0.1 deg for maximum micro-bend sensitivity)
+const float angleDeadband = 0.1;
+float a_thumb = 0, a_index = 0, a_middle = 0, a_ring = 0, a_little = 0, a_elbow = 0;
+bool sensorsStable = false;
+
+// Helper maps filtered ADC values to angles (0 to 90 degrees)
+float mapFlexAngle(float filteredVal, int straightVal, int bentVal) {
+  // Determine bounds
+  float low = min(straightVal, bentVal);
+  float high = max(straightVal, bentVal);
+  
+  // Constrain reading
+  float val = constrain(filteredVal, low, high);
+  
+  // Map to 0-90 degrees
+  if (bentVal == straightVal) return 0.0; // safety
+  float angle = (val - straightVal) * 90.0 / (float)(bentVal - straightVal);
+  
+  // Safety constrain to expected anatomical bounds
+  return constrain(angle, 0.0, 90.0);
+}
+
+// WebSocket Event Handler Callback
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+  switch(type) {
+    case WStype_DISCONNECTED:
+      Serial.println("[WS] Disconnected from server");
+      wsConnected = false;
+      break;
+    case WStype_CONNECTED:
+      Serial.printf("[WS] Connected to url: %s\n", payload);
+      wsConnected = true;
+      break;
+    case WStype_TEXT:
+      Serial.printf("[WS] Received Text: %s\n", payload);
+      // Process incoming commands from backend
+      StaticJsonDocument<200> doc;
+      DeserializationError error = deserializeJson(doc, payload);
+      if (!error) {
+        const char* command = doc["command"];
+        if (command && strcmp(command, "set_step") == 0) {
+          const char* step = doc["step"];
+          Serial.printf("[WS] Step changed to: %s\n", step);
+                } else if (command && strcmp(command, "set_finger_mode") == 0) {
+          const char* finger = doc["finger"];
+          const char* modeStr = doc["mode"];
+          if (finger && modeStr) {
+            FingerInputMode newMode = (strcmp(modeStr, "SWITCH") == 0) ? MODE_SWITCH : MODE_FLEX;
+            if (strcmp(finger, "all") == 0) {
+              mode_thumb = newMode; mode_index = newMode; mode_middle = newMode; mode_ring = newMode; mode_little = newMode;
+            } else if (strcmp(finger, "thumb") == 0) mode_thumb = newMode;
+            else if (strcmp(finger, "index") == 0) mode_index = newMode;
+            else if (strcmp(finger, "middle") == 0) mode_middle = newMode;
+            else if (strcmp(finger, "ring") == 0) mode_ring = newMode;
+            else if (strcmp(finger, "little") == 0) mode_little = newMode;
+            Serial.printf("[WS] Mode change: %s -> %s\n", finger, modeStr);
+          }
+        } else if (command && strcmp(command, "set_sensor_bounds") == 0) {
+          const char* sensor = doc["sensor"];
+          int strVal = doc["straight"];
+          int bntVal = doc["bent"];
+          
+          if (!sensor) return;
+          
+          Serial.printf("[WS] Calibration Command: set_sensor_bounds for %s (S:%d B:%d)\n", sensor, strVal, bntVal);
+          
+          if (abs(strVal - bntVal) < 20) {
+            Serial.printf("[FLEX] %s calibration invalid: insufficient sensor range (%d vs %d)\n", sensor, strVal, bntVal);
+            return; // Ignore garbage calibration
+          }
+          
+          preferences.begin("physio", false);
+          if (strcmp(sensor, "thumb") == 0) {
+            thumbStraight = strVal; thumbBent = bntVal;
+            preferences.putInt("thumbStr", strVal); preferences.putInt("thumbBnt", bntVal);
+          } else if (strcmp(sensor, "index") == 0) {
+            indexStraight = strVal; indexBent = bntVal;
+            preferences.putInt("indexStr", strVal); preferences.putInt("indexBnt", bntVal);
+          } else if (strcmp(sensor, "middle") == 0) {
+            middleStraight = strVal; middleBent = bntVal;
+            preferences.putInt("middleStr", strVal); preferences.putInt("middleBnt", bntVal);
+          } else if (strcmp(sensor, "ring") == 0) {
+            ringStraight = strVal; ringBent = bntVal;
+            preferences.putInt("ringStr", strVal); preferences.putInt("ringBnt", bntVal);
+          } else if (strcmp(sensor, "little") == 0) {
+            littleStraight = strVal; littleBent = bntVal;
+            preferences.putInt("littleStr", strVal); preferences.putInt("littleBnt", bntVal);
+          } else if (strcmp(sensor, "elbow") == 0) {
+            elbowStraight = strVal; elbowBent = bntVal;
+            preferences.putInt("elbowStr", strVal); preferences.putInt("elbowBnt", bntVal);
+          }
+          preferences.end();
+          Serial.printf("[FLEX] Saved %s Calibration.\n", sensor);
+        }
+      }
+      break;
+  }
+}
+
+// Helper to probe I2C bus and initialize MPU6050 on address 0x68 or 0x69 (or full bus scan)
+bool detectAndInitMPU(bool fullCalib) {
+  byte mpuAddress = 0;
+  
+  Wire.beginTransmission(0x68);
+  byte err68 = Wire.endTransmission();
+  
+  Wire.beginTransmission(0x69);
+  byte err69 = Wire.endTransmission();
+  
+  if (err68 == 0) {
+    mpuAddress = 0x68;
+  } else if (err69 == 0) {
+    mpuAddress = 0x69;
+  } else {
+    // If standard addresses fail, scan full 1-127 I2C bus to see if anything is connected
+    byte anyFound = 0;
+    for (byte addr = 1; addr < 127; addr++) {
+      Wire.beginTransmission(addr);
+      if (Wire.endTransmission() == 0) {
+        anyFound = addr;
+        break;
+      }
+    }
+    
+    if (anyFound != 0) {
+      Serial.printf("[I2C SCAN] Found unknown I2C device at 0x%02X (Expected MPU at 0x68 or 0x69)!\n", anyFound);
+      mpuAddress = anyFound;
+    } else {
+      if (fullCalib) {
+        Serial.printf("[I2C SCAN] No I2C response on GPIO 21 (SDA) & 22 (SCL). (Err: 0x68=%d, 0x69=%d)\n", err68, err69);
+        if (err68 == 4 || err68 == 5) {
+          Serial.println("--> I2C bus is STUCK or SHORTED. Check if SDA and SCL are touching or shorted to GND.");
+        } else {
+          Serial.println("--> Check wires: SDA must be on GPIO 21, SCL on GPIO 22. Connect AD0 to GND.");
+        }
+      }
+    }
+  }
+
+  if (mpuAddress != 0) {
+    Serial.printf("[MPU] Found chip on I2C address 0x%02X! Initializing...\n", mpuAddress);
+    mpu.begin();
+    if (fullCalib) {
+      Serial.println("[MPU] Calibrating gyro offsets (keep sleeve still for 3s)...");
+      mpu.calcGyroOffsets(true);
+    } else {
+      mpu.calcGyroOffsets(false);
+    }
+    mpuFound = true;
+    Serial.println("[MPU] Sensor successfully initialized and ready!");
+    return true;
+  }
+  return false;
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  // Load preferences from non-volatile storage (NVS)
+  preferences.begin("physio", false);
+  String stored_ssid = preferences.getString("wifi_ssid", "");
+  String stored_pass = preferences.getString("wifi_pass", "");
+  String stored_host = preferences.getString("server_host", "");
+  preferences.end();
+
+    // Explicitly ensure Praful hotspot is always used (prevent old NVS cache from overriding)
+  wifi_ssid = "JioFiber-Ys2sx";
+  wifi_pass = "MBMGREEN";
+  server_host = "192.168.29.176";
+  
+  // Overwrite NVS to purge any stale credentials
+  preferences.begin("physio", false);
+  preferences.putString("wifi_ssid", wifi_ssid);
+  preferences.putString("wifi_pass", wifi_pass);
+  preferences.putString("server_host", server_host);
+  preferences.end();
+  
+  Serial.printf("[CONFIG] Active Target SSID: %s (Pass: %s)\n", wifi_ssid.c_str(), wifi_pass.c_str());
+  Serial.printf("[CONFIG] Active Server Host: %s:%d\n", server_host.c_str(), server_port);
+  
+
+  
+  // Load Flex Calibration
+  thumbStraight = preferences.getInt("thumbStr", 0); thumbBent = preferences.getInt("thumbBnt", 4095);
+  indexStraight = preferences.getInt("indexStr", 0); indexBent = preferences.getInt("indexBnt", 4095);
+  middleStraight = preferences.getInt("middleStr", 0); middleBent = preferences.getInt("middleBnt", 4095);
+  ringStraight = preferences.getInt("ringStr", 0); ringBent = preferences.getInt("ringBnt", 4095);
+  littleStraight = preferences.getInt("littleStr", 0); littleBent = preferences.getInt("littleBnt", 4095);
+  elbowStraight = preferences.getInt("elbowStr", 0); elbowBent = preferences.getInt("elbowBnt", 4095);
+
+  if (thumbStraight == 0 && thumbBent == 4095) {
+    Serial.println("[FLEX] WARNING: Calibration required for finger flex sensors.");
+  }
+  
+  // 1. Initialize Wi-Fi Connection (Direct Praful Hotspot)
+  Serial.printf("\nConnecting directly to JioFiber Wi-Fi: %s (Password: %s)...\n", wifi_ssid.c_str(), wifi_pass.c_str());
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
+  
+  unsigned long startWifiTime = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(200);
+    Serial.print(".");
+    
+    // Check for serial configuration commands during connection block!
+    if (Serial.available() > 0) {
+      String serialData = Serial.readStringUntil('\n');
+      serialData.trim();
+            if (serialData.startsWith("SET_MODE:")) {
+        // Command format: SET_MODE:<finger>,<FLEX|SWITCH>
+        // Example: SET_MODE:index,SWITCH or SET_MODE:all,SWITCH or SET_MODE:all,FLEX
+        String cmd = serialData.substring(9);
+        int comma = cmd.indexOf(',');
+        if (comma != -1) {
+          String target = cmd.substring(0, comma);
+          String modeStr = cmd.substring(comma + 1);
+          target.trim(); target.toLowerCase();
+          modeStr.trim(); modeStr.toUpperCase();
+          FingerInputMode newMode = (modeStr == "SWITCH") ? MODE_SWITCH : MODE_FLEX;
+          if (target == "all") {
+            mode_thumb = newMode; mode_index = newMode; mode_middle = newMode; mode_ring = newMode; mode_little = newMode;
+            Serial.printf("[MODE] All fingers set to %s mode\n", modeStr.c_str());
+          } else if (target == "thumb") {
+            mode_thumb = newMode;
+            Serial.printf("[MODE] Thumb set to %s mode\n", modeStr.c_str());
+          } else if (target == "index") {
+            mode_index = newMode;
+            Serial.printf("[MODE] Index set to %s mode\n", modeStr.c_str());
+          } else if (target == "middle") {
+            mode_middle = newMode;
+            Serial.printf("[MODE] Middle set to %s mode\n", modeStr.c_str());
+          } else if (target == "ring") {
+            mode_ring = newMode;
+            Serial.printf("[MODE] Ring set to %s mode\n", modeStr.c_str());
+          } else if (target == "little") {
+            mode_little = newMode;
+            Serial.printf("[MODE] Little set to %s mode\n", modeStr.c_str());
+          }
+        }
+      } else if (serialData.startsWith("SET_CONFIG:")) {
+        String configData = serialData.substring(11);
+        int firstComma = configData.indexOf(',');
+        int secondComma = configData.indexOf(',', firstComma + 1);
+        if (firstComma != -1 && secondComma != -1) {
+          String newSsid = configData.substring(0, firstComma);
+          String newPass = configData.substring(firstComma + 1, secondComma);
+          String newHost = configData.substring(secondComma + 1);
+          newSsid.trim(); newPass.trim(); newHost.trim();
+          
+          preferences.begin("physio", false);
+          preferences.putString("wifi_ssid", newSsid);
+          preferences.putString("wifi_pass", newPass);
+          preferences.putString("server_host", newHost);
+          preferences.end();
+          
+          Serial.println("\n[CONFIG] Saved new config to memory! Rebooting...");
+          delay(500);
+          ESP.restart();
+        }
+      }
+    }
+    
+    // 10 seconds connection timeout
+    if (millis() - startWifiTime > 10000) {
+      Serial.println("\n[WiFi] Connection timed out! Entering offline mode.");
+      break;
+    }
+  }
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWi-Fi Connected successfully!");
+    Serial.print("Local IP Address: ");
+    Serial.println(WiFi.localIP());
+    // Disable Wi-Fi modem sleep to prevent disconnection during idle periods
+    WiFi.setSleep(false);
+    WiFi.setAutoReconnect(true);
+  }
+
+  // 2. Initialize I2C and MPU6050 with explicit ESP32 pins
+  Wire.begin(21, 22); // GPIO 21 = SDA, GPIO 22 = SCL
+  delay(200); // Allow I2C bus pins to settle
+  Serial.println("Scanning I2C bus for MPU6050 on GPIO 21 (SDA) / GPIO 22 (SCL)...");
+  
+  if (!detectAndInitMPU(true)) {
+    Serial.println("Warning: MPU6050 chip not detected at 0x68 or 0x69 on boot!");
+    Serial.println("--> 1. Check if SDA is on GPIO 21 and SCL is on GPIO 22.");
+    Serial.println("--> 2. Check if AD0 pin is floating; connect AD0 to GND for address 0x68.");
+    Serial.println("--> 3. Power LED on MPU only indicates VCC/GND power, NOT I2C communication.");
+    Serial.println("--> 4. Auto-reconnect is active: will automatically connect as soon as wires are seated!");
+    mpuFound = false;
+  }
+
+  // 3. Initialize WebSocket client connection
+  // client_type=device query parameter informs backend this is the hardware device socket
+  Serial.printf("Connecting to WebSocket server: %s:%d...\n", server_host.c_str(), server_port);
+  webSocket.begin(server_host.c_str(), server_port, "/api/v1/device/ws?client_type=device");
+  webSocket.onEvent(webSocketEvent);
+  webSocket.setReconnectInterval(3000); // Reconnect quickly (3s) if connection drops
+  webSocket.enableHeartbeat(15000, 3000, 2); // Keep-alive ping every 15s to prevent router timeouts
+
+  // 4. Configure ADC resolution & analog input pins (Full 12-bit, 0V - 3.3V range)
+  analogReadResolution(12);
+  analogSetAttenuation(ADC_11db);
+  pinMode(PIN_THUMB, INPUT);
+  pinMode(PIN_INDEX, INPUT);
+  pinMode(PIN_MIDDLE, INPUT);
+  pinMode(PIN_RING, INPUT);
+  pinMode(PIN_LITTLE, INPUT);
+  pinMode(PIN_ELBOW, INPUT);
+  pinMode(PIN_PRESSURE, INPUT);
+  if (PIN_ELBOW_SWITCH >= 0) pinMode(PIN_ELBOW_SWITCH, INPUT_PULLUP);
+  pinMode(PIN_SW_THUMB, INPUT_PULLUP);
+  pinMode(PIN_SW_INDEX, INPUT_PULLUP);
+  pinMode(PIN_SW_MIDDLE, INPUT_PULLUP);
+  pinMode(PIN_SW_RING, INPUT_PULLUP);
+  pinMode(PIN_SW_RING_ALT, INPUT_PULLUP);
+  pinMode(PIN_SW_LITTLE, INPUT_PULLUP);
+}
+
+void loop() {
+  // Auto-reconnect Wi-Fi if connection drops
+  static unsigned long lastWifiCheck = 0;
+  if (WiFi.status() != WL_CONNECTED && (millis() - lastWifiCheck >= 5000)) {
+    lastWifiCheck = millis();
+    Serial.println("[WiFi] Wi-Fi lost. Reconnecting to JioFiber Wi-Fi...");
+    WiFi.disconnect();
+    WiFi.reconnect();
+  }
+
+  webSocket.loop();
+
+  // Listen for serial configuration commands
+  if (Serial.available() > 0) {
+    String serialData = Serial.readStringUntil('\n');
+    serialData.trim();
+          if (serialData.startsWith("SET_MODE:")) {
+        // Command format: SET_MODE:<finger>,<FLEX|SWITCH>
+        // Example: SET_MODE:index,SWITCH or SET_MODE:all,SWITCH or SET_MODE:all,FLEX
+        String cmd = serialData.substring(9);
+        int comma = cmd.indexOf(',');
+        if (comma != -1) {
+          String target = cmd.substring(0, comma);
+          String modeStr = cmd.substring(comma + 1);
+          target.trim(); target.toLowerCase();
+          modeStr.trim(); modeStr.toUpperCase();
+          FingerInputMode newMode = (modeStr == "SWITCH") ? MODE_SWITCH : MODE_FLEX;
+          if (target == "all") {
+            mode_thumb = newMode; mode_index = newMode; mode_middle = newMode; mode_ring = newMode; mode_little = newMode;
+            Serial.printf("[MODE] All fingers set to %s mode\n", modeStr.c_str());
+          } else if (target == "thumb") {
+            mode_thumb = newMode;
+            Serial.printf("[MODE] Thumb set to %s mode\n", modeStr.c_str());
+          } else if (target == "index") {
+            mode_index = newMode;
+            Serial.printf("[MODE] Index set to %s mode\n", modeStr.c_str());
+          } else if (target == "middle") {
+            mode_middle = newMode;
+            Serial.printf("[MODE] Middle set to %s mode\n", modeStr.c_str());
+          } else if (target == "ring") {
+            mode_ring = newMode;
+            Serial.printf("[MODE] Ring set to %s mode\n", modeStr.c_str());
+          } else if (target == "little") {
+            mode_little = newMode;
+            Serial.printf("[MODE] Little set to %s mode\n", modeStr.c_str());
+          }
+        }
+      } else if (serialData.startsWith("SET_CONFIG:")) {
+      // Command format: SET_CONFIG:SSID,PASSWORD,SERVER_IP
+      String configData = serialData.substring(11);
+      int firstComma = configData.indexOf(',');
+      int secondComma = configData.indexOf(',', firstComma + 1);
+      
+      if (firstComma != -1 && secondComma != -1) {
+        String newSsid = configData.substring(0, firstComma);
+        String newPass = configData.substring(firstComma + 1, secondComma);
+        String newHost = configData.substring(secondComma + 1);
+        
+        newSsid.trim();
+        newPass.trim();
+        newHost.trim();
+        
+        Serial.println("\n[CONFIG] Received new configuration over Serial:");
+        Serial.printf("SSID: %s\n", newSsid.c_str());
+        Serial.printf("Host: %s\n", newHost.c_str());
+        
+        // Write to NVS
+        preferences.begin("physio", false);
+        preferences.putString("wifi_ssid", newSsid);
+        preferences.putString("wifi_pass", newPass);
+        preferences.putString("server_host", newHost);
+        preferences.end();
+        
+        Serial.println("[CONFIG] Saved to NVS! Rebooting ESP32...");
+        delay(1000);
+        ESP.restart();
+      } else {
+        Serial.println("[CONFIG] Error: Invalid format. Expected: SET_CONFIG:SSID,PASSWORD,SERVER_IP");
+      }
+    }
+  }
+
+  unsigned long currentTime = millis();
+
+  // Background auto-reconnect for MPU if it was disconnected or plugged after boot
+  if (!mpuFound && (currentTime - lastMpuRetryTime >= 3000)) {
+    lastMpuRetryTime = currentTime;
+    detectAndInitMPU(false);
+  }
+
+  // Stream data at 10Hz interval
+  if (currentTime - lastStreamTime >= streamInterval) {
+    lastStreamTime = currentTime;
+
+    // A. Read raw ADC values from flex and pressure sensors (12-bit, range 0 - 4095)
+    // Update all 5 digital contact switches + elbow switch with 25ms debouncing
+    sw_thumb.update();
+    sw_index.update();
+    sw_middle.update();
+    sw_ring.update();
+    sw_little.update();
+    sw_elbow.update();
+
+    // Read raw ADC values from flex and pressure sensors (always active for diagnostics)
+    int rawThumb = analogRead(PIN_THUMB);
+    int rawIndex = analogRead(PIN_INDEX);
+    int rawMiddle = analogRead(PIN_MIDDLE);
+    int rawRing = analogRead(PIN_RING);
+    int rawLittle = analogRead(PIN_LITTLE);
+    int rawElbow = analogRead(PIN_ELBOW);
+    int rawPressure = analogRead(PIN_PRESSURE);
+    int rawElbowSwitch = sw_elbow.rawState;
+
+    // Initialize EMA on first run
+    if (f_thumb < 0) {
+      f_thumb = rawThumb; f_index = rawIndex; f_middle = rawMiddle; f_ring = rawRing; f_little = rawLittle; f_elbow = rawElbow;
+    } else {
+      f_thumb = (emaAlpha * rawThumb) + ((1.0 - emaAlpha) * f_thumb);
+      f_index = (emaAlpha * rawIndex) + ((1.0 - emaAlpha) * f_index);
+      f_middle = (emaAlpha * rawMiddle) + ((1.0 - emaAlpha) * f_middle);
+      f_ring = (emaAlpha * rawRing) + ((1.0 - emaAlpha) * f_ring);
+      f_little = (emaAlpha * rawLittle) + ((1.0 - emaAlpha) * f_little);
+      f_elbow = (emaAlpha * rawElbow) + ((1.0 - emaAlpha) * f_elbow);
+    }
+    
+    // Check Stability (if raw variance from filtered is low across the board)
+    bool isStableNow = (abs(rawThumb - f_thumb) < 8) && (abs(rawIndex - f_index) < 8) && 
+                       (abs(rawMiddle - f_middle) < 8) && (abs(rawRing - f_ring) < 8) && 
+                       (abs(rawLittle - f_little) < 8) && (abs(rawElbow - f_elbow) < 8);
+    sensorsStable = isStableNow;
+
+    // B. Calculate mapped angles based on configured per-finger mode
+    // In SWITCH mode: Open (HIGH) = 0.0 deg (straight), Closed to GND (LOW) = 90.0 deg (bent)
+    // In FLEX mode: Continuous angle calculation from filtered analog flex ADC
+    float t_angle = (mode_thumb == MODE_SWITCH) ? (sw_thumb.switchVal == 1 ? 90.0 : 0.0) : mapFlexAngle(f_thumb, thumbStraight, thumbBent);
+    if (abs(t_angle - a_thumb) > angleDeadband) a_thumb = t_angle;
+    
+    float i_angle = (mode_index == MODE_SWITCH) ? (sw_index.switchVal == 1 ? 90.0 : 0.0) : mapFlexAngle(f_index, indexStraight, indexBent);
+    if (abs(i_angle - a_index) > angleDeadband) a_index = i_angle;
+    
+    float m_angle = (mode_middle == MODE_SWITCH) ? (sw_middle.switchVal == 1 ? 90.0 : 0.0) : mapFlexAngle(f_middle, middleStraight, middleBent);
+    if (abs(m_angle - a_middle) > angleDeadband) a_middle = m_angle;
+    
+    float r_angle = (mode_ring == MODE_SWITCH) ? (sw_ring.switchVal == 1 ? 90.0 : 0.0) : mapFlexAngle(f_ring, ringStraight, ringBent);
+    if (abs(r_angle - a_ring) > angleDeadband) a_ring = r_angle;
+    
+    float l_angle = (mode_little == MODE_SWITCH) ? (sw_little.switchVal == 1 ? 90.0 : 0.0) : mapFlexAngle(f_little, littleStraight, littleBent);
+    if (abs(l_angle - a_little) > angleDeadband) a_little = l_angle;
+    
+    float el_angle = mapFlexAngle(f_elbow, elbowStraight, elbowBent);
+    if (abs(el_angle - a_elbow) > angleDeadband) a_elbow = el_angle;
+
+    // Grip pressure resistance force (arbitrary Newton approximation)
+    int gripForce = map(constrain(rawPressure, 0, 3000), 0, 3000, 0, 800);
+
+    // C. Read MPU6050 orientation variables
+    float wristPitch = 0.0;
+    float wristRoll = 0.0;
+    
+    if (mpuFound) {
+      mpu.update();
+      wristPitch = mpu.getAngleX();
+      wristRoll = mpu.getAngleY();
+    }
+
+    // D. Print full telemetry to Serial Monitor (115200 baud) for hardware diagnostics
+    Serial.printf("[TELEMETRY] WS=%s | MPU=%s | ElbowSW=%d (%s) | Modes: T=%s I=%s M=%s R=%s L=%s\n",
+                  wsConnected ? "CONNECTED" : "OFFLINE",
+                  mpuFound ? "CONNECTED" : "OFFLINE",
+                  sw_elbow.switchVal, (sw_elbow.debouncedState == LOW ? "CLOSED=EXT" : "OPEN=BENT"),
+                  modeToString(mode_thumb), modeToString(mode_index), modeToString(mode_middle), modeToString(mode_ring), modeToString(mode_little));
+    Serial.printf("[SWITCHES] Thumb=%d(raw %d) Index=%d(raw %d) Middle=%d(raw %d) Ring=%d(raw %d) Little=%d(raw %d)\n",
+                  sw_thumb.switchVal, sw_thumb.rawState,
+                  sw_index.switchVal, sw_index.rawState,
+                  sw_middle.switchVal, sw_middle.rawState,
+                  sw_ring.switchVal, sw_ring.rawState,
+                  sw_little.switchVal, sw_little.rawState);
+    Serial.printf("[ANGLES & FLEX] T: raw=%d ang=%.1f | I: raw=%d ang=%.1f | M: raw=%d ang=%.1f | R: raw=%d ang=%.1f | L: raw=%d ang=%.1f | Elb: raw=%d ang=%.1f\n",
+                  rawThumb, a_thumb, rawIndex, a_index, rawMiddle, a_middle, rawRing, a_ring, rawLittle, a_little, rawElbow, a_elbow);
+
+    // E. Serialize and send JSON string over WebSocket only if connected
+    if (wsConnected) {
+      StaticJsonDocument<1536> doc;
+      doc["battery"] = 94; // Simulating battery status level
+      doc["thumb"] = a_thumb;
+      doc["index"] = a_index;
+      doc["middle"] = a_middle;
+      doc["ring"] = a_ring;
+      doc["little"] = a_little;
+      doc["elbow"] = a_elbow;
+      doc["pressure"] = gripForce;
+      doc["wrist_pitch"] = round(wristPitch * 10.0) / 10.0;
+      doc["wrist_roll"] = round(wristRoll * 10.0) / 10.0;
+      doc["mpu_working"] = mpuFound;
+      doc["stable"] = sensorsStable;
+
+      // Active Input Mode per finger (FLEX vs SWITCH)
+      doc["thumb_mode"] = modeToString(mode_thumb);
+      doc["index_mode"] = modeToString(mode_index);
+      doc["middle_mode"] = modeToString(mode_middle);
+      doc["ring_mode"] = modeToString(mode_ring);
+      doc["little_mode"] = modeToString(mode_little);
+
+      // Debounced Switch Values: 1 = Closed to GND / LOW (Bent 90°), 0 = Open / HIGH (Straight 0°)
+      doc["thumb_switch"] = sw_thumb.switchVal;
+      doc["index_switch"] = sw_index.switchVal;
+      doc["middle_switch"] = sw_middle.switchVal;
+      doc["ring_switch"] = sw_ring.switchVal;
+      doc["little_switch"] = sw_little.switchVal;
+
+      // Raw Switch Pin States: 0 = LOW (connected to GND / pressed), 1 = HIGH (disconnected / released)
+      doc["raw_thumb_switch"] = sw_thumb.rawState;
+      doc["raw_index_switch"] = sw_index.rawState;
+      doc["raw_middle_switch"] = sw_middle.rawState;
+      doc["raw_ring_switch"] = sw_ring.rawState;
+      doc["raw_little_switch"] = sw_little.rawState;
+
+      // Explicit boolean pressed flags: NOT TOUCHED (HIGH) = BENT (true); TOUCHED to GND (LOW) = STRAIGHT (false)
+      doc["thumb_pressed"] = (sw_thumb.debouncedState == HIGH);
+      doc["index_pressed"] = (sw_index.debouncedState == HIGH);
+      doc["middle_pressed"] = (sw_middle.debouncedState == HIGH);
+      doc["ring_pressed"] = (sw_ring.debouncedState == HIGH);
+      doc["little_pressed"] = (sw_little.debouncedState == HIGH);
+
+      // Send Calibration Bounds for UI Display
+      JsonObject bounds = doc.createNestedObject("bounds");
+      bounds["thumbStr"] = thumbStraight; bounds["thumbBnt"] = thumbBent;
+      bounds["indexStr"] = indexStraight; bounds["indexBnt"] = indexBent;
+      bounds["middleStr"] = middleStraight; bounds["middleBnt"] = middleBent;
+      bounds["ringStr"] = ringStraight; bounds["ringBnt"] = ringBent;
+      bounds["littleStr"] = littleStraight; bounds["littleBnt"] = littleBent;
+      bounds["elbowStr"] = elbowStraight; bounds["elbowBnt"] = elbowBent;
+
+      // Add raw ADC telemetry fields for advanced dashboard diagnostics (always preserved!)
+      doc["raw_thumb"] = rawThumb;
+      doc["raw_index"] = rawIndex;
+      doc["raw_middle"] = rawMiddle;
+      doc["raw_ring"] = rawRing;
+      doc["raw_little"] = rawLittle;
+      doc["raw_elbow"] = rawElbow;
+      doc["raw_pressure"] = rawPressure;
+
+      // Elbow switch fields (preserved for complete backward compatibility)
+      doc["elbow_switch"] = sw_elbow.rawState; // 0 = LOW (closed, extended), 1 = HIGH (open, bent)
+      doc["raw_elbow_switch"] = sw_elbow.rawState;
+      doc["elbow_switch_closed"] = sw_elbow.switchVal;
+      doc["elbow_switch_state"] = (sw_elbow.debouncedState == LOW) ? "closed" : "open";
+      doc["elbow_switch_angle"] = (sw_elbow.debouncedState == LOW) ? 180.0 : 90.0;
+
+      String jsonString;
+      serializeJson(doc, jsonString);
+      webSocket.sendTXT(jsonString);
+    }
+  }
+}

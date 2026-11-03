@@ -13,9 +13,9 @@ import {
 } from '../services/fingerSensorMapper';
 
 describe('SmartPhysio Full Switch-Only GLB Movement Migration', () => {
-  it('has SWITCH as the default central active movement source', () => {
-    expect(activeMovementSource).toBe('SWITCH');
-    expect(getActiveMovementSource()).toBe('SWITCH');
+  it('has FLEX as the default central active movement source', () => {
+    expect(activeMovementSource).toBe('FLEX');
+    expect(getActiveMovementSource()).toBe('FLEX');
 
     setActiveMovementSource('FLEX');
     expect(getActiveMovementSource()).toBe('FLEX');

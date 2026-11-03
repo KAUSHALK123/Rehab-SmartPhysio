@@ -106,7 +106,7 @@ export const isSwitchPressed = (telemetry, finger) => {
  */
 
 // Central active movement source: 'SWITCH' (default for current testing version) vs 'FLEX' (legacy)
-export let activeMovementSource = 'SWITCH';
+export let activeMovementSource = 'FLEX';
 
 export const setActiveMovementSource = (source) => {
   activeMovementSource = (source === 'FLEX') ? 'FLEX' : 'SWITCH';

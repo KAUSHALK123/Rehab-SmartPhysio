@@ -440,6 +440,7 @@ function CalibrationPage() {
   
   // Real-time tracking states
   const [physicalDeviceConnected, setPhysicalDeviceConnected] = useState(false);
+  const physicalConnectedRef = useRef(false);
   const [activeSensorIndex, setActiveSensorIndex] = useState(0);
   const [lastTelemetry, setLastTelemetry] = useState(null);
   const [liveValues, setLiveValues] = useState({
@@ -608,6 +609,7 @@ function CalibrationPage() {
     setConnecting(true);
     setErrorMsg('');
     setPhysicalDeviceConnected(false);
+    physicalConnectedRef.current = false;
     
     const getWsUrl = () => {
       if (import.meta.env.VITE_WS_URL) {
@@ -623,7 +625,7 @@ function CalibrationPage() {
     wsRef.current = ws;
 
     const connectionTimeout = setTimeout(() => {
-      if (!physicalDeviceConnected) {
+      if (!physicalConnectedRef.current) {
         setErrorMsg('Physical ESP32 device not detected. Ensure your ESP32 sleeve is powered on and connected to the same Wi-Fi subnet as your computer.');
         ws.close();
         setConnecting(false);
@@ -640,6 +642,7 @@ function CalibrationPage() {
       // Hardware status checks
       if (data.type === 'status_update' && data.status === 'hardware_status_changed') {
         if (data.hardware_connected) {
+          physicalConnectedRef.current = true;
           clearTimeout(connectionTimeout);
           setPhysicalDeviceConnected(true);
           setConnecting(false);
@@ -668,8 +671,17 @@ function CalibrationPage() {
       
       // Telemetry stream checks
       if (data.type === 'sensor_data') {
+        if (!data.is_mock) {
+          physicalConnectedRef.current = true;
+          clearTimeout(connectionTimeout);
+          setPhysicalDeviceConnected(true);
+          setConnecting(false);
+          setDeviceConnected(true);
+          setLinkEstablished(true);
+          setErrorMsg('');
+        }
         // If physical ESP32 device is connected, strictly ignore fallback mock packets
-        if (physicalDeviceConnected && data.is_mock) return;
+        if (physicalConnectedRef.current && data.is_mock) return;
 
         setBattery(data.battery || 94);
         setLiveValues(data);

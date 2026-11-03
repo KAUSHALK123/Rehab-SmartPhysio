@@ -40,10 +40,12 @@
 #include <WebSocketsClient.h>
 #include <Preferences.h>
 
-// --- Wi-Fi & Server Configurations (Defaults loaded from NVS if present) ---
-String wifi_ssid = "JioFiber-Ys2sx";
-String wifi_pass = "MBMGREEN";
-String server_host = "192.168.29.176";
+// ============================================================================
+// USER 1 CODE — PRAFUL HOTSPOT CONFIGURATION
+// ============================================================================
+String wifi_ssid   = "Praful";
+String wifi_pass   = "dark*bro2";
+String server_host = "10.197.5.199";
 const int server_port = 8000;
 
 Preferences preferences;
@@ -83,11 +85,11 @@ enum FingerInputMode {
 
 // Configurable mode per finger - defaults to MODE_FLEX so existing functionality is preserved!
 // Default to MODE_SWITCH for current testing version; legacy MODE_FLEX is fully preserved!
-FingerInputMode mode_thumb  = MODE_SWITCH;
-FingerInputMode mode_index  = MODE_SWITCH;
-FingerInputMode mode_middle = MODE_SWITCH;
-FingerInputMode mode_ring   = MODE_SWITCH;
-FingerInputMode mode_little = MODE_SWITCH;
+FingerInputMode mode_thumb  = MODE_FLEX;
+FingerInputMode mode_index  = MODE_FLEX;
+FingerInputMode mode_middle = MODE_FLEX;
+FingerInputMode mode_ring   = MODE_FLEX;
+FingerInputMode mode_little = MODE_FLEX;
 
 inline const char* modeToString(FingerInputMode m) {
   return (m == MODE_SWITCH) ? "SWITCH" : "FLEX";
@@ -326,19 +328,22 @@ void setup() {
   String stored_host = preferences.getString("server_host", "");
   preferences.end();
 
-  if (stored_ssid.length() > 0) {
-    wifi_ssid = stored_ssid;
-    wifi_pass = stored_pass;
-    Serial.printf("[NVS] Loaded Wi-Fi SSID from memory: %s\n", wifi_ssid.c_str());
-  } else {
-    Serial.println("[NVS] No Wi-Fi configuration stored in memory. Using code defaults.");
-  }
-  if (stored_host.length() > 0) {
-    server_host = stored_host;
-    Serial.printf("[NVS] Loaded server host from memory: %s\n", server_host.c_str());
-  } else {
-    Serial.println("[NVS] No server host stored in memory. Using code defaults.");
-  }
+    // Explicitly ensure Praful hotspot is always used (prevent old NVS cache from overriding)
+  wifi_ssid = "Praful";
+  wifi_pass = "dark*bro2";
+  server_host = "10.197.5.199";
+  
+  // Overwrite NVS to purge any stale credentials
+  preferences.begin("physio", false);
+  preferences.putString("wifi_ssid", wifi_ssid);
+  preferences.putString("wifi_pass", wifi_pass);
+  preferences.putString("server_host", server_host);
+  preferences.end();
+  
+  Serial.printf("[CONFIG] Active Target SSID: %s (Pass: %s)\n", wifi_ssid.c_str(), wifi_pass.c_str());
+  Serial.printf("[CONFIG] Active Server Host: %s:%d\n", server_host.c_str(), server_port);
+  
+
   
   // Load Flex Calibration
   thumbStraight = preferences.getInt("thumbStr", 0); thumbBent = preferences.getInt("thumbBnt", 4095);
@@ -352,8 +357,9 @@ void setup() {
     Serial.println("[FLEX] WARNING: Calibration required for finger flex sensors.");
   }
   
-  // 1. Initialize Wi-Fi Connection
-  Serial.printf("\nConnecting to Wi-Fi SSID: %s\n", wifi_ssid.c_str());
+  // 1. Initialize Wi-Fi Connection (Direct Praful Hotspot)
+  Serial.printf("\nConnecting directly to Hotspot: %s (Password: %s)...\n", wifi_ssid.c_str(), wifi_pass.c_str());
+  WiFi.mode(WIFI_STA);
   WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
   
   unsigned long startWifiTime = millis();
@@ -477,6 +483,15 @@ void setup() {
 }
 
 void loop() {
+  // Auto-reconnect Wi-Fi if connection drops
+  static unsigned long lastWifiCheck = 0;
+  if (WiFi.status() != WL_CONNECTED && (millis() - lastWifiCheck >= 5000)) {
+    lastWifiCheck = millis();
+    Serial.println("[WiFi] Wi-Fi lost. Reconnecting to 'Praful' hotspot...");
+    WiFi.disconnect();
+    WiFi.reconnect();
+  }
+
   webSocket.loop();
 
   // Listen for serial configuration commands
