@@ -49,7 +49,7 @@ const int PIN_PRESSURE = 25; // D25 (GPIO 25)
 // Rule: Flex ADC value DECREASES when bent (FLAT > BENT).
 const int CALIB_FLAT[NUM_FINGERS] = {
   250,  // Thumb  (Sensor #5, GPIO 36) - placeholder default
-  173,  // Index  (Sensor #1, GPIO 33)
+  1205, // Index  (Sensor #1, GPIO 33) - Measured: Flat >= 1205
   265,  // Middle (Sensor #2, GPIO 34)
   900,  // Ring   (Sensor #3, GPIO 35) - Measured: Flat ~ 900
   148   // Little (Sensor #4, GPIO 32) - Confirmed: Flat=148, Bent=41
@@ -57,7 +57,7 @@ const int CALIB_FLAT[NUM_FINGERS] = {
 
 const int CALIB_BENT[NUM_FINGERS] = {
   180,  // Thumb  (Sensor #5, GPIO 36) - placeholder default
-  108,  // Index  (Sensor #1, GPIO 33)
+  1119, // Index  (Sensor #1, GPIO 33) - Measured: Full Bent <= 1119
   220,  // Middle (Sensor #2, GPIO 34)
   400,  // Ring   (Sensor #3, GPIO 35) - Measured: Bent ~ 400
   41    // Little (Sensor #4, GPIO 32) - Confirmed: Flat=148, Bent=41
@@ -68,8 +68,8 @@ const int RAW_MIN_FAULT    = 10;   // Pulled to GND / short / unplugged with pul
 const int RAW_MAX_FAULT    = 4085; // Pulled to 3.3V rail / open circuit
 const int SPREAD_MAX_FAULT = 150;  // High ADC sample spread -> floating pin / extreme noise
 const int SWING_MIN_FAULT  = 20;   // Minimum required calibration span |FLAT - BENT|
-const float DEADZONE[NUM_FINGERS]  = {0.04f, 0.04f, 0.04f, 0.03f, 0.04f}; // Per-finger deadzone (Ring = 0.03)
-const float EMA_ALPHA[NUM_FINGERS] = {0.35f, 0.35f, 0.35f, 0.50f, 0.35f}; // Per-finger EMA factor (Ring = 0.50 fast)
+const float DEADZONE[NUM_FINGERS]  = {0.04f, 0.03f, 0.04f, 0.03f, 0.04f}; // Per-finger deadzone (Index & Ring = 0.03)
+const float EMA_ALPHA[NUM_FINGERS] = {0.35f, 0.50f, 0.35f, 0.50f, 0.35f}; // Per-finger EMA factor (Index & Ring = 0.50 fast)
 
 // ============================================================================
 // WI-FI & SERVER CONFIGURATION
