@@ -48,7 +48,7 @@ export const DEFAULT_FLEX_CALIBRATION = {
   index:  { flat: 1205, bent: 1180, label: 'Index (GPIO 33)',  channel: 2, swing: 25,  direction: 'decreasing', noiseThreshold: 2, isValid: true },
   middle: { flat: 625,  bent: 500,  label: 'Middle (GPIO 34)', channel: 3, swing: 125, direction: 'decreasing', noiseThreshold: 4, isValid: true },
   ring:   { flat: 900,  bent: 400,  label: 'Ring (GPIO 35)',   channel: 4, swing: 500, direction: 'decreasing', noiseThreshold: 4, isValid: true },
-  little: { flat: 920,  bent: 850,  label: 'Little (GPIO 32)', channel: 5, swing: 70,  direction: 'decreasing', noiseThreshold: 4, isValid: true }
+  little: { flat: 940,  bent: 918,  label: 'Little (GPIO 32)', channel: 5, swing: 22,  direction: 'decreasing', noiseThreshold: 2, isValid: true }
 };
 
 export const DEFAULT_SENSOR_BOUNDS = {
@@ -56,7 +56,7 @@ export const DEFAULT_SENSOR_BOUNDS = {
   index:  { straight: 1205, bent: 1180, flat: 1205 },
   middle: { straight: 625,  bent: 500,  flat: 625 },
   ring:   { straight: 900,  bent: 400,  flat: 900 },
-  little: { straight: 920,  bent: 850,  flat: 920 }
+  little: { straight: 940,  bent: 918,  flat: 940 }
 };
 
 // Fault detection thresholds (Named Constants)
@@ -286,9 +286,9 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
           const rawRatio = (straight - raw) / (straight - bent);
           const clamped = Math.max(0.0, Math.min(1.0, rawRatio));
           curl = clamped < 0.04 ? 0.0 : clamped;
-        } else if (finger === 'little' && curl === 0.0 && raw >= 100 && raw <= 930) {
-          const straight = calib.flat ?? 920;
-          const bent = calib.bent ?? 850;
+        } else if (finger === 'little' && (curl === 0.0 || curl === 1.0) && raw >= 800 && raw <= 960) {
+          const straight = calib.flat ?? 940;
+          const bent = calib.bent ?? 918;
           const rawRatio = (straight - raw) / (straight - bent);
           const clamped = Math.max(0.0, Math.min(1.0, rawRatio));
           curl = clamped < 0.04 ? 0.0 : clamped;
