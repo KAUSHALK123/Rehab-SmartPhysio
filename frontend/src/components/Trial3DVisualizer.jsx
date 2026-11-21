@@ -299,8 +299,8 @@ function FullBodyRig({
         const fingerKey = nodeName.replace('right_', '');
         const mappedAngleDeg = sensorFingerAngles[fingerKey] !== undefined ? sensorFingerAngles[fingerKey] : 0;
         const effectiveAngle = isThumb ? -mappedAngleDeg : mappedAngleDeg;
-        const fastSmoothingFactor = (nodeName === 'right_ring' || nodeName === 'right_index') ? 0.35 : 0.15;
-        applyCalibratedFingerRotation(fingerNode, nodeName, base, effectiveAngle, fastSmoothingFactor, delta);
+        const fingerSmoothing = nodeName === 'right_ring' ? 0.35 : (nodeName === 'right_index' ? 0.18 : 0.15);
+        applyCalibratedFingerRotation(fingerNode, nodeName, base, effectiveAngle, fingerSmoothing, delta);
       } else {
         // In calibration mode, non-target fingers remain steady at rest pose
         if (calibrationActive) {

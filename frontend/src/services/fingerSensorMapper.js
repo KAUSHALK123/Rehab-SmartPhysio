@@ -45,7 +45,7 @@ export const GLOVE_CALIB_STORAGE_KEY  = 'smartphysio_live_glove_calibration';
  */
 export const DEFAULT_FLEX_CALIBRATION = {
   thumb:  { flat: 250,  bent: 180,  label: 'Thumb (GPIO 36)',  channel: 1, swing: 70,  direction: 'decreasing', noiseThreshold: 4, isValid: true },
-  index:  { flat: 1205, bent: 1119, label: 'Index (GPIO 33)',  channel: 2, swing: 86,  direction: 'decreasing', noiseThreshold: 4, isValid: true },
+  index:  { flat: 1205, bent: 1180, label: 'Index (GPIO 33)',  channel: 2, swing: 25,  direction: 'decreasing', noiseThreshold: 2, isValid: true },
   middle: { flat: 265,  bent: 220,  label: 'Middle (GPIO 34)', channel: 3, swing: 45,  direction: 'decreasing', noiseThreshold: 4, isValid: true },
   ring:   { flat: 900,  bent: 400,  label: 'Ring (GPIO 35)',   channel: 4, swing: 500, direction: 'decreasing', noiseThreshold: 4, isValid: true },
   little: { flat: 148,  bent: 41,   label: 'Little (GPIO 32)', channel: 5, swing: 107, direction: 'decreasing', noiseThreshold: 6, isValid: true }
@@ -53,7 +53,7 @@ export const DEFAULT_FLEX_CALIBRATION = {
 
 export const DEFAULT_SENSOR_BOUNDS = {
   thumb:  { straight: 250,  bent: 180,  flat: 250 },
-  index:  { straight: 1205, bent: 1119, flat: 1205 },
+  index:  { straight: 1205, bent: 1180, flat: 1205 },
   middle: { straight: 265,  bent: 220,  flat: 265 },
   ring:   { straight: 900,  bent: 400,  flat: 900 },
   little: { straight: 148,  bent: 41,   flat: 148 }
@@ -346,19 +346,26 @@ export const applyCalibratedFingerRotation = (fingerNode, nodeName, base, angleD
   if (!fingerNode || !base) return;
 
   const isThumb = nodeName === 'right_thumb' || nodeName === 'thumb';
-  const isFastFinger = nodeName === 'right_ring' || nodeName === 'ring' || nodeName === 'right_index' || nodeName === 'index';
-  // Fast smoothing factor 0.35 in render loop for Ring & Index (when default 0.15 is used)
-  const effectiveFactor = (isFastFinger && factor === 0.15) ? 0.35 : factor;
+  const isRing  = nodeName === 'right_ring'  || nodeName === 'ring';
+  const isIndex = nodeName === 'right_index' || nodeName === 'index';
+  // Ring: 0.35 fast factor; Index: 0.18 smooth anti-jitter factor (when default 0.15 is used)
+  let effectiveFactor = factor;
+  if (factor === 0.15) {
+    if (isRing) effectiveFactor = 0.35;
+    else if (isIndex) effectiveFactor = 0.18;
+  }
   const rad = degToRad(angleDeg);
 
   const interpolate = (curr, target) => {
     if (factor >= 1.0) return target;
     if (delta !== null && delta !== undefined && delta > 0) {
       if (typeof THREE !== 'undefined' && THREE.MathUtils?.damp) {
-        // Delta-time scaling damping: rate ~ 18 for factor 0.35, 12 for 0.15
-        return THREE.MathUtils.damp(curr, target, isFastFinger ? 18 : 12, delta);
+        // Delta-time scaling damping: rate ~ 18 for Ring, 8 for Index, 12 for others
+        const dampRate = isRing ? 18 : isIndex ? 8 : 12;
+        return THREE.MathUtils.damp(curr, target, dampRate, delta);
       }
-      return curr + (target - curr) * (1.0 - Math.exp(-(isFastFinger ? 18.0 : 12.0) * delta));
+      const expRate = isRing ? 18.0 : isIndex ? 8.0 : 12.0;
+      return curr + (target - curr) * (1.0 - Math.exp(-expRate * delta));
     }
     return curr + (target - curr) * effectiveFactor;
   };
