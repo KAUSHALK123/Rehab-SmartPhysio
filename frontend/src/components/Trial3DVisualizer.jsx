@@ -299,7 +299,7 @@ function FullBodyRig({
         const fingerKey = nodeName.replace('right_', '');
         const mappedAngleDeg = sensorFingerAngles[fingerKey] !== undefined ? sensorFingerAngles[fingerKey] : 0;
         const effectiveAngle = isThumb ? -mappedAngleDeg : mappedAngleDeg;
-        const fingerSmoothing = nodeName === 'right_ring' ? 0.35 : (nodeName === 'right_index' || nodeName === 'right_middle' ? 0.18 : 0.15);
+        const fingerSmoothing = nodeName === 'right_ring' ? 0.35 : (nodeName === 'right_thumb' ? 0.15 : 0.18);
         applyCalibratedFingerRotation(fingerNode, nodeName, base, effectiveAngle, fingerSmoothing, delta);
       } else {
         // In calibration mode, non-target fingers remain steady at rest pose

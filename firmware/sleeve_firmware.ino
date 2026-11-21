@@ -52,7 +52,7 @@ const int CALIB_FLAT[NUM_FINGERS] = {
   1205, // Index  (Sensor #1, GPIO 33) - Measured: Flat >= 1205
   625,  // Middle (Sensor #2, GPIO 34) - Measured: Flat >= 625
   900,  // Ring   (Sensor #3, GPIO 35) - Measured: Flat ~ 900
-  148   // Little (Sensor #4, GPIO 32) - Confirmed: Flat=148, Bent=41
+  920   // Little (Sensor #4, GPIO 32) - Measured: Flat >= 920
 };
 
 const int CALIB_BENT[NUM_FINGERS] = {
@@ -60,7 +60,7 @@ const int CALIB_BENT[NUM_FINGERS] = {
   1180, // Index  (Sensor #1, GPIO 33) - Measured: Full Close <= 1180 (1185-1180)
   500,  // Middle (Sensor #2, GPIO 34) - Measured: Full Close <= 500 (below 600..500)
   400,  // Ring   (Sensor #3, GPIO 35) - Measured: Bent ~ 400
-  41    // Little (Sensor #4, GPIO 32) - Confirmed: Flat=148, Bent=41
+  850   // Little (Sensor #4, GPIO 32) - Measured: Full Close <= 850
 };
 
 // Fault detection thresholds (Named Constants)
@@ -68,8 +68,8 @@ const int RAW_MIN_FAULT    = 10;   // Pulled to GND / short / unplugged with pul
 const int RAW_MAX_FAULT    = 4085; // Pulled to 3.3V rail / open circuit
 const int SPREAD_MAX_FAULT = 150;  // High ADC sample spread -> floating pin / extreme noise
 const int SWING_MIN_FAULT  = 15;   // Minimum required calibration span |FLAT - BENT|
-const float DEADZONE[NUM_FINGERS]  = {0.04f, 0.05f, 0.05f, 0.03f, 0.04f}; // Middle deadzone = 0.05
-const float EMA_ALPHA[NUM_FINGERS] = {0.35f, 0.20f, 0.20f, 0.50f, 0.35f}; // Middle = 0.20 (smooth anti-jitter)
+const float DEADZONE[NUM_FINGERS]  = {0.04f, 0.05f, 0.05f, 0.03f, 0.04f}; // Per-finger deadzone
+const float EMA_ALPHA[NUM_FINGERS] = {0.35f, 0.20f, 0.20f, 0.50f, 0.25f}; // Little = 0.25 (smooth anti-jitter)
 
 // ============================================================================
 // WI-FI & SERVER CONFIGURATION

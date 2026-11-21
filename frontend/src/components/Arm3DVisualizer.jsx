@@ -193,7 +193,7 @@ function FullBodyRig({
         const mappedAngleDeg = sensorFingerAngles[fingerKey] !== undefined ? sensorFingerAngles[fingerKey] : 0;
         // In main exercise GLB frame, reverse thumb angle so bending sensor closes thumb inward toward palm
         const effectiveAngle = isThumb ? -mappedAngleDeg : mappedAngleDeg;
-        const fingerSmoothing = nodeName === 'right_ring' ? 0.35 : (nodeName === 'right_index' || nodeName === 'right_middle' ? 0.18 : 0.15);
+        const fingerSmoothing = nodeName === 'right_ring' ? 0.35 : (nodeName === 'right_thumb' ? 0.15 : 0.18);
         applyCalibratedFingerRotation(fingerNode, nodeName, base, effectiveAngle, fingerSmoothing, delta);
       } else {
         // Fallback when sensorFingerAngles is not provided (e.g. demo mode or offline)

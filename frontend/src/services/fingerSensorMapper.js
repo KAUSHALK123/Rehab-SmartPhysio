@@ -48,7 +48,7 @@ export const DEFAULT_FLEX_CALIBRATION = {
   index:  { flat: 1205, bent: 1180, label: 'Index (GPIO 33)',  channel: 2, swing: 25,  direction: 'decreasing', noiseThreshold: 2, isValid: true },
   middle: { flat: 625,  bent: 500,  label: 'Middle (GPIO 34)', channel: 3, swing: 125, direction: 'decreasing', noiseThreshold: 4, isValid: true },
   ring:   { flat: 900,  bent: 400,  label: 'Ring (GPIO 35)',   channel: 4, swing: 500, direction: 'decreasing', noiseThreshold: 4, isValid: true },
-  little: { flat: 148,  bent: 41,   label: 'Little (GPIO 32)', channel: 5, swing: 107, direction: 'decreasing', noiseThreshold: 6, isValid: true }
+  little: { flat: 920,  bent: 850,  label: 'Little (GPIO 32)', channel: 5, swing: 70,  direction: 'decreasing', noiseThreshold: 4, isValid: true }
 };
 
 export const DEFAULT_SENSOR_BOUNDS = {
@@ -56,7 +56,7 @@ export const DEFAULT_SENSOR_BOUNDS = {
   index:  { straight: 1205, bent: 1180, flat: 1205 },
   middle: { straight: 625,  bent: 500,  flat: 625 },
   ring:   { straight: 900,  bent: 400,  flat: 900 },
-  little: { straight: 148,  bent: 41,   flat: 148 }
+  little: { straight: 920,  bent: 850,  flat: 920 }
 };
 
 // Fault detection thresholds (Named Constants)
@@ -275,16 +275,25 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     }
 
     // 3. Extract curl: use firmware curl directly if available (SINGLE SOURCE OF TRUTH)
-    // Dynamic fallback for Middle finger: remap directly from raw (Flat=625, Bent=500) without requiring sleeve re-flash
+    // Zero-reflash dynamic adapter for un-flashed firmware: remap directly from raw when firmware curl is stuck
     let curl = 0.0;
-    if (finger === 'middle' && hasArrayRaw && raw !== null && ok && !telemetry.bounds && !customBounds?.middle) {
-      const straight = calib.flat ?? 625;
-      const bent = calib.bent ?? 500;
-      const rawRatio = (straight - raw) / (straight - bent);
-      const clamped = Math.max(0.0, Math.min(1.0, rawRatio));
-      curl = clamped < 0.04 ? 0.0 : clamped;
-    } else if (hasArrayCurl && telemetry.curl[i] !== undefined) {
+    if (hasArrayCurl && telemetry.curl[i] !== undefined) {
       curl = Math.max(0.0, Math.min(1.0, Number(telemetry.curl[i]) || 0.0));
+      if (hasArrayRaw && raw !== null && ok && !telemetry.bounds && !customBounds?.[finger]) {
+        if (finger === 'middle' && (curl === 1.0 || curl === 0.0) && raw >= 450 && raw <= 700) {
+          const straight = calib.flat ?? 625;
+          const bent = calib.bent ?? 500;
+          const rawRatio = (straight - raw) / (straight - bent);
+          const clamped = Math.max(0.0, Math.min(1.0, rawRatio));
+          curl = clamped < 0.04 ? 0.0 : clamped;
+        } else if (finger === 'little' && curl === 0.0 && raw >= 100 && raw <= 930) {
+          const straight = calib.flat ?? 920;
+          const bent = calib.bent ?? 850;
+          const rawRatio = (straight - raw) / (straight - bent);
+          const clamped = Math.max(0.0, Math.min(1.0, rawRatio));
+          curl = clamped < 0.04 ? 0.0 : clamped;
+        }
+      }
     } else if (telemetry?.curl && typeof telemetry.curl === 'object' && telemetry.curl[finger] !== undefined) {
       curl = Math.max(0.0, Math.min(1.0, Number(telemetry.curl[finger]) || 0.0));
     } else if (raw !== null && ok) {
@@ -356,11 +365,12 @@ export const applyCalibratedFingerRotation = (fingerNode, nodeName, base, angleD
   const isRing   = nodeName === 'right_ring'   || nodeName === 'ring';
   const isIndex  = nodeName === 'right_index'  || nodeName === 'index';
   const isMiddle = nodeName === 'right_middle' || nodeName === 'middle';
-  // Ring: 0.35 fast factor; Index & Middle: 0.18 smooth anti-jitter factor (when default 0.15 is used)
+  const isLittle = nodeName === 'right_little' || nodeName === 'little';
+  // Ring: 0.35 fast factor; Index, Middle, Little: 0.18 smooth anti-jitter factor (when default 0.15 is used)
   let effectiveFactor = factor;
   if (factor === 0.15) {
     if (isRing) effectiveFactor = 0.35;
-    else if (isIndex || isMiddle) effectiveFactor = 0.18;
+    else if (isIndex || isMiddle || isLittle) effectiveFactor = 0.18;
   }
   const rad = degToRad(angleDeg);
 
@@ -368,11 +378,11 @@ export const applyCalibratedFingerRotation = (fingerNode, nodeName, base, angleD
     if (factor >= 1.0) return target;
     if (delta !== null && delta !== undefined && delta > 0) {
       if (typeof THREE !== 'undefined' && THREE.MathUtils?.damp) {
-        // Delta-time scaling damping: rate ~ 18 for Ring, 8 for Index/Middle, 12 for others
-        const dampRate = isRing ? 18 : (isIndex || isMiddle) ? 8 : 12;
+        // Delta-time scaling damping: rate ~ 18 for Ring, 8 for Index/Middle/Little, 12 for others
+        const dampRate = isRing ? 18 : (isIndex || isMiddle || isLittle) ? 8 : 12;
         return THREE.MathUtils.damp(curr, target, dampRate, delta);
       }
-      const expRate = isRing ? 18.0 : (isIndex || isMiddle) ? 8.0 : 12.0;
+      const expRate = isRing ? 18.0 : (isIndex || isMiddle || isLittle) ? 8.0 : 12.0;
       return curr + (target - curr) * (1.0 - Math.exp(-expRate * delta));
     }
     return curr + (target - curr) * effectiveFactor;
