@@ -45,7 +45,7 @@ export const FINGER_MOVEMENTS = [
     label: 'Thumb', 
     bone: 'right_thumb',
     defaultRanges: {
-      x: { min: -60, max: 10 },
+      x: { min: 0, max: 48 },
       y: { min: -20, max: 20 },
       z: { min: -15, max: 15 }
     }
@@ -57,7 +57,7 @@ export const FINGER_MOVEMENTS = [
     defaultRanges: {
       x: { min: -85, max: 10 },
       y: { min: -15, max: 15 },
-      z: { min: -15, max: 15 }
+      z: { min: 0, max: 75 }
     }
   },
   { 
@@ -67,7 +67,7 @@ export const FINGER_MOVEMENTS = [
     defaultRanges: {
       x: { min: -85, max: 10 },
       y: { min: -15, max: 15 },
-      z: { min: -15, max: 15 }
+      z: { min: 0, max: 75 }
     }
   },
   { 
@@ -77,7 +77,7 @@ export const FINGER_MOVEMENTS = [
     defaultRanges: {
       x: { min: -80, max: 10 },
       y: { min: -15, max: 15 },
-      z: { min: -15, max: 15 }
+      z: { min: 0, max: 75 }
     }
   },
   { 
@@ -87,7 +87,7 @@ export const FINGER_MOVEMENTS = [
     defaultRanges: {
       x: { min: -75, max: 10 },
       y: { min: -15, max: 15 },
-      z: { min: -15, max: 15 }
+      z: { min: 0, max: 70 }
     }
   }
 ];

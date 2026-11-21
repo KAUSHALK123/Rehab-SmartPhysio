@@ -23,7 +23,9 @@ import {
   Cpu,
   ChevronLeft,
   ChevronDown,
-  RefreshCw
+  RefreshCw,
+  Sliders,
+  Hand
 } from 'lucide-react';
 import { startSession, endSession } from '../services/session';
 import apiClient from '../services/auth';
@@ -35,6 +37,7 @@ import WristSensorTrialPanel from '../components/WristSensorTrialPanel';
 import ElbowSensorTrialPanel from '../components/ElbowSensorTrialPanel';
 import WristMotionDemoCard from '../components/WristMotionDemoCard';
 import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
+import LiveGloveCalibrationPanel from '../components/LiveGloveCalibrationPanel';
 import { processFingerTelemetry, resetDynamicRanges } from '../services/fingerSensorMapper';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
@@ -239,7 +242,9 @@ const FingerSyncPanel = ({
   isFlexSynced, 
   onToggleSync,
   simulatedActive = false,
-  onToggleSimulation = () => {}
+  onToggleSimulation = () => {},
+  onOpenCalibration = () => {},
+  showCalibration = false
 }) => {
   const fingerKeys = [
     { key: 'thumb', label: 'Thumb' },
@@ -429,6 +434,19 @@ const FingerSyncPanel = ({
         >
           <Zap className={`w-3.5 h-3.5 ${simulatedActive ? 'text-amber-300' : 'text-slate-500'}`} />
           <span className="truncate">{simulatedActive ? 'Stop Simulation' : 'Simulate Flex Test'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onOpenCalibration}
+          className={`col-span-2 py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
+            showCalibration
+              ? 'bg-blue-600 text-white border-blue-400 shadow-sm'
+              : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700 shadow-sm'
+          }`}
+        >
+          <Sliders className="w-3.5 h-3.5 text-blue-400" />
+          <span>{showCalibration ? 'Close Glove Calibration' : '5-Finger Glove Calibration & Sliders'}</span>
         </button>
       </div>
     </div>
@@ -667,6 +685,15 @@ function LiveExercisePage() {
   const [isFlexSynced, setIsFlexSynced] = useState(true);
   const [fingerTelemetryDetails, setFingerTelemetryDetails] = useState(null);
   const [wristTelemetryDetails, setWristTelemetryDetails] = useState(null);
+  const [showGloveCalibration, setShowGloveCalibration] = useState(false);
+  const [manualSlidersActive, setManualSlidersActive] = useState(false);
+  const [manualSliderValues, setManualSliderValues] = useState({
+    thumb: 0,
+    index: 0,
+    middle: 0,
+    ring: 0,
+    little: 0
+  });
 
   const isFlexSyncedRef = useRef(isFlexSynced);
   useEffect(() => {
@@ -1896,10 +1923,42 @@ function LiveExercisePage() {
     little: isFingerExercise ? activeSensors.little : 0
   };
 
+  // Fallback / Manual sliders for 5-finger test control
+  const manualSliderAngles = {
+    thumb: (manualSliderValues.thumb / 100) * 48,
+    index: (manualSliderValues.index / 100) * 75,
+    middle: (manualSliderValues.middle / 100) * 75,
+    ring: (manualSliderValues.ring / 100) * 75,
+    little: (manualSliderValues.little / 100) * 70,
+  };
+
   // Resolve active calibrated finger angles for 3D visualizer (lock to 0 neutral if not finger exercise)
-  const activeSensorFingerAngles = (isTrial && trialType === 'fingers' && fingerTrialView === 'calibration')
-    ? null
-    : (isFingerExercise ? sensorFingerAngles : { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 });
+  const activeSensorFingerAngles = manualSlidersActive
+    ? manualSliderAngles
+    : ((isTrial && trialType === 'fingers' && fingerTrialView === 'calibration')
+      ? null
+      : (isFingerExercise ? sensorFingerAngles : { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 }));
+
+  const activeFingerTelemetryDetails = manualSlidersActive
+    ? {
+        angles: manualSliderAngles,
+        percentages: manualSliderValues,
+        normalized: {
+          thumb: manualSliderValues.thumb / 100,
+          index: manualSliderValues.index / 100,
+          middle: manualSliderValues.middle / 100,
+          ring: manualSliderValues.ring / 100,
+          little: manualSliderValues.little / 100,
+        },
+        debug: {
+          thumb:  { finger: 'thumb',  glbAngle: manualSliderAngles.thumb,  normalized: manualSliderValues.thumb,  raw: Math.round(1200 - (manualSliderValues.thumb / 100) * 150), min: 0, max: 48 },
+          index:  { finger: 'index',  glbAngle: manualSliderAngles.index,  normalized: manualSliderValues.index,  raw: Math.round(1152 + (manualSliderValues.index / 100) * 65),  min: 0, max: 75 },
+          middle: { finger: 'middle', glbAngle: manualSliderAngles.middle, normalized: manualSliderValues.middle, raw: Math.round(1463 - (manualSliderValues.middle / 100) * 17), min: 0, max: 75 },
+          ring:   { finger: 'ring',   glbAngle: manualSliderAngles.ring,   normalized: manualSliderValues.ring,   raw: Math.round(1200 - (manualSliderValues.ring / 100) * 53),   min: 0, max: 75 },
+          little: { finger: 'little', glbAngle: manualSliderAngles.little, normalized: manualSliderValues.little, raw: Math.round(935 + (manualSliderValues.little / 100) * 21),  min: 0, max: 70 },
+        }
+      }
+    : fingerTelemetryDetails;
 
   // Resolve active calibrated wrist angles for 3D visualizer (lock to 0 neutral if not wrist exercise)
   const activeSensorWristAngles = (isTrial && trialType === 'wrist' && wristTrialView === 'calibration')
@@ -2339,6 +2398,21 @@ function LiveExercisePage() {
                     <span>Sleeve Offline</span>
                   </div>
                 )}
+
+                {/* 5-Finger Flex Glove Calibration Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setShowGloveCalibration(prev => !prev)}
+                  className={`backdrop-blur border rounded-xl p-2 px-3 flex items-center gap-1.5 text-xs font-bold transition shadow-sm cursor-pointer ${
+                    showGloveCalibration
+                      ? 'bg-blue-600/90 border-blue-400 text-white shadow-blue-500/20'
+                      : 'bg-slate-950/85 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900'
+                  }`}
+                  title="Open 5-Finger Flex Glove Calibration & Fallback Sliders"
+                >
+                  <Sliders className="w-4 h-4 text-blue-400" />
+                  <span>Glove Calibration</span>
+                </button>
               </div>
 
               {/* Animated Exercise Demonstration Card for Wrist Exercises (Top Right Overlay) */}
@@ -2357,6 +2431,25 @@ function LiveExercisePage() {
                 <div className="absolute top-4 right-4 z-10 animate-in fade-in slide-in-from-top-2 duration-200">
                   <FingerClosingDemoCard 
                     targetReps={exerciseDetails?.repetitions || 12}
+                  />
+                </div>
+              )}
+
+              {/* Live Glove Calibration Panel Overlay inside 3D Canvas */}
+              {showGloveCalibration && (
+                <div className="absolute top-16 left-4 z-20 max-w-lg w-full max-h-[85%] overflow-y-auto shadow-2xl rounded-2xl animate-in fade-in slide-in-from-top-3 duration-200">
+                  <LiveGloveCalibrationPanel
+                    computedFingerData={activeFingerTelemetryDetails}
+                    rawSensorPacket={rawSensorPacket}
+                    deviceConnected={deviceConnected || simulatedFingersActive}
+                    manualSlidersActive={manualSlidersActive}
+                    onToggleManualSliders={() => setManualSlidersActive(prev => !prev)}
+                    manualSliderValues={manualSliderValues}
+                    onManualSliderChange={(finger, val) => {
+                      setManualSliderValues(prev => ({ ...prev, [finger]: val }));
+                    }}
+                    isOpen={true}
+                    onClose={() => setShowGloveCalibration(false)}
                   />
                 </div>
               )}
@@ -2767,7 +2860,7 @@ function LiveExercisePage() {
                   exerciseName.toLowerCase().includes('hand')) ? (
                   <div className="space-y-3">
                     <FingerSyncPanel 
-                      computedFingerData={fingerTelemetryDetails}
+                      computedFingerData={activeFingerTelemetryDetails}
                       rawSensorPacket={rawSensorPacket}
                       deviceConnected={deviceConnected || simulatedFingersActive}
                       isFlexSynced={isFlexSynced}
@@ -2777,7 +2870,27 @@ function LiveExercisePage() {
                       }}
                       simulatedActive={simulatedFingersActive}
                       onToggleSimulation={() => setSimulatedFingersActive(prev => !prev)}
+                      onOpenCalibration={() => setShowGloveCalibration(prev => !prev)}
+                      showCalibration={showGloveCalibration}
                     />
+
+                    {showGloveCalibration && (
+                      <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                        <LiveGloveCalibrationPanel
+                          computedFingerData={activeFingerTelemetryDetails}
+                          rawSensorPacket={rawSensorPacket}
+                          deviceConnected={deviceConnected || simulatedFingersActive}
+                          manualSlidersActive={manualSlidersActive}
+                          onToggleManualSliders={() => setManualSlidersActive(prev => !prev)}
+                          manualSliderValues={manualSliderValues}
+                          onManualSliderChange={(finger, val) => {
+                            setManualSliderValues(prev => ({ ...prev, [finger]: val }));
+                          }}
+                          isOpen={true}
+                          onClose={() => setShowGloveCalibration(false)}
+                        />
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 gap-3">
                       <SVGGauge {...primary} />
                       <SVGGauge {...secondary} />
