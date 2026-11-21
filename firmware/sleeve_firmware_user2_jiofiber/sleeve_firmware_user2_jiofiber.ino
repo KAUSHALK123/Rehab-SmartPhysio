@@ -74,11 +74,11 @@ unsigned long lastMpuRetryTime = 0;
 const int streamInterval = 50; // 50ms = 20Hz sample rate (was 100ms/10Hz)
 
 // Finger and Elbow calibration storage variables (Tuned to physical sleeve resting baseline)
-int thumbStraight = 520, thumbBent = 1150;
-int indexStraight = 1150, indexBent = 1850;
-int middleStraight = 980, middleBent = 1650;
-int ringStraight = 1880, ringBent = 2550;
-int littleStraight = 1100, littleBent = 1800;
+int thumbStraight = 1200, thumbBent = 1050;
+int indexStraight = 1152, indexBent = 1217;
+int middleStraight = 1446, middleBent = 1463;
+int ringStraight = 1147, ringBent = 1200;
+int littleStraight = 935, littleBent = 956;
 int elbowStraight = 1200, elbowBent = 2400;
 
 // EMA Filter variables — alpha=0.25 removes high-frequency electrical jitter while keeping responsive movement

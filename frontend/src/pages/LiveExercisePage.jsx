@@ -1953,8 +1953,8 @@ function LiveExercisePage() {
         debug: {
           thumb:  { finger: 'thumb',  glbAngle: manualSliderAngles.thumb,  normalized: manualSliderValues.thumb,  raw: Math.round(1200 - (manualSliderValues.thumb / 100) * 150), min: 0, max: 48 },
           index:  { finger: 'index',  glbAngle: manualSliderAngles.index,  normalized: manualSliderValues.index,  raw: Math.round(1152 + (manualSliderValues.index / 100) * 65),  min: 0, max: 75 },
-          middle: { finger: 'middle', glbAngle: manualSliderAngles.middle, normalized: manualSliderValues.middle, raw: Math.round(1463 - (manualSliderValues.middle / 100) * 17), min: 0, max: 75 },
-          ring:   { finger: 'ring',   glbAngle: manualSliderAngles.ring,   normalized: manualSliderValues.ring,   raw: Math.round(1200 - (manualSliderValues.ring / 100) * 53),   min: 0, max: 75 },
+          middle: { finger: 'middle', glbAngle: manualSliderAngles.middle, normalized: manualSliderValues.middle, raw: Math.round(1446 + (manualSliderValues.middle / 100) * 17), min: 0, max: 75 },
+          ring:   { finger: 'ring',   glbAngle: manualSliderAngles.ring,   normalized: manualSliderValues.ring,   raw: Math.round(1147 + (manualSliderValues.ring / 100) * 53),   min: 0, max: 75 },
           little: { finger: 'little', glbAngle: manualSliderAngles.little, normalized: manualSliderValues.little, raw: Math.round(935 + (manualSliderValues.little / 100) * 21),  min: 0, max: 70 },
         }
       }

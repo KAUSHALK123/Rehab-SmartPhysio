@@ -14,10 +14,10 @@
  * 
  * Hardware-to-Finger Mapping:
  * - Index Finger  ← Sensor #1 (Flat: 1152, Bent: 1217, Swing: +65)
- * - Middle Finger ← Sensor #2 (Flat: 1463, Bent: 1446, Swing: -17)
- * - Ring Finger   ← Sensor #3 (Flat: 1200, Bent: 1147, Swing: -53)
+ * - Middle Finger ← Sensor #2 (Flat: 1446, Bent: 1463, Swing: +17)
+ * - Ring Finger   ← Sensor #3 (Flat: 1147, Bent: 1200, Swing: +53)
  * - Little Finger ← Sensor #4 (Flat: 935,  Bent: 956,  Swing: +21)
- * - Thumb         ← Sensor #5 (Flat: 1200, Bent: 900,  Swing: -300 - placeholder default)
+ * - Thumb         ← Sensor #5 (Flat: 1200, Bent: 1050, Swing: -150 - placeholder default)
  */
 
 import * as THREE from 'three';
@@ -43,16 +43,16 @@ export const GLOVE_CALIB_STORAGE_KEY  = 'smartphysio_live_glove_calibration';
  */
 export const DEFAULT_FLEX_CALIBRATION = {
   index:  { flat: 1152, bent: 1217, label: 'Index (Sensor #1)', channel: 1, swing: 65 },
-  middle: { flat: 1463, bent: 1446, label: 'Middle (Sensor #2)', channel: 2, swing: -17 },
-  ring:   { flat: 1200, bent: 1147, label: 'Ring (Sensor #3)', channel: 3, swing: -53 },
+  middle: { flat: 1446, bent: 1463, label: 'Middle (Sensor #2)', channel: 2, swing: 17 },
+  ring:   { flat: 1147, bent: 1200, label: 'Ring (Sensor #3)', channel: 3, swing: 53 },
   little: { flat: 935,  bent: 956,  label: 'Little (Sensor #4)', channel: 4, swing: 21 },
   thumb:  { flat: 1200, bent: 1050, label: 'Thumb (Sensor #5 - Default)', channel: 5, swing: -150 }
 };
 
 export const DEFAULT_SENSOR_BOUNDS = {
   index:  { straight: 1152, bent: 1217, flat: 1152 },
-  middle: { straight: 1463, bent: 1446, flat: 1463 },
-  ring:   { straight: 1200, bent: 1147, flat: 1200 },
+  middle: { straight: 1446, bent: 1463, flat: 1446 },
+  ring:   { straight: 1147, bent: 1200, flat: 1147 },
   little: { straight: 935,  bent: 956,  flat: 935 },
   thumb:  { straight: 1200, bent: 1050, flat: 1200 }
 };
@@ -342,6 +342,7 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     // If packet has explicit calibrated bounds from unit test or calibration wizard
     if (packetBounds[strKey] !== undefined && packetBounds[bntKey] !== undefined &&
         !(packetBounds[strKey] === 0 && packetBounds[bntKey] === 4095) &&
+        packetBounds[strKey] !== 980 && packetBounds[strKey] !== 1880 &&
         Math.abs(packetBounds[bntKey] - packetBounds[strKey]) > 30) {
       return { flat: packetBounds[strKey], bent: packetBounds[bntKey] };
     }
