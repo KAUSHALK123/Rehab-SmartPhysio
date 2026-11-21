@@ -42,19 +42,19 @@ export const GLOVE_CALIB_STORAGE_KEY  = 'smartphysio_live_glove_calibration';
  * Signed ratio normalization handles both directions automatically.
  */
 export const DEFAULT_FLEX_CALIBRATION = {
-  index:  { flat: 1200, bent: 1150, label: 'Index (Sensor #1)', channel: 1, swing: -50 },
-  middle: { flat: 994,  bent: 1025, label: 'Middle (Sensor #2)', channel: 2, swing: 31 },
-  ring:   { flat: 1915, bent: 1955, label: 'Ring (Sensor #3)', channel: 3, swing: 40 },
-  little: { flat: 935,  bent: 960,  label: 'Little (Sensor #4)', channel: 4, swing: 25 },
-  thumb:  { flat: 530,  bent: 575,  label: 'Thumb (Sensor #5)', channel: 5, swing: 45 }
+  index:  { flat: 1152, bent: 1217, label: 'Index (Sensor #1)',  channel: 1, swing: 65, direction: 'increasing', noiseThreshold: 6, isValid: true },
+  middle: { flat: 1463, bent: 1446, label: 'Middle (Sensor #2)', channel: 2, swing: 17, direction: 'decreasing', noiseThreshold: 4, isValid: true },
+  ring:   { flat: 1200, bent: 1147, label: 'Ring (Sensor #3)',   channel: 3, swing: 53, direction: 'decreasing', noiseThreshold: 6, isValid: true },
+  little: { flat: 935,  bent: 956,  label: 'Little (Sensor #4)', channel: 4, swing: 21, direction: 'increasing', noiseThreshold: 4, isValid: true },
+  thumb:  { flat: 0,    bent: 0,    label: 'Thumb (Sensor #5)',  channel: 5, swing: 0,  direction: 'uncalibrated', noiseThreshold: 6, isValid: false, needsRecalibration: true }
 };
 
 export const DEFAULT_SENSOR_BOUNDS = {
-  index:  { straight: 1200, bent: 1150, flat: 1200 },
-  middle: { straight: 994,  bent: 1025, flat: 994 },
-  ring:   { straight: 1915, bent: 1955, flat: 1915 },
-  little: { straight: 935,  bent: 960,  flat: 935 },
-  thumb:  { straight: 530,  bent: 575,  flat: 530 }
+  index:  { straight: 1152, bent: 1217, flat: 1152 },
+  middle: { straight: 1463, bent: 1446, flat: 1463 },
+  ring:   { straight: 1200, bent: 1147, flat: 1200 },
+  little: { straight: 935,  bent: 956,  flat: 935 },
+  thumb:  { straight: 0,    bent: 0,    flat: 0 }
 };
 
 /**
@@ -106,12 +106,23 @@ export const loadGloveCalibration = () => {
     const parsed = JSON.parse(raw);
     const merged = {};
     FINGER_KEYS.forEach(f => {
+      const def = DEFAULT_FLEX_CALIBRATION[f];
+      const flat = parsed[f]?.flat !== undefined ? parsed[f].flat : def.flat;
+      const bent = parsed[f]?.bent !== undefined ? parsed[f].bent : def.bent;
+      const swing = Math.abs(bent - flat);
+      const isIncreasing = bent >= flat;
+      const isValid = flat > 0 && swing >= 10;
+
       merged[f] = {
-        ...DEFAULT_FLEX_CALIBRATION[f],
-        flat: parsed[f]?.flat ?? DEFAULT_FLEX_CALIBRATION[f].flat,
-        bent: parsed[f]?.bent ?? DEFAULT_FLEX_CALIBRATION[f].bent
+        ...def,
+        flat,
+        bent,
+        swing,
+        direction: isValid ? (isIncreasing ? 'increasing' : 'decreasing') : 'uncalibrated',
+        noiseThreshold: parsed[f]?.noiseThreshold ?? def.noiseThreshold ?? (swing < 25 ? 4 : 6),
+        isValid,
+        needsRecalibration: !isValid
       };
-      merged[f].swing = merged[f].bent - merged[f].flat;
     });
     return merged;
   } catch (e) {
@@ -271,6 +282,150 @@ export const normalizeFlexValue = (value, flat = 1152, bent = 1217, useBoost = f
 };
 
 /**
+ * Direction-Aware Bend Calculation with Configurable Noise Threshold (Dead Zone)
+ * 
+ * When bending:
+ * - Increasing sensors (bent > flat): bendDifference = liveValue - flatValue
+ * - Decreasing sensors (bent < flat): bendDifference = flatValue - liveValue
+ * 
+ * Then:
+ *   bendPercentage = clamp(
+ *     (bendDifference - noiseThreshold) / (swingRange - noiseThreshold),
+ *     0,
+ *     1
+ *   )
+ * 
+ * If bendDifference <= noiseThreshold (or negative due to reverse motion), finger remains 100% flat (0.0).
+ * 
+ * @param {number} liveValue - Live filtered ADC reading
+ * @param {number} flatValue - Calibrated flat baseline
+ * @param {number} bentValue - Calibrated full bend target
+ * @param {number} [noiseThreshold=null] - Configurable noise threshold dead zone (counts)
+ * @returns {Object} Directional bend metrics and validity status
+ */
+export const calculateDirectionalBend = (liveValue, flatValue, bentValue, noiseThreshold = null) => {
+  if (liveValue === null || liveValue === undefined || isNaN(liveValue) || liveValue <= 30) {
+    return {
+      bendPercentage: 0,
+      bendDifference: 0,
+      rawDifference: 0,
+      swingRange: 0,
+      direction: 'uncalibrated',
+      threshold: noiseThreshold || 6,
+      isValid: false,
+      needsRecalibration: true,
+      error: 'No live telemetry'
+    };
+  }
+
+  // Proper validation: Sensor #5 currently has Flat = 0, which is invalid
+  if (flatValue === null || flatValue === undefined || flatValue <= 0) {
+    return {
+      bendPercentage: 0,
+      bendDifference: 0,
+      rawDifference: liveValue,
+      swingRange: 0,
+      direction: 'uncalibrated',
+      threshold: noiseThreshold || 6,
+      isValid: false,
+      needsRecalibration: true,
+      error: 'Sensor requires calibration (Flat=0 invalid)'
+    };
+  }
+
+  if (bentValue === null || bentValue === undefined || bentValue <= 0) {
+    return {
+      bendPercentage: 0,
+      bendDifference: 0,
+      rawDifference: liveValue - flatValue,
+      swingRange: 0,
+      direction: 'uncalibrated',
+      threshold: noiseThreshold || 6,
+      isValid: false,
+      needsRecalibration: true,
+      error: 'Sensor requires calibration (Bent=0 invalid)'
+    };
+  }
+
+  const swingRange = Math.abs(bentValue - flatValue);
+  if (swingRange < 10) {
+    return {
+      bendPercentage: 0,
+      bendDifference: 0,
+      rawDifference: liveValue - flatValue,
+      swingRange,
+      direction: 'uncalibrated',
+      threshold: noiseThreshold || 6,
+      isValid: false,
+      needsRecalibration: true,
+      error: 'Insufficient calibration range (< 10 counts)'
+    };
+  }
+
+  const isIncreasing = bentValue > flatValue;
+  const direction = isIncreasing ? 'increasing' : 'decreasing';
+
+  // Raw difference relative to flat baseline
+  const rawDifference = liveValue - flatValue;
+
+  // Direction-aware bend calculation
+  // For increasing sensors: bendDifference = liveValue - flatValue
+  // For decreasing sensors: bendDifference = flatValue - liveValue
+  const bendDifference = isIncreasing
+    ? (liveValue - flatValue)
+    : (flatValue - liveValue);
+
+  // Default noise threshold: 6 counts, or 4 counts for narrow swings (< 25 counts)
+  const defaultThreshold = swingRange < 25 ? 4 : 6;
+  const threshold = (noiseThreshold !== null && noiseThreshold !== undefined)
+    ? noiseThreshold
+    : defaultThreshold;
+
+  // If the difference is within the noise threshold (or negative), treat as completely flat
+  if (bendDifference <= threshold) {
+    return {
+      bendPercentage: 0.0,
+      bendDifference,
+      rawDifference,
+      swingRange,
+      direction,
+      threshold,
+      isValid: true,
+      needsRecalibration: false
+    };
+  }
+
+  const effectiveSpan = swingRange - threshold;
+  if (effectiveSpan <= 0) {
+    return {
+      bendPercentage: 0.0,
+      bendDifference,
+      rawDifference,
+      swingRange,
+      direction,
+      threshold,
+      isValid: true,
+      needsRecalibration: false
+    };
+  }
+
+  // Normalize remaining difference against swing range minus noise threshold
+  const normalized = (bendDifference - threshold) / effectiveSpan;
+  const bendPercentage = Math.max(0.0, Math.min(1.0, normalized));
+
+  return {
+    bendPercentage,
+    bendDifference,
+    rawDifference,
+    swingRange,
+    direction,
+    threshold,
+    isValid: true,
+    needsRecalibration: false
+  };
+};
+
+/**
  * Map a normalized ratio (0.0 - 1.0) to an approved GLB angle in degrees
  * Formula: glbAngle = glbMin + normalized * (glbMax - glbMin)
  * 
@@ -342,10 +497,18 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
   const resolveSensorBounds = (finger) => {
     // 1. Check if customBounds were passed directly (e.g. from unit tests)
     if (customBounds?.[finger]) {
+      const flat = customBounds[finger].flat ?? customBounds[finger].straight ?? 1152;
+      const bent = customBounds[finger].bent ?? 1217;
+      const swing = Math.abs(bent - flat);
       return {
-        flat: customBounds[finger].flat ?? customBounds[finger].straight ?? 1152,
-        bent: customBounds[finger].bent ?? 1217,
-        isExplicit: true
+        flat,
+        bent,
+        swing,
+        direction: bent >= flat ? 'increasing' : 'decreasing',
+        noiseThreshold: customBounds[finger].noiseThreshold ?? (swing < 25 ? 4 : 6),
+        isExplicit: true,
+        isValid: flat > 0 && swing >= 10,
+        needsRecalibration: flat <= 0 || swing < 10
       };
     }
 
@@ -354,19 +517,35 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     // 2. If packet has explicit wide calibrated test bounds (e.g. from unit tests where span >= 500)
     if (packetBounds[strKey] !== undefined && packetBounds[bntKey] !== undefined &&
         Math.abs(packetBounds[bntKey] - packetBounds[strKey]) >= 500) {
+      const flat = packetBounds[strKey];
+      const bent = packetBounds[bntKey];
       return {
-        flat: packetBounds[strKey],
-        bent: packetBounds[bntKey],
-        isExplicit: true
+        flat,
+        bent,
+        swing: Math.abs(bent - flat),
+        direction: bent >= flat ? 'increasing' : 'decreasing',
+        noiseThreshold: 0,
+        isExplicit: true,
+        isValid: true,
+        needsRecalibration: false
       };
     }
 
     // 3. User saved calibration or default
     const cal = gloveCalib[finger] || DEFAULT_FLEX_CALIBRATION[finger];
+    const flat = cal.flat;
+    const bent = cal.bent;
+    const swing = Math.abs(bent - flat);
+    const isValid = flat > 0 && swing >= 10;
     return {
-      flat: cal.flat,
-      bent: cal.bent,
-      isExplicit: false
+      flat,
+      bent,
+      swing,
+      direction: isValid ? (bent >= flat ? 'increasing' : 'decreasing') : 'uncalibrated',
+      noiseThreshold: cal.noiseThreshold ?? (swing < 25 ? 4 : 6),
+      isExplicit: false,
+      isValid,
+      needsRecalibration: !isValid
     };
   };
 
@@ -385,9 +564,10 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     let filteredVal = 0;
     let rawReading = (rawVal !== undefined && rawVal !== null) ? Number(rawVal) : null;
     const bounds = resolveSensorBounds(finger);
+    let dirResult = null;
 
     if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
-      // 1. Stage 1 Low-pass EMA filter (alpha = 0.25) provides responsive real-time tracking while filtering electrical noise
+      // 1. Stage 1 Low-pass EMA filter (alpha = 0.25) to eliminate high-frequency ADC noise
       const alpha = 0.25;
       if (emaFilteredValues[finger] === null) {
         emaFilteredValues[finger] = rawVal;
@@ -400,45 +580,35 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       if (bounds.isExplicit) {
         // Direct explicit unit test bounds
         normalized = normalizeFlexValue(smoothVal, bounds.flat, bounds.bent, true, 0.0);
+        dirResult = {
+          bendPercentage: normalized,
+          bendDifference: smoothVal - bounds.flat,
+          rawDifference: rawReading - bounds.flat,
+          swingRange: bounds.swing,
+          direction: bounds.direction,
+          threshold: bounds.noiseThreshold,
+          isValid: true,
+          needsRecalibration: false
+        };
+      } else if (!bounds.isValid || bounds.flat === 0) {
+        // Validation check: Sensor #5 currently has Flat = 0, which is invalid.
+        // Do not use it as a real calibration baseline; finger stays at neutral 0.
+        normalized = 0.0;
+        dirResult = {
+          bendPercentage: 0.0,
+          bendDifference: 0,
+          rawDifference: rawReading !== null ? rawReading : 0,
+          swingRange: 0,
+          direction: 'uncalibrated',
+          threshold: bounds.noiseThreshold,
+          isValid: false,
+          needsRecalibration: true,
+          error: bounds.flat === 0 ? 'Sensor #5 requires calibration (Flat=0 invalid)' : 'Sensor requires recalibration'
+        };
       } else {
-        // DYNAMIC ADAPTIVE AUTO-RANGE (No rigid hardcoding)
-        // Automatically anchors resting baseline to physical sensor output and scales narrow swings
-        const tracker = dynamicRanges[finger];
-
-        // If baseline is not yet set or current reading differs massively (> 150 counts) from resting baseline
-        if (tracker.baseline === null || Math.abs(smoothVal - tracker.baseline) > 150) {
-          tracker.baseline = smoothVal;
-          tracker.min = smoothVal;
-          tracker.max = smoothVal;
-        } else {
-          // Track min/max observed
-          if (smoothVal < tracker.min) tracker.min = smoothVal;
-          if (smoothVal > tracker.max) tracker.max = smoothVal;
-
-          // Slow drift tracking when hand is steady near rest (diff < 6 counts)
-          const diffFromBaseline = Math.abs(smoothVal - tracker.baseline);
-          if (diffFromBaseline < 6) {
-            tracker.baseline = (0.02 * smoothVal) + (0.98 * tracker.baseline);
-          }
-        }
-
-        const deltaFromBaseline = smoothVal - tracker.baseline;
-        const absDelta = Math.abs(deltaFromBaseline);
-
-        // 3.5 count deadzone filters electrical ADC noise so resting fingers remain 100% still
-        const DEADZONE = 3.5;
-        if (absDelta <= DEADZONE) {
-          normalized = 0.0;
-        } else {
-          // Dynamically adapt to narrow hardware swings (15-60 counts)
-          const MIN_SWING = 18.0;
-          const observedSwing = Math.max(tracker.max - tracker.min, absDelta);
-          const effectiveSwing = Math.max(MIN_SWING, observedSwing);
-
-          const rawRatio = Math.min(1.0, (absDelta - DEADZONE) / (effectiveSwing - DEADZONE));
-          // Non-linear gamma curve for natural, responsive curl feel
-          normalized = Math.pow(rawRatio, 0.70);
-        }
+        // DIRECTION-AWARE BEND CALCULATION WITH NOISE THRESHOLD DEAD ZONE
+        dirResult = calculateDirectionalBend(smoothVal, bounds.flat, bounds.bent, bounds.noiseThreshold);
+        normalized = dirResult.bendPercentage;
       }
     } else if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
       // Pre-filtered angle value from firmware or backend mock (0 - 90 deg)
@@ -448,10 +618,30 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       if (rawReading === null) {
         rawReading = Math.round(normalized * 4095);
       }
+      dirResult = {
+        bendPercentage: normalized,
+        bendDifference: filteredVal,
+        rawDifference: filteredVal,
+        swingRange: 90,
+        direction: 'increasing',
+        threshold: 0,
+        isValid: true,
+        needsRecalibration: false
+      };
     } else {
       normalized = 0;
       filteredVal = 0;
       if (rawReading === null) rawReading = 0;
+      dirResult = {
+        bendPercentage: 0,
+        bendDifference: 0,
+        rawDifference: 0,
+        swingRange: bounds.swing || 0,
+        direction: bounds.direction || 'uncalibrated',
+        threshold: bounds.noiseThreshold || 6,
+        isValid: bounds.isValid,
+        needsRecalibration: bounds.needsRecalibration
+      };
     }
 
     const glbMapping = mapNormalizedToGlb(normalized, finger, activeGlbConfig);
@@ -460,20 +650,27 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     results.normalized[finger] = normalized;
     results.percentages[finger] = Math.round(normalized * 100);
 
-    const effectiveFlat = dynamicRanges[finger].baseline !== null ? Math.round(dynamicRanges[finger].baseline) : bounds.flat;
-    const effectiveBent = bounds.bent;
-    const swing = effectiveBent - effectiveFlat;
-    const diff = filteredVal !== 0 ? Math.round(filteredVal - effectiveFlat) : 0;
+    const isIncreasing = bounds.bent > bounds.flat;
+    const directionStr = bounds.flat === 0 ? 'uncalibrated' : (isIncreasing ? 'increasing' : 'decreasing');
+    const rawDiff = rawReading !== null ? (rawReading - bounds.flat) : 0;
+    const filtDiff = filteredVal !== 0 ? Math.round(filteredVal - bounds.flat) : 0;
+    const bendDiff = dirResult?.bendDifference !== undefined ? Math.round(dirResult.bendDifference) : filtDiff;
 
     results.debug[finger] = {
+      sensorNumber: FINGER_RIG_MAP[finger]?.channel || 1,
       finger,
       channel: FINGER_RIG_MAP[finger]?.channel || 1,
       raw: rawReading,
       filtered: Math.round(filteredVal),
-      flat: effectiveFlat,
-      bent: effectiveBent,
-      swing,
-      diff,
+      flat: bounds.flat,
+      bent: bounds.bent,
+      swing: dirResult?.swingRange ?? Math.abs(bounds.bent - bounds.flat),
+      direction: directionStr,
+      rawDifference: rawDiff,
+      filteredDifference: filtDiff,
+      bendDifference: bendDiff,
+      noiseThreshold: dirResult?.threshold ?? bounds.noiseThreshold ?? 6,
+      diff: bendDiff,
       ratio: Number(normalized.toFixed(3)),
       normalized: Math.round(normalized * 100),
       percentage: Math.round(normalized * 100),
@@ -482,7 +679,12 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       glbAngle: glbMapping.angle,
       targetBone: glbMapping.targetBone,
       min: glbMapping.min,
-      max: glbMapping.max
+      max: glbMapping.max,
+      isValid: bounds.isValid && bounds.flat > 0,
+      needsRecalibration: bounds.flat === 0 || !bounds.isValid,
+      status: bounds.flat === 0
+        ? 'Sensor #5 requires calibration (Flat=0 invalid)'
+        : (normalized > 0 ? 'Bending' : 'Flat (Rest)')
     };
   });
 

@@ -233,13 +233,16 @@ export default function LiveGloveCalibrationPanel({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-900 text-slate-400 uppercase text-[10px] font-black tracking-wider border-b border-slate-800">
                 <tr>
-                  <th className="py-2.5 px-3">Finger &amp; Channel</th>
+                  <th className="py-2.5 px-3">Finger &amp; Sensor</th>
+                  <th className="py-2.5 px-3 text-center">Direction</th>
                   <th className="py-2.5 px-3 text-center">Live Raw</th>
                   <th className="py-2.5 px-3 text-center">Filtered</th>
                   <th className="py-2.5 px-3 text-center">Flat ADC</th>
                   <th className="py-2.5 px-3 text-center">Bent ADC</th>
                   <th className="py-2.5 px-3 text-center">Swing (Δ)</th>
+                  <th className="py-2.5 px-3 text-center">Bend Diff</th>
                   <th className="py-2.5 px-3">Bend Ratio</th>
+                  <th className="py-2.5 px-3 text-center">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -251,10 +254,12 @@ export default function LiveGloveCalibrationPanel({
                     : (rawSensorPacket?.['raw_' + key] ?? '--');
                   const filteredVal = debug?.filtered !== undefined ? debug.filtered : '--';
                   const pct = debug?.percentage !== undefined ? debug.percentage : 0;
-                  const swing = (cal.bent || 0) - (cal.flat || 0);
+                  const isIncreasing = (cal.bent || 0) > (cal.flat || 0);
+                  const swing = Math.abs((cal.bent || 0) - (cal.flat || 0));
+                  const isInvalid = !cal.flat || cal.flat === 0;
 
                   return (
-                    <tr key={key} className="hover:bg-slate-850/50 transition-colors">
+                    <tr key={key} className={`hover:bg-slate-850/50 transition-colors ${isInvalid ? 'bg-amber-950/20' : ''}`}>
                       {/* Finger & Channel */}
                       <td className="py-2.5 px-3">
                         <div className="flex flex-col">
@@ -263,6 +268,21 @@ export default function LiveGloveCalibrationPanel({
                             {channel} • <span className="text-blue-400 font-semibold">{pin}</span>
                           </span>
                         </div>
+                      </td>
+
+                      {/* Direction */}
+                      <td className="py-2.5 px-2 text-center">
+                        {isInvalid ? (
+                          <span className="text-[10px] text-slate-500 font-mono">--</span>
+                        ) : (
+                          <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
+                            isIncreasing 
+                              ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/60'
+                              : 'bg-purple-950/60 text-purple-300 border border-purple-800/60'
+                          }`}>
+                            {isIncreasing ? '↑ Inc' : '↓ Dec'}
+                          </span>
+                        )}
                       </td>
 
                       {/* Live Raw ADC */}
@@ -281,7 +301,11 @@ export default function LiveGloveCalibrationPanel({
                           type="number"
                           value={cal.flat}
                           onChange={(e) => handleManualValueChange(key, 'flat', e.target.value)}
-                          className="w-16 px-1.5 py-1 text-center font-mono text-xs bg-slate-950 border border-slate-700 rounded-lg text-emerald-300 font-bold focus:border-blue-500 focus:outline-none"
+                          className={`w-16 px-1.5 py-1 text-center font-mono text-xs bg-slate-950 border rounded-lg font-bold focus:border-blue-500 focus:outline-none ${
+                            isInvalid 
+                              ? 'border-amber-500/80 text-amber-300 animate-pulse' 
+                              : 'border-slate-700 text-emerald-300'
+                          }`}
                         />
                       </td>
 
@@ -297,27 +321,36 @@ export default function LiveGloveCalibrationPanel({
 
                       {/* Swing (Delta) & Invert Button */}
                       <td className="py-2.5 px-3 text-center">
-                        <div className="flex items-center justify-center gap-1.5 font-mono font-bold text-xs">
+                        <div className="flex items-center justify-center gap-1 font-mono font-bold text-xs">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] border ${
-                            swing > 0 
-                              ? 'bg-blue-500/10 text-blue-300 border-blue-500/30' 
-                              : 'bg-purple-500/10 text-purple-300 border-purple-500/30'
+                            isInvalid
+                              ? 'bg-slate-800 text-slate-500 border-slate-700'
+                              : isIncreasing 
+                                ? 'bg-blue-500/10 text-blue-300 border-blue-500/30' 
+                                : 'bg-purple-500/10 text-purple-300 border-purple-500/30'
                           }`}>
-                            {swing > 0 ? `+${swing}` : `${swing}`}
+                            {isInvalid ? '0' : (isIncreasing ? `+${swing}` : `-${swing}`)}
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => handleInvertFinger(key)}
-                            className="p-1 hover:bg-slate-800 text-slate-400 hover:text-amber-300 rounded transition cursor-pointer"
-                            title={`Invert ${label}: swap Flat (${cal.flat}) ↔ Bent (${cal.bent})`}
-                          >
-                            <RotateCcw className="w-3 h-3" />
-                          </button>
+                          {!isInvalid && (
+                            <button
+                              type="button"
+                              onClick={() => handleInvertFinger(key)}
+                              className="p-1 hover:bg-slate-800 text-slate-400 hover:text-amber-300 rounded transition cursor-pointer"
+                              title={`Invert ${label}: swap Flat (${cal.flat}) ↔ Bent (${cal.bent})`}
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                       </td>
 
+                      {/* Bend Diff (Directional) */}
+                      <td className="py-2.5 px-2 text-center font-mono text-xs font-bold text-slate-300">
+                        {debug?.bendDifference !== undefined ? `${debug.bendDifference >= 0 ? '+' : ''}${debug.bendDifference}` : '--'}
+                      </td>
+
                       {/* Bend Ratio Progress Bar */}
-                      <td className="py-2.5 px-3 min-w-[130px]">
+                      <td className="py-2.5 px-3 min-w-[120px]">
                         <div className="flex items-center gap-2">
                           <div className="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden">
                             <div
@@ -329,6 +362,19 @@ export default function LiveGloveCalibrationPanel({
                             {pct}%
                           </span>
                         </div>
+                      </td>
+
+                      {/* Calibration Status */}
+                      <td className="py-2.5 px-2 text-center">
+                        {isInvalid ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 whitespace-nowrap">
+                            ⚠️ Needs Recalibration
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 whitespace-nowrap">
+                            ✓ Calibrated
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );

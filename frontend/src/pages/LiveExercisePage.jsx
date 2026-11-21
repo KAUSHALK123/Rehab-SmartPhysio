@@ -390,13 +390,23 @@ const FingerSyncPanel = ({
                   <span className="text-[8px] font-bold text-slate-400 leading-none mb-0.5">
                     {rawVal !== null ? `r:${rawVal}` : 'r:--'}
                   </span>
-                  <span className="text-[9px] font-black text-slate-800 mb-1">
-                    {debugInfo ? `${Math.round(flexPct)}%` : '0%'}
+                  <span className={`text-[9px] mb-1 ${
+                    debugInfo?.needsRecalibration 
+                      ? 'text-amber-500 font-extrabold animate-pulse' 
+                      : 'text-slate-800 font-black'
+                  }`} title={debugInfo?.needsRecalibration ? 'Sensor #5 requires calibration (Flat=0)' : ''}>
+                    {debugInfo?.needsRecalibration 
+                      ? 'Calib!' 
+                      : (debugInfo ? `${Math.round(flexPct)}%` : '0%')}
                   </span>
                   <div className="w-2.5 bg-slate-200 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
                     <div 
-                      className={`w-full rounded-full transition-all duration-150 ease-out ${getBarColor(flexPct)}`}
-                      style={{ height: `${debugInfo ? flexPct : 0}%` }}
+                      className={`w-full rounded-full transition-all duration-150 ease-out ${
+                        debugInfo?.needsRecalibration 
+                          ? 'bg-amber-400' 
+                          : getBarColor(flexPct)
+                      }`}
+                      style={{ height: `${debugInfo ? (debugInfo.needsRecalibration ? 8 : flexPct) : 0}%` }}
                     />
                   </div>
                   <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">

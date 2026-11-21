@@ -73,12 +73,12 @@ unsigned long lastStreamTime = 0;
 unsigned long lastMpuRetryTime = 0;
 const int streamInterval = 50; // 50ms = 20Hz sample rate (was 100ms/10Hz)
 
-// Finger and Elbow calibration storage variables (Tuned to physical sleeve resting baseline)
-int thumbStraight = 530, thumbBent = 575;
-int indexStraight = 1200, indexBent = 1150;
-int middleStraight = 994, middleBent = 1025;
-int ringStraight = 1915, ringBent = 1955;
-int littleStraight = 935, littleBent = 960;
+// Finger and Elbow calibration storage variables (Calibrated to individual sensor baselines)
+int thumbStraight = 0, thumbBent = 0;        // Sensor #5: Flat=0 uncalibrated (needs recalibration)
+int indexStraight = 1152, indexBent = 1217;  // Sensor #1: increasing (+65)
+int middleStraight = 1463, middleBent = 1446;// Sensor #2: decreasing (-17)
+int ringStraight = 1200, ringBent = 1147;    // Sensor #3: decreasing (-53)
+int littleStraight = 935, littleBent = 956;  // Sensor #4: increasing (+21)
 int elbowStraight = 1200, elbowBent = 2400;
 
 // EMA Filter variables — alpha=0.25 removes high-frequency electrical jitter while keeping responsive movement
@@ -90,21 +90,21 @@ const float angleDeadband = 0.1;
 float a_thumb = 0, a_index = 0, a_middle = 0, a_ring = 0, a_little = 0, a_elbow = 0;
 bool sensorsStable = false;
 
-// Helper maps filtered ADC values to angles (0 to 90 degrees)
+// Helper maps filtered ADC values to angles (0 to 90 degrees) with direction-aware calculation & noise threshold dead zone
 float mapFlexAngle(float filteredVal, int straightVal, int bentVal) {
-  // Determine bounds
-  float low = min(straightVal, bentVal);
-  float high = max(straightVal, bentVal);
-  
-  // Constrain reading
-  float val = constrain(filteredVal, low, high);
-  
-  // Map to 0-90 degrees
-  if (bentVal == straightVal) return 0.0; // safety
-  float angle = (val - straightVal) * 90.0 / (float)(bentVal - straightVal);
-  
-  // Safety constrain to expected anatomical bounds
-  return constrain(angle, 0.0, 90.0);
+  // Validate calibration baseline
+  if (straightVal <= 0 || bentVal <= 0 || abs(bentVal - straightVal) < 10) return 0.0;
+
+  bool isIncreasing = bentVal > straightVal;
+  float bendDiff = isIncreasing ? (filteredVal - straightVal) : (straightVal - filteredVal);
+  float swing = (float)abs(bentVal - straightVal);
+
+  // Noise threshold dead zone (eliminates baseline fluctuation jitter)
+  float noiseThreshold = min(6.0f, max(2.0f, swing * 0.25f));
+  if (bendDiff <= noiseThreshold) return 0.0;
+
+  float ratio = (bendDiff - noiseThreshold) / (swing - noiseThreshold);
+  return constrain(ratio, 0.0f, 1.0f) * 90.0f;
 }
 
 // WebSocket Event Handler Callback
