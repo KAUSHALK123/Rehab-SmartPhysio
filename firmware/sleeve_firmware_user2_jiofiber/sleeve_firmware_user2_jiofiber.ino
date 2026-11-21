@@ -51,7 +51,7 @@ const int CALIB_FLAT[NUM_FINGERS] = {
   250,  // Thumb  (Sensor #5, GPIO 36) - placeholder default
   173,  // Index  (Sensor #1, GPIO 33)
   265,  // Middle (Sensor #2, GPIO 34)
-  216,  // Ring   (Sensor #3, GPIO 35)
+  900,  // Ring   (Sensor #3, GPIO 35) - Measured: Flat ~ 900
   148   // Little (Sensor #4, GPIO 32) - Confirmed: Flat=148, Bent=41
 };
 
@@ -59,7 +59,7 @@ const int CALIB_BENT[NUM_FINGERS] = {
   180,  // Thumb  (Sensor #5, GPIO 36) - placeholder default
   108,  // Index  (Sensor #1, GPIO 33)
   220,  // Middle (Sensor #2, GPIO 34)
-  180,  // Ring   (Sensor #3, GPIO 35)
+  400,  // Ring   (Sensor #3, GPIO 35) - Measured: Bent ~ 400
   41    // Little (Sensor #4, GPIO 32) - Confirmed: Flat=148, Bent=41
 };
 
@@ -68,8 +68,8 @@ const int RAW_MIN_FAULT    = 10;   // Pulled to GND / short / unplugged with pul
 const int RAW_MAX_FAULT    = 4085; // Pulled to 3.3V rail / open circuit
 const int SPREAD_MAX_FAULT = 150;  // High ADC sample spread -> floating pin / extreme noise
 const int SWING_MIN_FAULT  = 20;   // Minimum required calibration span |FLAT - BENT|
-const float DEADZONE       = 0.04f;// Curl values below 0.04 clamp to 0.0 (open hand)
-const float EMA_ALPHA      = 0.35f;// Exponential moving average smoothing factor
+const float DEADZONE[NUM_FINGERS]  = {0.04f, 0.04f, 0.04f, 0.03f, 0.04f}; // Per-finger deadzone (Ring = 0.03)
+const float EMA_ALPHA[NUM_FINGERS] = {0.35f, 0.35f, 0.35f, 0.50f, 0.35f}; // Per-finger EMA factor (Ring = 0.50 fast)
 
 // ============================================================================
 // WI-FI & SERVER CONFIGURATION
@@ -273,11 +273,11 @@ void loop() {
         if (rawCurl < 0.0f) rawCurl = 0.0f;
         if (rawCurl > 1.0f) rawCurl = 1.0f;
 
-        // Apply deadzone
-        if (rawCurl < DEADZONE) rawCurl = 0.0f;
+        // Apply deadzone (per-finger)
+        if (rawCurl < DEADZONE[i]) rawCurl = 0.0f;
 
-        // EMA smoothing (alpha = 0.35)
-        float smoothed = (EMA_ALPHA * rawCurl) + ((1.0f - EMA_ALPHA) * lastGoodCurl[i]);
+        // Per-finger EMA smoothing: F[i].curl += EMA_ALPHA[i] * (c - F[i].curl)
+        float smoothed = lastGoodCurl[i] + EMA_ALPHA[i] * (rawCurl - lastGoodCurl[i]);
         curlValues[i] = smoothed;
         lastGoodCurl[i] = smoothed;
       }
