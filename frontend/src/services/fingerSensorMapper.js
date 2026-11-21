@@ -42,19 +42,19 @@ export const GLOVE_CALIB_STORAGE_KEY  = 'smartphysio_live_glove_calibration';
  * Signed ratio normalization handles both directions automatically.
  */
 export const DEFAULT_FLEX_CALIBRATION = {
-  index:  { flat: 1152, bent: 1217, label: 'Index (Sensor #1)',  channel: 1, swing: 65, direction: 'increasing', noiseThreshold: 6, isValid: true },
-  middle: { flat: 1463, bent: 1446, label: 'Middle (Sensor #2)', channel: 2, swing: 17, direction: 'decreasing', noiseThreshold: 4, isValid: true },
-  ring:   { flat: 1200, bent: 1147, label: 'Ring (Sensor #3)',   channel: 3, swing: 53, direction: 'decreasing', noiseThreshold: 6, isValid: true },
-  little: { flat: 935,  bent: 956,  label: 'Little (Sensor #4)', channel: 4, swing: 21, direction: 'increasing', noiseThreshold: 4, isValid: true },
-  thumb:  { flat: 0,    bent: 0,    label: 'Thumb (Sensor #5)',  channel: 5, swing: 0,  direction: 'uncalibrated', noiseThreshold: 6, isValid: false, needsRecalibration: true }
+  index:  { flat: 173, bent: 108, label: 'Index (Sensor #1)',  channel: 1, swing: 65,  direction: 'decreasing', noiseThreshold: 4, isValid: true },
+  middle: { flat: 265, bent: 273, label: 'Middle (Sensor #2)', channel: 2, swing: 8,   direction: 'increasing', noiseThreshold: 2, isValid: true },
+  ring:   { flat: 216, bent: 205, label: 'Ring (Sensor #3)',   channel: 3, swing: 11,  direction: 'decreasing', noiseThreshold: 2, isValid: true },
+  little: { flat: 148, bent: 41,  label: 'Little (Sensor #4)', channel: 4, swing: 107, direction: 'decreasing', noiseThreshold: 6, isValid: true },
+  thumb:  { flat: 0,   bent: 0,   label: 'Thumb (Sensor #5)',  channel: 5, swing: 0,   direction: 'uncalibrated', noiseThreshold: 6, isValid: false, needsRecalibration: true }
 };
 
 export const DEFAULT_SENSOR_BOUNDS = {
-  index:  { straight: 1152, bent: 1217, flat: 1152 },
-  middle: { straight: 1463, bent: 1446, flat: 1463 },
-  ring:   { straight: 1200, bent: 1147, flat: 1200 },
-  little: { straight: 935,  bent: 956,  flat: 935 },
-  thumb:  { straight: 0,    bent: 0,    flat: 0 }
+  index:  { straight: 173, bent: 108, flat: 173 },
+  middle: { straight: 265, bent: 273, flat: 265 },
+  ring:   { straight: 216, bent: 205, flat: 216 },
+  little: { straight: 148, bent: 41,  flat: 148 },
+  thumb:  { straight: 0,   bent: 0,   flat: 0 }
 };
 
 /**
@@ -104,6 +104,13 @@ export const loadGloveCalibration = () => {
     const raw = localStorage.getItem(GLOVE_CALIB_STORAGE_KEY);
     if (!raw) return { ...DEFAULT_FLEX_CALIBRATION };
     const parsed = JSON.parse(raw);
+
+    // Auto-migrate if stored values belong to previous high ADC range (flat > 500)
+    if (parsed.index?.flat > 500 || parsed.middle?.flat > 500) {
+      localStorage.removeItem(GLOVE_CALIB_STORAGE_KEY);
+      return { ...DEFAULT_FLEX_CALIBRATION };
+    }
+
     const merged = {};
     FINGER_KEYS.forEach(f => {
       const def = DEFAULT_FLEX_CALIBRATION[f];
@@ -111,7 +118,7 @@ export const loadGloveCalibration = () => {
       const bent = parsed[f]?.bent !== undefined ? parsed[f].bent : def.bent;
       const swing = Math.abs(bent - flat);
       const isIncreasing = bent >= flat;
-      const isValid = flat > 0 && swing >= 10;
+      const isValid = flat > 0 && swing >= 5;
 
       merged[f] = {
         ...def,
@@ -119,7 +126,7 @@ export const loadGloveCalibration = () => {
         bent,
         swing,
         direction: isValid ? (isIncreasing ? 'increasing' : 'decreasing') : 'uncalibrated',
-        noiseThreshold: parsed[f]?.noiseThreshold ?? def.noiseThreshold ?? (swing < 25 ? 4 : 6),
+        noiseThreshold: parsed[f]?.noiseThreshold ?? def.noiseThreshold ?? (swing < 20 ? 2 : 5),
         isValid,
         needsRecalibration: !isValid
       };
@@ -304,14 +311,14 @@ export const normalizeFlexValue = (value, flat = 1152, bent = 1217, useBoost = f
  * @returns {Object} Directional bend metrics and validity status
  */
 export const calculateDirectionalBend = (liveValue, flatValue, bentValue, noiseThreshold = null) => {
-  if (liveValue === null || liveValue === undefined || isNaN(liveValue) || liveValue <= 30) {
+  if (liveValue === null || liveValue === undefined || isNaN(liveValue) || liveValue <= 5) {
     return {
       bendPercentage: 0,
       bendDifference: 0,
       rawDifference: 0,
       swingRange: 0,
       direction: 'uncalibrated',
-      threshold: noiseThreshold || 6,
+      threshold: noiseThreshold || 4,
       isValid: false,
       needsRecalibration: true,
       error: 'No live telemetry'
@@ -326,7 +333,7 @@ export const calculateDirectionalBend = (liveValue, flatValue, bentValue, noiseT
       rawDifference: liveValue,
       swingRange: 0,
       direction: 'uncalibrated',
-      threshold: noiseThreshold || 6,
+      threshold: noiseThreshold || 4,
       isValid: false,
       needsRecalibration: true,
       error: 'Sensor requires calibration (Flat=0 invalid)'
@@ -340,7 +347,7 @@ export const calculateDirectionalBend = (liveValue, flatValue, bentValue, noiseT
       rawDifference: liveValue - flatValue,
       swingRange: 0,
       direction: 'uncalibrated',
-      threshold: noiseThreshold || 6,
+      threshold: noiseThreshold || 4,
       isValid: false,
       needsRecalibration: true,
       error: 'Sensor requires calibration (Bent=0 invalid)'
@@ -348,17 +355,17 @@ export const calculateDirectionalBend = (liveValue, flatValue, bentValue, noiseT
   }
 
   const swingRange = Math.abs(bentValue - flatValue);
-  if (swingRange < 10) {
+  if (swingRange < 5) {
     return {
       bendPercentage: 0,
       bendDifference: 0,
       rawDifference: liveValue - flatValue,
       swingRange,
       direction: 'uncalibrated',
-      threshold: noiseThreshold || 6,
+      threshold: noiseThreshold || 2,
       isValid: false,
       needsRecalibration: true,
-      error: 'Insufficient calibration range (< 10 counts)'
+      error: 'Insufficient calibration range (< 5 counts)'
     };
   }
 
@@ -375,8 +382,8 @@ export const calculateDirectionalBend = (liveValue, flatValue, bentValue, noiseT
     ? (liveValue - flatValue)
     : (flatValue - liveValue);
 
-  // Default noise threshold: 6 counts, or 4 counts for narrow swings (< 25 counts)
-  const defaultThreshold = swingRange < 25 ? 4 : 6;
+  // Default noise threshold: 2 counts for narrow swings (< 20 counts), 4 counts for medium, 6 for wide
+  const defaultThreshold = swingRange < 20 ? 2 : (swingRange < 50 ? 4 : 6);
   const threshold = (noiseThreshold !== null && noiseThreshold !== undefined)
     ? noiseThreshold
     : defaultThreshold;
@@ -536,13 +543,13 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     const flat = cal.flat;
     const bent = cal.bent;
     const swing = Math.abs(bent - flat);
-    const isValid = flat > 0 && swing >= 10;
+    const isValid = flat > 0 && swing >= 5;
     return {
       flat,
       bent,
       swing,
       direction: isValid ? (bent >= flat ? 'increasing' : 'decreasing') : 'uncalibrated',
-      noiseThreshold: cal.noiseThreshold ?? (swing < 25 ? 4 : 6),
+      noiseThreshold: cal.noiseThreshold ?? (swing < 20 ? 2 : (swing < 50 ? 4 : 6)),
       isExplicit: false,
       isValid,
       needsRecalibration: !isValid
@@ -566,7 +573,7 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     const bounds = resolveSensorBounds(finger);
     let dirResult = null;
 
-    if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
+    if (rawVal !== undefined && rawVal !== null && rawVal > 5) {
       // 1. Stage 1 Low-pass EMA filter (alpha = 0.25) to eliminate high-frequency ADC noise
       const alpha = 0.25;
       if (emaFilteredValues[finger] === null) {

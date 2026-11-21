@@ -75,10 +75,10 @@ const int streamInterval = 50; // 50ms = 20Hz sample rate (was 100ms/10Hz)
 
 // Finger and Elbow calibration storage variables (Calibrated to individual sensor baselines)
 int thumbStraight = 0, thumbBent = 0;        // Sensor #5: Flat=0 uncalibrated (needs recalibration)
-int indexStraight = 1152, indexBent = 1217;  // Sensor #1: increasing (+65)
-int middleStraight = 1463, middleBent = 1446;// Sensor #2: decreasing (-17)
-int ringStraight = 1200, ringBent = 1147;    // Sensor #3: decreasing (-53)
-int littleStraight = 935, littleBent = 956;  // Sensor #4: increasing (+21)
+int indexStraight = 173, indexBent = 108;    // Sensor #1: decreasing (Flat: 173, Bent: 108, Swing: 65)
+int middleStraight = 265, middleBent = 273;  // Sensor #2: increasing (Flat: 265, Bent: 273, Swing: 8)
+int ringStraight = 216, ringBent = 205;      // Sensor #3: decreasing (Flat: 216, Bent: 205, Swing: 11)
+int littleStraight = 148, littleBent = 41;   // Sensor #4: decreasing (Flat: 148, Bent: 41, Swing: 107)
 int elbowStraight = 1200, elbowBent = 2400;
 
 // EMA Filter variables — alpha=0.25 removes high-frequency electrical jitter while keeping responsive movement

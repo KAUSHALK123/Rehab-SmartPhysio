@@ -250,63 +250,67 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
   });
 
   describe('Direction-Aware Bend Calculation & Noise Threshold (Dead Zone)', () => {
-    it('Sensor 1 (Index, increasing): Flat=1152, Bent=1217, Swing=65', () => {
+    it('Sensor 1 (Index, decreasing): Flat=173, Bent=108, Swing=65', () => {
       // Noise fluctuations around flat baseline must produce 0%
-      expect(calculateDirectionalBend(1150, 1152, 1217, 6).bendPercentage).toBe(0);
-      expect(calculateDirectionalBend(1152, 1152, 1217, 6).bendPercentage).toBe(0);
-      expect(calculateDirectionalBend(1155, 1152, 1217, 6).bendPercentage).toBe(0);
-      expect(calculateDirectionalBend(1158, 1152, 1217, 6).bendPercentage).toBe(0); // within threshold 6
+      expect(calculateDirectionalBend(175, 173, 108, 4).bendPercentage).toBe(0);
+      expect(calculateDirectionalBend(173, 173, 108, 4).bendPercentage).toBe(0);
+      expect(calculateDirectionalBend(171, 173, 108, 4).bendPercentage).toBe(0);
+      expect(calculateDirectionalBend(170, 173, 108, 4).bendPercentage).toBe(0); // within threshold 4 (173 - 170 = 3 <= 4)
 
       // Above threshold starts bending
-      const bend1180 = calculateDirectionalBend(1180, 1152, 1217, 6);
-      expect(bend1180.bendPercentage).toBeGreaterThan(0);
-      expect(bend1180.bendPercentage).toBeCloseTo((28 - 6) / (65 - 6), 3); // ~0.373
+      const bend150 = calculateDirectionalBend(150, 173, 108, 4);
+      expect(bend150.bendPercentage).toBeGreaterThan(0);
+      expect(bend150.bendPercentage).toBeCloseTo((23 - 4) / (65 - 4), 3); // 19 / 61 ~ 0.311
 
-      const bend1200 = calculateDirectionalBend(1200, 1152, 1217, 6);
-      expect(bend1200.bendPercentage).toBeGreaterThan(bend1180.bendPercentage);
-      expect(bend1200.bendPercentage).toBeCloseTo((48 - 6) / (65 - 6), 3); // ~0.712
+      const bend120 = calculateDirectionalBend(120, 173, 108, 4);
+      expect(bend120.bendPercentage).toBeGreaterThan(bend150.bendPercentage);
+      expect(bend120.bendPercentage).toBeCloseTo((53 - 4) / (65 - 4), 3); // 49 / 61 ~ 0.803
 
       // At full bent reaches 100%
-      expect(calculateDirectionalBend(1217, 1152, 1217, 6).bendPercentage).toBe(1.0);
+      expect(calculateDirectionalBend(108, 173, 108, 4).bendPercentage).toBe(1.0);
       // Beyond bent clamps to 100%
-      expect(calculateDirectionalBend(1250, 1152, 1217, 6).bendPercentage).toBe(1.0);
+      expect(calculateDirectionalBend(90, 173, 108, 4).bendPercentage).toBe(1.0);
     });
 
-    it('Sensor 2 (Middle, decreasing): Flat=1463, Bent=1446, Swing=17', () => {
-      // Noise / reverse fluctuations above flat baseline must produce 0%
-      expect(calculateDirectionalBend(1465, 1463, 1446, 4).bendPercentage).toBe(0);
-      expect(calculateDirectionalBend(1463, 1463, 1446, 4).bendPercentage).toBe(0);
-      expect(calculateDirectionalBend(1460, 1463, 1446, 4).bendPercentage).toBe(0); // within threshold 4
+    it('Sensor 2 (Middle, increasing): Flat=265, Bent=273, Swing=8', () => {
+      // Fluctuations below flat baseline must produce 0%
+      expect(calculateDirectionalBend(263, 265, 273, 2).bendPercentage).toBe(0);
+      expect(calculateDirectionalBend(265, 265, 273, 2).bendPercentage).toBe(0);
+      expect(calculateDirectionalBend(266, 265, 273, 2).bendPercentage).toBe(0); // within threshold 2 (266 - 265 = 1 <= 2)
+      expect(calculateDirectionalBend(267, 265, 273, 2).bendPercentage).toBe(0); // within threshold 2 (267 - 265 = 2 <= 2)
 
-      // Decreasing ADC causes bending
-      const bend1455 = calculateDirectionalBend(1455, 1463, 1446, 4);
-      expect(bend1455.bendPercentage).toBeCloseTo((8 - 4) / (17 - 4), 3); // 4/13 ~ 0.308
+      // Increasing ADC above threshold causes bending
+      const bend270 = calculateDirectionalBend(270, 265, 273, 2);
+      expect(bend270.bendPercentage).toBeCloseTo((5 - 2) / (8 - 2), 3); // 3 / 6 = 0.5
 
       // At full bent reaches 100%
-      expect(calculateDirectionalBend(1446, 1463, 1446, 4).bendPercentage).toBe(1.0);
-      expect(calculateDirectionalBend(1430, 1463, 1446, 4).bendPercentage).toBe(1.0);
+      expect(calculateDirectionalBend(273, 265, 273, 2).bendPercentage).toBe(1.0);
+      expect(calculateDirectionalBend(280, 265, 273, 2).bendPercentage).toBe(1.0);
     });
 
-    it('Sensor 3 (Ring, decreasing): Flat=1200, Bent=1147, Swing=53', () => {
-      expect(calculateDirectionalBend(1205, 1200, 1147, 6).bendPercentage).toBe(0);
-      expect(calculateDirectionalBend(1200, 1200, 1147, 6).bendPercentage).toBe(0);
-      expect(calculateDirectionalBend(1196, 1200, 1147, 6).bendPercentage).toBe(0); // within threshold 6
+    it('Sensor 3 (Ring, decreasing): Flat=216, Bent=205, Swing=11', () => {
+      expect(calculateDirectionalBend(220, 216, 205, 2).bendPercentage).toBe(0);
+      expect(calculateDirectionalBend(216, 216, 205, 2).bendPercentage).toBe(0);
+      expect(calculateDirectionalBend(215, 216, 205, 2).bendPercentage).toBe(0); // within threshold 2
+      expect(calculateDirectionalBend(214, 216, 205, 2).bendPercentage).toBe(0); // within threshold 2
 
-      const bend1175 = calculateDirectionalBend(1175, 1200, 1147, 6);
-      expect(bend1175.bendPercentage).toBeCloseTo((25 - 6) / (53 - 6), 3); // 19/47 ~ 0.404
+      const bend210 = calculateDirectionalBend(210, 216, 205, 2);
+      expect(bend210.bendPercentage).toBeCloseTo((6 - 2) / (11 - 2), 3); // 4 / 9 ~ 0.444
 
-      expect(calculateDirectionalBend(1147, 1200, 1147, 6).bendPercentage).toBe(1.0);
+      expect(calculateDirectionalBend(205, 216, 205, 2).bendPercentage).toBe(1.0);
+      expect(calculateDirectionalBend(195, 216, 205, 2).bendPercentage).toBe(1.0);
     });
 
-    it('Sensor 4 (Little, increasing): Flat=935, Bent=956, Swing=21', () => {
-      expect(calculateDirectionalBend(930, 935, 956, 4).bendPercentage).toBe(0);
-      expect(calculateDirectionalBend(935, 935, 956, 4).bendPercentage).toBe(0);
-      expect(calculateDirectionalBend(938, 935, 956, 4).bendPercentage).toBe(0); // within threshold 4
+    it('Sensor 4 (Little, decreasing): Flat=148, Bent=41, Swing=107', () => {
+      expect(calculateDirectionalBend(155, 148, 41, 6).bendPercentage).toBe(0);
+      expect(calculateDirectionalBend(148, 148, 41, 6).bendPercentage).toBe(0);
+      expect(calculateDirectionalBend(144, 148, 41, 6).bendPercentage).toBe(0); // within threshold 6 (148 - 144 = 4 <= 6)
 
-      const bend945 = calculateDirectionalBend(945, 935, 956, 4);
-      expect(bend945.bendPercentage).toBeCloseTo((10 - 4) / (21 - 4), 3); // 6/17 ~ 0.353
+      const bend95 = calculateDirectionalBend(95, 148, 41, 6);
+      expect(bend95.bendPercentage).toBeCloseTo((53 - 6) / (107 - 6), 3); // 47 / 101 ~ 0.465
 
-      expect(calculateDirectionalBend(956, 935, 956, 4).bendPercentage).toBe(1.0);
+      expect(calculateDirectionalBend(41, 148, 41, 6).bendPercentage).toBe(1.0);
+      expect(calculateDirectionalBend(20, 148, 41, 6).bendPercentage).toBe(1.0);
     });
 
     it('Sensor 5 (Thumb, uncalibrated): Flat=0 is validated as invalid and reports recalibration required', () => {
@@ -319,10 +323,10 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
 
     it('does not move fingers when user releases back to flat baseline', () => {
       // Releasing back to flat gives 0%
-      expect(calculateDirectionalBend(1152, 1152, 1217, 6).bendPercentage).toBe(0);
-      expect(calculateDirectionalBend(1463, 1463, 1446, 4).bendPercentage).toBe(0);
-      expect(calculateDirectionalBend(1200, 1200, 1147, 6).bendPercentage).toBe(0);
-      expect(calculateDirectionalBend(935, 935, 956, 4).bendPercentage).toBe(0);
+      expect(calculateDirectionalBend(173, 173, 108, 4).bendPercentage).toBe(0);
+      expect(calculateDirectionalBend(265, 265, 273, 2).bendPercentage).toBe(0);
+      expect(calculateDirectionalBend(216, 216, 205, 2).bendPercentage).toBe(0);
+      expect(calculateDirectionalBend(148, 148, 41, 6).bendPercentage).toBe(0);
     });
   });
 });

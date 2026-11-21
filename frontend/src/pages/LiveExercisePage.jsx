@@ -1974,11 +1974,11 @@ function LiveExercisePage() {
           little: manualSliderValues.little / 100,
         },
         debug: {
-          thumb:  { finger: 'thumb',  glbAngle: manualSliderAngles.thumb,  normalized: manualSliderValues.thumb,  raw: Math.round(530 + (manualSliderValues.thumb / 100) * 45),   min: 0, max: 48 },
-          index:  { finger: 'index',  glbAngle: manualSliderAngles.index,  normalized: manualSliderValues.index,  raw: Math.round(1200 - (manualSliderValues.index / 100) * 50), min: 0, max: 75 },
-          middle: { finger: 'middle', glbAngle: manualSliderAngles.middle, normalized: manualSliderValues.middle, raw: Math.round(994 + (manualSliderValues.middle / 100) * 31),  min: 0, max: 75 },
-          ring:   { finger: 'ring',   glbAngle: manualSliderAngles.ring,   normalized: manualSliderValues.ring,   raw: Math.round(1915 + (manualSliderValues.ring / 100) * 40), min: 0, max: 75 },
-          little: { finger: 'little', glbAngle: manualSliderAngles.little, normalized: manualSliderValues.little, raw: Math.round(935 + (manualSliderValues.little / 100) * 25),  min: 0, max: 70 },
+          index:  { finger: 'index',  sensorNumber: 1, glbAngle: manualSliderAngles.index,  normalized: manualSliderValues.index,  raw: Math.round(173 - (manualSliderValues.index / 100) * 65),   flat: 173, bent: 108, swing: 65,  direction: 'decreasing', min: 0, max: 75, isValid: true },
+          middle: { finger: 'middle', sensorNumber: 2, glbAngle: manualSliderAngles.middle, normalized: manualSliderValues.middle, raw: Math.round(265 + (manualSliderValues.middle / 100) * 8),    flat: 265, bent: 273, swing: 8,   direction: 'increasing', min: 0, max: 75, isValid: true },
+          ring:   { finger: 'ring',   sensorNumber: 3, glbAngle: manualSliderAngles.ring,   normalized: manualSliderValues.ring,   raw: Math.round(216 - (manualSliderValues.ring / 100) * 11),   flat: 216, bent: 205, swing: 11,  direction: 'decreasing', min: 0, max: 75, isValid: true },
+          little: { finger: 'little', sensorNumber: 4, glbAngle: manualSliderAngles.little, normalized: manualSliderValues.little, raw: Math.round(148 - (manualSliderValues.little / 100) * 107),  flat: 148, bent: 41,  swing: 107, direction: 'decreasing', min: 0, max: 70, isValid: true },
+          thumb:  { finger: 'thumb',  sensorNumber: 5, glbAngle: 0,                         normalized: 0,                          raw: 135,                                                        flat: 0,   bent: 0,   swing: 0,   direction: 'uncalibrated', min: 0, max: 48, isValid: false, needsRecalibration: true, error: 'Sensor #5 requires calibration (Flat=0 invalid)' }
         }
       }
     : fingerTelemetryDetails;
