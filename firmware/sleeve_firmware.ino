@@ -50,7 +50,7 @@ const int PIN_PRESSURE = 25; // D25 (GPIO 25)
 const int CALIB_FLAT[NUM_FINGERS] = {
   250,  // Thumb  (Sensor #5, GPIO 36) - placeholder default
   1205, // Index  (Sensor #1, GPIO 33) - Measured: Flat >= 1205
-  720,  // Middle (Sensor #2, GPIO 34) - Measured: Flat >= 720
+  625,  // Middle (Sensor #2, GPIO 34) - Measured: Flat >= 625
   900,  // Ring   (Sensor #3, GPIO 35) - Measured: Flat ~ 900
   148   // Little (Sensor #4, GPIO 32) - Confirmed: Flat=148, Bent=41
 };
@@ -58,7 +58,7 @@ const int CALIB_FLAT[NUM_FINGERS] = {
 const int CALIB_BENT[NUM_FINGERS] = {
   180,  // Thumb  (Sensor #5, GPIO 36) - placeholder default
   1180, // Index  (Sensor #1, GPIO 33) - Measured: Full Close <= 1180 (1185-1180)
-  699,  // Middle (Sensor #2, GPIO 34) - Measured: Full Close <= 699 (705-699)
+  500,  // Middle (Sensor #2, GPIO 34) - Measured: Full Close <= 500 (below 600..500)
   400,  // Ring   (Sensor #3, GPIO 35) - Measured: Bent ~ 400
   41    // Little (Sensor #4, GPIO 32) - Confirmed: Flat=148, Bent=41
 };

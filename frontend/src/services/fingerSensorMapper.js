@@ -46,7 +46,7 @@ export const GLOVE_CALIB_STORAGE_KEY  = 'smartphysio_live_glove_calibration';
 export const DEFAULT_FLEX_CALIBRATION = {
   thumb:  { flat: 250,  bent: 180,  label: 'Thumb (GPIO 36)',  channel: 1, swing: 70,  direction: 'decreasing', noiseThreshold: 4, isValid: true },
   index:  { flat: 1205, bent: 1180, label: 'Index (GPIO 33)',  channel: 2, swing: 25,  direction: 'decreasing', noiseThreshold: 2, isValid: true },
-  middle: { flat: 720,  bent: 699,  label: 'Middle (GPIO 34)', channel: 3, swing: 21,  direction: 'decreasing', noiseThreshold: 2, isValid: true },
+  middle: { flat: 625,  bent: 500,  label: 'Middle (GPIO 34)', channel: 3, swing: 125, direction: 'decreasing', noiseThreshold: 4, isValid: true },
   ring:   { flat: 900,  bent: 400,  label: 'Ring (GPIO 35)',   channel: 4, swing: 500, direction: 'decreasing', noiseThreshold: 4, isValid: true },
   little: { flat: 148,  bent: 41,   label: 'Little (GPIO 32)', channel: 5, swing: 107, direction: 'decreasing', noiseThreshold: 6, isValid: true }
 };
@@ -54,7 +54,7 @@ export const DEFAULT_FLEX_CALIBRATION = {
 export const DEFAULT_SENSOR_BOUNDS = {
   thumb:  { straight: 250,  bent: 180,  flat: 250 },
   index:  { straight: 1205, bent: 1180, flat: 1205 },
-  middle: { straight: 720,  bent: 699,  flat: 720 },
+  middle: { straight: 625,  bent: 500,  flat: 625 },
   ring:   { straight: 900,  bent: 400,  flat: 900 },
   little: { straight: 148,  bent: 41,   flat: 148 }
 };
@@ -275,8 +275,15 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     }
 
     // 3. Extract curl: use firmware curl directly if available (SINGLE SOURCE OF TRUTH)
+    // Dynamic fallback for Middle finger: remap directly from raw (Flat=625, Bent=500) without requiring sleeve re-flash
     let curl = 0.0;
-    if (hasArrayCurl && telemetry.curl[i] !== undefined) {
+    if (finger === 'middle' && hasArrayRaw && raw !== null && ok && !telemetry.bounds && !customBounds?.middle) {
+      const straight = calib.flat ?? 625;
+      const bent = calib.bent ?? 500;
+      const rawRatio = (straight - raw) / (straight - bent);
+      const clamped = Math.max(0.0, Math.min(1.0, rawRatio));
+      curl = clamped < 0.04 ? 0.0 : clamped;
+    } else if (hasArrayCurl && telemetry.curl[i] !== undefined) {
       curl = Math.max(0.0, Math.min(1.0, Number(telemetry.curl[i]) || 0.0));
     } else if (telemetry?.curl && typeof telemetry.curl === 'object' && telemetry.curl[finger] !== undefined) {
       curl = Math.max(0.0, Math.min(1.0, Number(telemetry.curl[finger]) || 0.0));
