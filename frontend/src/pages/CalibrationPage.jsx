@@ -1105,7 +1105,7 @@ function CalibrationPage() {
                                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">GPIO Pin Health Status</span>
                                       <div className="grid grid-cols-2 gap-1.5 text-[10px] font-semibold">
                                         <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                          <span className="text-slate-500 font-medium">GPIO 32 (Thumb)</span>
+                                          <span className="text-slate-500 font-medium">GPIO 36 (Thumb)</span>
                                           <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
                                             {lastTelemetry ? "● OK" : "○ OFFLINE"}
                                           </span>
@@ -1129,7 +1129,7 @@ function CalibrationPage() {
                                           </span>
                                         </div>
                                         <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                          <span className="text-slate-500 font-medium">GPIO 36 (Little)</span>
+                                          <span className="text-slate-500 font-medium">GPIO 32 (Little)</span>
                                           <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
                                             {lastTelemetry ? "● OK" : "○ OFFLINE"}
                                           </span>

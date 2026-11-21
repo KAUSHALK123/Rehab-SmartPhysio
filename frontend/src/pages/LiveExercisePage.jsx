@@ -245,30 +245,26 @@ const FingerSyncPanel = ({
   simulatedActive = false,
   onToggleSimulation = () => {},
   onOpenCalibration = () => {},
-  showCalibration = false
+  showCalibration = false,
+  connectionBadgeState = 'NO DEVICE',
+  onToggleDebug = () => {}
 }) => {
   const fingerKeys = [
-    { key: 'thumb', label: 'Thumb' },
-    { key: 'index', label: 'Index' },
-    { key: 'middle', label: 'Mid' },
-    { key: 'ring', label: 'Ring' },
-    { key: 'little', label: 'Lit' }
+    { key: 'thumb',  label: 'Thumb',  pin: 36 },
+    { key: 'index',  label: 'Index',  pin: 33 },
+    { key: 'middle', label: 'Mid',    pin: 34 },
+    { key: 'ring',   label: 'Ring',   pin: 35 },
+    { key: 'little', label: 'Lit',    pin: 32 }
   ];
 
-  const getBarColor = (pct) => {
+  const getBarColor = (pct, isFault = false) => {
+    if (isFault) return 'bg-red-500';
     if (pct < 30) return 'bg-gradient-to-t from-emerald-500 to-green-400 shadow-[0_0_8px_rgba(16,185,129,0.4)]';
     if (pct < 70) return 'bg-gradient-to-t from-amber-500 to-yellow-400 shadow-[0_0_8px_rgba(245,158,11,0.4)]';
     return 'bg-gradient-to-t from-rose-500 to-pink-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]';
   };
 
-  const hasHardwarePacket = rawSensorPacket && Object.keys(rawSensorPacket).length > 0;
-  const sensorsReadingZero = hasHardwarePacket && !simulatedActive && (
-    Number(rawSensorPacket.raw_thumb ?? 0) === 0 &&
-    Number(rawSensorPacket.raw_index ?? 0) === 0 &&
-    Number(rawSensorPacket.raw_middle ?? 0) === 0 &&
-    Number(rawSensorPacket.raw_ring ?? 0) === 0 &&
-    Number(rawSensorPacket.raw_little ?? 0) === 0
-  );
+  const isSimulated = connectionBadgeState === 'SIMULATED';
 
   return (
     <div className="w-full space-y-3">
@@ -277,55 +273,44 @@ const FingerSyncPanel = ({
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
             <Activity className="w-3.5 h-3.5 text-primary" />
-            Flex Sensor ↔ GLB Real-Time Sync
+            Flex Sensor ↔ GLB Sync
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className={`inline-flex items-center gap-1 text-[9px] font-extrabold px-2.5 py-1 rounded-full border ${
-            simulatedActive
-              ? 'bg-purple-50 text-purple-700 border-purple-200 animate-pulse'
-              : sensorsReadingZero
-                ? 'bg-amber-50 text-amber-700 border-amber-200'
-                : !deviceConnected
-                  ? 'bg-slate-100 text-slate-500 border-slate-200'
-                  : isFlexSynced
-                    ? 'bg-emerald-50 text-emerald-600 border-emerald-200 animate-pulse'
-                    : 'bg-slate-100 text-slate-500 border-slate-200'
+          <button
+            type="button"
+            onClick={onToggleDebug}
+            className="text-[9px] font-black px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 text-slate-600 hover:text-slate-900 bg-white shadow-xs cursor-pointer"
+            title="Toggle Telemetry Debug Overlay (or press D)"
+          >
+            DEBUG (D)
+          </button>
+          <span className={`inline-flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-full border transition-colors ${
+            connectionBadgeState === 'SIMULATED'
+              ? 'bg-red-600 text-white border-red-700 shadow-sm animate-pulse'
+              : connectionBadgeState === 'LIVE - ESP32'
+                ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
+                : 'bg-slate-200 text-slate-700 border-slate-300'
           }`}>
             <span className={`w-1.5 h-1.5 rounded-full ${
-              simulatedActive ? 'bg-purple-500' : sensorsReadingZero ? 'bg-amber-500' : !deviceConnected ? 'bg-slate-400' : isFlexSynced ? 'bg-emerald-500' : 'bg-slate-400'
+              connectionBadgeState === 'SIMULATED' ? 'bg-white' : connectionBadgeState === 'LIVE - ESP32' ? 'bg-emerald-200 animate-ping' : 'bg-slate-400'
             }`} />
-            {simulatedActive
-              ? 'Simulated Motion Active'
-              : sensorsReadingZero
-                ? 'Hardware 0 ADC (Check VCC)'
-                : !deviceConnected
-                  ? 'Waiting for Telemetry...'
-                  : isFlexSynced
-                    ? 'Real-Time Flex Active'
-                    : 'Flex Sync Off'}
+            {connectionBadgeState}
           </span>
         </div>
       </div>
 
-      {/* 0 ADC Diagnostic Warning Banner */}
-      {sensorsReadingZero && (
-        <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1.5">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-amber-800 dark:text-amber-300">
-            <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
-            <span>ESP32 Connected • Flex Pins Reading 0 ADC</span>
+      {/* Loud Red Banner for Simulated State */}
+      {isSimulated && (
+        <div className="p-3 bg-red-600 text-white rounded-xl shadow-md flex items-center justify-between animate-pulse">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-white flex-shrink-0" />
+            <div>
+              <div className="text-xs font-black uppercase tracking-wide">SIMULATED SENSOR DATA ACTIVE</div>
+              <p className="text-[10px] text-red-100 font-medium leading-tight">ESP32 hardware is disconnected. Values are synthetic.</p>
+            </div>
           </div>
-          <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
-            The ESP32 is online, but GPIO pins 32-36 are reading 0V. Check that 3.3V power &amp; GND to the flex voltage dividers are plugged in, or click below to simulate fist movement.
-          </p>
-          <button
-            type="button"
-            onClick={onToggleSimulation}
-            className="mt-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Zap className="w-3 h-3" />
-            Start Simulated Flex (Test Repetitions)
-          </button>
+          <span className="text-[9px] bg-red-800/90 px-2 py-1 rounded font-mono font-bold tracking-wider">src: mock</span>
         </div>
       )}
 
@@ -337,27 +322,28 @@ const FingerSyncPanel = ({
             <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">
               GLB FINGER BEND
             </span>
-            <span className="text-[9px] font-bold text-slate-400">Target Angle</span>
+            <span className="text-[9px] font-bold text-slate-400">-15° → 70°</span>
           </div>
 
           <div className="flex items-end justify-between gap-1.5 h-24 pt-1">
             {fingerKeys.map(({ key, label }) => {
               const debugInfo = computedFingerData?.debug?.[key];
-              const angle = debugInfo?.glbAngle !== undefined ? debugInfo.glbAngle : 0;
-              const min = debugInfo?.min !== undefined ? debugInfo.min : 0;
-              const max = debugInfo?.max !== undefined ? debugInfo.max : 60;
+              const isFault = Boolean(debugInfo?.isFault);
+              const angle = debugInfo?.glbAngle !== undefined ? debugInfo.glbAngle : -15;
+              const min = debugInfo?.min !== undefined ? debugInfo.min : -15;
+              const max = debugInfo?.max !== undefined ? debugInfo.max : 70;
 
-              const rangeSpan = Math.abs(max - min) || 60;
-              const pct = Math.max(0, Math.min(100, (Math.abs(angle - min) / rangeSpan) * 100));
+              const rangeSpan = Math.abs(max - min) || 85;
+              const pct = isFault ? 0 : Math.max(0, Math.min(100, ((angle - min) / rangeSpan) * 100));
 
               return (
                 <div key={key} className="flex-1 flex flex-col items-center h-full justify-end min-w-0">
-                  <span className="text-[9px] font-black text-slate-800 mb-1">
-                    {debugInfo ? `${Math.round(angle)}°` : '0°'}
+                  <span className={`text-[9px] font-black mb-1 ${isFault ? 'text-red-500 font-black' : 'text-slate-800'}`}>
+                    {isFault ? '!FAULT' : (debugInfo ? `${Math.round(angle)}°` : '-15°')}
                   </span>
                   <div className="w-2.5 bg-slate-200 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
                     <div 
-                      className={`w-full rounded-full transition-all duration-150 ease-out ${getBarColor(pct)}`}
+                      className={`w-full rounded-full transition-all duration-150 ease-out ${getBarColor(pct, isFault)}`}
                       style={{ height: `${debugInfo ? pct : 0}%` }}
                     />
                   </div>
@@ -376,13 +362,14 @@ const FingerSyncPanel = ({
             <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">
               LIVE FLEX SENSORS
             </span>
-            <span className="text-[9px] font-bold text-slate-400">Raw &amp; Flex %</span>
+            <span className="text-[9px] font-bold text-slate-400">Raw &amp; Curl %</span>
           </div>
 
           <div className="flex items-end justify-between gap-1.5 h-24 pt-1">
             {fingerKeys.map(({ key, label }) => {
               const debugInfo = computedFingerData?.debug?.[key];
-              const flexPct = debugInfo?.normalized !== undefined ? debugInfo.normalized : 0;
+              const isFault = Boolean(debugInfo?.isFault);
+              const flexPct = debugInfo?.percentage !== undefined ? debugInfo.percentage : 0;
               const rawVal = debugInfo?.raw !== null && debugInfo?.raw !== undefined ? debugInfo.raw : (rawSensorPacket?.['raw_' + key] !== undefined ? rawSensorPacket['raw_' + key] : null);
 
               return (
@@ -391,22 +378,18 @@ const FingerSyncPanel = ({
                     {rawVal !== null ? `r:${rawVal}` : 'r:--'}
                   </span>
                   <span className={`text-[9px] mb-1 ${
-                    debugInfo?.needsRecalibration 
-                      ? 'text-amber-500 font-extrabold animate-pulse' 
+                    isFault 
+                      ? 'text-red-500 font-black bg-red-100 dark:bg-red-950 px-1 py-0.5 rounded animate-pulse' 
                       : 'text-slate-800 font-black'
-                  }`} title={debugInfo?.needsRecalibration ? 'Sensor #5 requires calibration (Flat=0)' : ''}>
-                    {debugInfo?.needsRecalibration 
-                      ? 'Calib!' 
+                  }`} title={isFault ? 'SENSOR FAULT' : ''}>
+                    {isFault 
+                      ? 'FAULT' 
                       : (debugInfo ? `${Math.round(flexPct)}%` : '0%')}
                   </span>
                   <div className="w-2.5 bg-slate-200 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
                     <div 
-                      className={`w-full rounded-full transition-all duration-150 ease-out ${
-                        debugInfo?.needsRecalibration 
-                          ? 'bg-amber-400' 
-                          : getBarColor(flexPct)
-                      }`}
-                      style={{ height: `${debugInfo ? (debugInfo.needsRecalibration ? 8 : flexPct) : 0}%` }}
+                      className={`w-full rounded-full transition-all duration-150 ease-out ${getBarColor(flexPct, isFault)}`}
+                      style={{ height: `${debugInfo ? (isFault ? 8 : flexPct) : 0}%` }}
                     />
                   </div>
                   <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
@@ -709,6 +692,22 @@ function LiveExercisePage() {
   const [fingerTelemetryDetails, setFingerTelemetryDetails] = useState(null);
   const [wristTelemetryDetails, setWristTelemetryDetails] = useState(null);
   const [showGloveCalibration, setShowGloveCalibration] = useState(false);
+  const [showDebugPanel, setShowDebugPanel] = useState(() => {
+    return typeof window !== 'undefined' && window.location.search.includes('debug=1');
+  });
+  const [connectionBadgeState, setConnectionBadgeState] = useState('NO DEVICE');
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'd' || e.key === 'D') {
+        if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+        setShowDebugPanel((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const [manualSlidersActive, setManualSlidersActive] = useState(false);
   const [manualSliderValues, setManualSliderValues] = useState({
     thumb: 0,
@@ -768,6 +767,23 @@ function LiveExercisePage() {
   const [simulatedFingersActive, setSimulatedFingersActive] = useState(false);
   const [battery, setBattery] = useState(100);
   const [telemetryStream, setTelemetryStream] = useState([]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = Date.now();
+      const packetAge = lastPacketTime ? now - lastPacketTime : 999999;
+      const isMock = rawSensorPacket?.src === 'mock' || rawSensorPacket?.is_mock || simulatedFingersActive;
+
+      if (isMock) {
+        setConnectionBadgeState('SIMULATED');
+      } else if (rawSensorPacket?.src === 'esp32' && packetAge < 1000) {
+        setConnectionBadgeState('LIVE - ESP32');
+      } else {
+        setConnectionBadgeState('NO DEVICE');
+      }
+    }, 250);
+    return () => clearInterval(timer);
+  }, [lastPacketTime, rawSensorPacket, simulatedFingersActive]);
   
   const [sensors, setSensors] = useState({
     wrist_pitch: 0.0,
@@ -1054,14 +1070,18 @@ function LiveExercisePage() {
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
+      if (data.type === 'status' && data.state === 'device_offline') {
+        setDeviceConnected(false);
+        setIsHardwareDevice(false);
+      }
       if (data.type === 'status_update' && data.status === 'hardware_status_changed') {
         setDeviceConnected(data.hardware_connected);
       }
 
-      if (data.type === 'sensor_data') {
-        const isHardware = !data.is_mock;
+      if (data.type === 'sensor_data' || data.src === 'esp32' || data.src === 'mock' || data.curl) {
+        const isHardware = data.src === 'esp32' && !data.is_mock;
         setIsHardwareDevice(isHardware);
-        setDeviceConnected(true);
+        setDeviceConnected(isHardware || data.src === 'mock');
         if (data.battery !== undefined) setBattery(data.battery);
         setRawSensorPacket(data);
         setLastPacketTime(Date.now());
@@ -2895,6 +2915,8 @@ function LiveExercisePage() {
                       onToggleSimulation={() => setSimulatedFingersActive(prev => !prev)}
                       onOpenCalibration={() => setShowGloveCalibration(prev => !prev)}
                       showCalibration={showGloveCalibration}
+                      connectionBadgeState={connectionBadgeState}
+                      onToggleDebug={() => setShowDebugPanel(prev => !prev)}
                     />
 
                     {showGloveCalibration && (
@@ -3131,6 +3153,70 @@ function LiveExercisePage() {
                 Return to Library
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Telemetry Debug Panel (Toggle with D or ?debug=1) */}
+      {showDebugPanel && (
+        <div className="fixed bottom-4 right-4 z-50 bg-slate-900/95 text-white p-4 rounded-xl border border-slate-700 shadow-2xl text-xs max-w-md w-full backdrop-blur-md animate-in fade-in slide-in-from-bottom-2">
+          <div className="flex justify-between items-center pb-2 border-b border-slate-700 mb-2">
+            <div className="font-extrabold text-cyan-400 flex items-center gap-1.5">
+              <Activity className="w-3.5 h-3.5" />
+              <span>SmartPhysio Telemetry Debug</span>
+            </div>
+            <button 
+              type="button" 
+              onClick={() => setShowDebugPanel(false)}
+              className="text-slate-400 hover:text-white font-bold px-1.5 py-0.5 rounded hover:bg-slate-800 cursor-pointer"
+            >✕</button>
+          </div>
+          <div className="grid grid-cols-4 gap-2 mb-3 text-[10px] text-slate-300">
+            <div>src: <span className="font-mono text-white font-bold">{rawSensorPacket?.src || (simulatedFingersActive ? 'mock' : 'none')}</span></div>
+            <div>seq: <span className="font-mono text-white font-bold">{rawSensorPacket?.seq ?? '--'}</span></div>
+            <div>age: <span className="font-mono text-white font-bold">{lastPacketTime ? `${Math.max(0, Date.now() - lastPacketTime)}ms` : '--'}</span></div>
+            <div>state: <span className={`font-bold ${connectionBadgeState === 'LIVE - ESP32' ? 'text-emerald-400' : connectionBadgeState === 'SIMULATED' ? 'text-red-400' : 'text-slate-400'}`}>{connectionBadgeState}</span></div>
+          </div>
+          <table className="w-full text-left border-collapse text-[11px]">
+            <thead>
+              <tr className="border-b border-slate-700 text-slate-400 text-[10px]">
+                <th className="py-1">Finger (Pin)</th>
+                <th className="py-1">Raw</th>
+                <th className="py-1">Curl %</th>
+                <th className="py-1">Angle</th>
+                <th className="py-1">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { key: 'thumb',  pin: 36 },
+                { key: 'index',  pin: 33 },
+                { key: 'middle', pin: 34 },
+                { key: 'ring',   pin: 35 },
+                { key: 'little', pin: 32 }
+              ].map(({ key, pin }) => {
+                const d = activeFingerTelemetryDetails?.debug?.[key];
+                const isFault = Boolean(d?.isFault);
+                return (
+                  <tr key={key} className="border-b border-slate-800/60 font-mono">
+                    <td className="py-1 capitalize text-slate-300">{key} <span className="text-[9px] text-slate-500">({pin})</span></td>
+                    <td className="py-1">{d?.raw ?? '--'}</td>
+                    <td className="py-1 text-cyan-300 font-bold">{d ? `${d.percentage}%` : '--'}</td>
+                    <td className="py-1 text-slate-300">{d ? `${d.glbAngle}°` : '--'}</td>
+                    <td className="py-1">
+                      {isFault ? (
+                        <span className="text-red-400 font-bold bg-red-950/90 px-1.5 py-0.5 rounded text-[9px]">!FAULT</span>
+                      ) : (
+                        <span className="text-emerald-400 font-bold text-[9px]">OK</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="mt-2.5 text-[10px] text-slate-400 flex justify-between items-center border-t border-slate-800/80 pt-2">
+            <span>Toggle with <kbd className="px-1 py-0.5 bg-slate-800 rounded text-slate-300 font-mono">D</kbd></span>
+            <span>Range: -15° (flat) → 70° (curl)</span>
           </div>
         </div>
       )}

@@ -16,11 +16,11 @@ import { useTheme } from '../context/ThemeContext';
 
 // ─── GPIO reference (matches sleeve_firmware.ino PIN_ constants) ─────────────
 const GPIO_ROWS = [
-  ['Thumb',    'PIN_THUMB',    'GPIO 32 (D32)', 'ADC1_CH4'],
-  ['Index',    'PIN_INDEX',    'GPIO 35 (D35)', 'ADC1_CH7'],
+  ['Thumb',    'PIN_THUMB',    'GPIO 36 (VP)',  'ADC1_CH0'],
+  ['Index',    'PIN_INDEX',    'GPIO 33 (D33)', 'ADC1_CH5'],
   ['Middle',   'PIN_MIDDLE',   'GPIO 34 (D34)', 'ADC1_CH6'],
-  ['Ring',     'PIN_RING',     'GPIO 33 (D33)', 'ADC1_CH5'],
-  ['Little',   'PIN_LITTLE',   'GPIO 36 (VP)',  'ADC1_CH0'],
+  ['Ring',     'PIN_RING',     'GPIO 35 (D35)', 'ADC1_CH7'],
+  ['Little',   'PIN_LITTLE',   'GPIO 32 (D32)', 'ADC1_CH4'],
   ['Elbow',    'PIN_ELBOW',    'GPIO 39 (VN)',  'ADC1_CH3'],
   ['Pressure', 'PIN_PRESSURE', 'GPIO 25 (D25)', 'DAC1 / Analog'],
   ['MPU SDA',  'Wire.begin()', 'GPIO 21',       'I\u00b2C Data'],
@@ -29,11 +29,11 @@ const GPIO_ROWS = [
 
 // Finger sensor definitions
 const FINGER_SENSORS = [
-  { key: 'thumb',  label: 'Thumb',  gpio: 'GPIO 32 (D32)', color: '#8b5cf6' },
-  { key: 'index',  label: 'Index',  gpio: 'GPIO 35 (D35)', color: '#3b82f6' },
+  { key: 'thumb',  label: 'Thumb',  gpio: 'VP / GPIO 36',  color: '#8b5cf6' },
+  { key: 'index',  label: 'Index',  gpio: 'GPIO 33 (D33)', color: '#3b82f6' },
   { key: 'middle', label: 'Middle', gpio: 'GPIO 34 (D34)', color: '#10b981' },
-  { key: 'ring',   label: 'Ring',   gpio: 'GPIO 33 (D33)', color: '#f59e0b' },
-  { key: 'little', label: 'Little', gpio: 'VP / GPIO 36',  color: '#ef4444' },
+  { key: 'ring',   label: 'Ring',   gpio: 'GPIO 35 (D35)', color: '#f59e0b' },
+  { key: 'little', label: 'Little', gpio: 'GPIO 32 (D32)', color: '#ef4444' },
 ];
 
 const ADC_MAX = 4095; // ESP32 12-bit ADC

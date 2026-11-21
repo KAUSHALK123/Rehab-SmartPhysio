@@ -1,35 +1,25 @@
 /*
   SmartPhysio - Intelligent Wearable Rehabilitation Sleeve ESP32 Firmware
-  
-  Description:
-  This firmware runs on an ESP32 microcontroller, reads raw sensor inputs from:
-  1. Five analog flex sensors (Thumb, Index, Middle, Ring, Little)
-  2. One elbow curl flex sensor
-  3. One force pressure resistor (Grip Squeeze)
-  4. One MPU6050 Inertial Measurement Unit (I2C) for Wrist Pitch/Roll
-  
-  And streams the telemetry as a JSON payload over a WebSocket connection to the 
-  FastAPI backend server at 20Hz (50ms interval).
-  
-  Wiring Connection Layout:
-  -------------------------------------------------------------
-  Sensor Name      | Type     | ESP32 Pin | Extra Components Required
-  -------------------------------------------------------------
-  Thumb Flex       | Analog   | GPIO 36 (VP)| 10k Ohm Resistor in Pull-down
-  Index Flex       | Analog   | GPIO 33 (D33)| 10k Ohm Resistor in Pull-down
-  Middle Flex      | Analog   | GPIO 34 (D34)| 10k Ohm Resistor in Pull-down
-  Ring Flex        | Analog   | GPIO 35 (D35)| 10k Ohm Resistor in Pull-down
-  Little Flex      | Analog   | GPIO 32 (D32)| 10k Ohm Resistor in Pull-down
-  Elbow Flex       | Analog   | GPIO 39 (VN)| 10k Ohm Resistor in Pull-down
-  Pressure Squeeze | Analog   | GPIO 25     | 10k Ohm Resistor in Pull-down
-  MPU6050 SDA      | I2C Data | GPIO 21   | 4.7k Ohm Pull-up to 3.3V
-  MPU6050 SCL      | I2C Clock| GPIO 22   | 4.7k Ohm Pull-up to 3.3V
-  -------------------------------------------------------------
-  
-  External Libraries Required:
-  1. MPU6050_tockn (by tockn)
-  2. ArduinoJson (by Benoit Blanchon)
-  3. WebSockets (by Markus Sattler)
+  Version: 1.2.0
+
+  Single Source of Truth Pinout (all ADC1 channels, Wi-Fi safe):
+  -----------------------------------------------------------------
+  Finger / Sensor | Pin           | ADC Channel | External Resistor
+  -----------------------------------------------------------------
+  Thumb Flex      | GPIO 36 (VP)  | ADC1_CH0    | 10k-22kΩ Pull-down to GND + 0.1µF to GND
+  Index Flex      | GPIO 33 (D33) | ADC1_CH5    | 10k-22kΩ Pull-down to GND + 0.1µF to GND
+  Middle Flex     | GPIO 34 (D34) | ADC1_CH6    | 10k-22kΩ Pull-down to GND + 0.1µF to GND
+  Ring Flex       | GPIO 35 (D35) | ADC1_CH7    | 10k-22kΩ Pull-down to GND + 0.1µF to GND
+  Little Flex     | GPIO 32 (D32) | ADC1_CH4    | 10k-22kΩ Pull-down to GND + 0.1µF to GND
+  Elbow Flex      | GPIO 39 (VN)  | ADC1_CH3    | 10kΩ Pull-down to GND
+  Pressure Force  | GPIO 25 (D25) | ADC2        | 10kΩ Pull-down to GND
+  MPU6050 SDA     | GPIO 21 (D21) | I2C Data    | 4.7kΩ Onboard Pull-up to 3.3V
+  MPU6050 SCL     | GPIO 22 (D22) | I2C Clock   | 4.7kΩ Onboard Pull-up to 3.3V
+  -----------------------------------------------------------------
+
+  Circuit per channel:
+  3.3V -> Flex Sensor -> Node (to GPIO Pin) -> Fixed Resistor -> GND
+                         Node -> 0.1µF Ceramic Capacitor -> GND
 */
 
 #include <WiFi.h>
@@ -39,478 +29,299 @@
 #include <WebSocketsClient.h>
 #include <Preferences.h>
 
-// --- Wi-Fi & Server Configurations (Defaults loaded from NVS if present) ---
-String wifi_ssid = "JioFiber-Ys2sx";
-String wifi_pass = "MBMGREEN";
+// ============================================================================
+// SINGLE SOURCE OF TRUTH PINOUT DEFINITION
+// ============================================================================
+const int NUM_FINGERS = 5;
+const int FINGER_PINS[NUM_FINGERS]   = {36, 33, 34, 35, 32};
+const char* FINGER_NAMES[NUM_FINGERS] = {"Thumb", "Index", "Middle", "Ring", "Little"};
+
+const int PIN_ELBOW    = 39; // VN (GPIO 39)
+const int PIN_PRESSURE = 25; // D25 (GPIO 25)
+
+// ============================================================================
+// CALIBRATION BLOCK (Flex Sensor 12-bit ADC Benchmarks: Decreases when bent)
+// ============================================================================
+// To recalibrate:
+// 1. Keep hand completely flat on a table, note raw ADC values over Serial (or send 'c').
+// 2. Curl finger into a full fist, note raw ADC values.
+// 3. Update the CALIB_FLAT and CALIB_BENT constants below.
+// Rule: Flex ADC value DECREASES when bent (FLAT > BENT).
+const int CALIB_FLAT[NUM_FINGERS] = {
+  250,  // Thumb  (Sensor #5, GPIO 36) - placeholder default
+  173,  // Index  (Sensor #1, GPIO 33)
+  265,  // Middle (Sensor #2, GPIO 34)
+  216,  // Ring   (Sensor #3, GPIO 35)
+  148   // Little (Sensor #4, GPIO 32) - Confirmed: Flat=148, Bent=41
+};
+
+const int CALIB_BENT[NUM_FINGERS] = {
+  180,  // Thumb  (Sensor #5, GPIO 36) - placeholder default
+  108,  // Index  (Sensor #1, GPIO 33)
+  220,  // Middle (Sensor #2, GPIO 34)
+  180,  // Ring   (Sensor #3, GPIO 35)
+  41    // Little (Sensor #4, GPIO 32) - Confirmed: Flat=148, Bent=41
+};
+
+// Fault detection thresholds (Named Constants)
+const int RAW_MIN_FAULT    = 10;   // Pulled to GND / short / unplugged with pulldown
+const int RAW_MAX_FAULT    = 4085; // Pulled to 3.3V rail / open circuit
+const int SPREAD_MAX_FAULT = 150;  // High ADC sample spread -> floating pin / extreme noise
+const int SWING_MIN_FAULT  = 20;   // Minimum required calibration span |FLAT - BENT|
+const float DEADZONE       = 0.04f;// Curl values below 0.04 clamp to 0.0 (open hand)
+const float EMA_ALPHA      = 0.35f;// Exponential moving average smoothing factor
+
+// ============================================================================
+// WI-FI & SERVER CONFIGURATION
+// ============================================================================
+String wifi_ssid   = "JioFiber-Ys2sx";
+String wifi_pass   = "MBMGREEN";
 String server_host = "192.168.29.176";
 const int server_port = 8000;
 
 Preferences preferences;
-
-// --- Analog Input Pins Assignment ---
-// User Hardware Pinout:
-// VP  (GPIO 36 / ADC1_CH0) -> Thumb Flex
-// D33 (GPIO 33 / ADC1_CH5) -> Index Flex
-// D34 (GPIO 34 / ADC1_CH6) -> Middle Flex
-// D35 (GPIO 35 / ADC1_CH7) -> Ring Flex
-// D32 (GPIO 32 / ADC1_CH4) -> Little Flex
-// VN  (GPIO 39 / ADC1_CH3) -> Elbow Flex
-// D25 (GPIO 25)            -> Grip Pressure Resistor
-const int PIN_THUMB    = 36; // VP  (GPIO 36) -> THUMB FLEX
-const int PIN_INDEX    = 33; // D33 (GPIO 33) -> INDEX FLEX
-const int PIN_MIDDLE   = 34; // D34 (GPIO 34) -> MIDDLE FLEX
-const int PIN_RING     = 35; // D35 (GPIO 35) -> RING FLEX
-const int PIN_LITTLE   = 32; // D32 (GPIO 32) -> LITTLE FLEX
-const int PIN_ELBOW    = 39; // VN  (GPIO 39) -> ELBOW FLEX
-const int PIN_PRESSURE = 25; // D25 (GPIO 25) -> SQUEEZE FORCE
-
-// --- Sensors Variables & Objects ---
 MPU6050 mpu(Wire);
 WebSocketsClient webSocket;
+
 bool wsConnected = false;
 bool mpuFound = false;
+uint32_t seq = 0;
 unsigned long lastStreamTime = 0;
+unsigned long lastSerialLogTime = 0;
+unsigned long lastReconnectLogTime = 0;
 unsigned long lastMpuRetryTime = 0;
-const int streamInterval = 50; // 50ms = 20Hz sample rate (was 100ms/10Hz)
+const int streamInterval = 50; // 50ms = 20 Hz frame rate
 
-// Finger and Elbow calibration storage variables (Calibrated to individual sensor baselines)
-int thumbStraight = 0, thumbBent = 0;        // Sensor #5: Flat=0 uncalibrated (needs recalibration)
-int indexStraight = 173, indexBent = 108;    // Sensor #1: decreasing (Flat: 173, Bent: 108, Swing: 65)
-int middleStraight = 265, middleBent = 273;  // Sensor #2: increasing (Flat: 265, Bent: 273, Swing: 8)
-int ringStraight = 216, ringBent = 205;      // Sensor #3: decreasing (Flat: 216, Bent: 205, Swing: 11)
-int littleStraight = 148, littleBent = 41;   // Sensor #4: decreasing (Flat: 148, Bent: 41, Swing: 107)
-int elbowStraight = 1200, elbowBent = 2400;
+// Working sensor arrays
+int rawValues[NUM_FINGERS]    = {0, 0, 0, 0, 0};
+float curlValues[NUM_FINGERS] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+int okFlags[NUM_FINGERS]      = {1, 1, 1, 1, 1};
+float lastGoodCurl[NUM_FINGERS] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
-// EMA Filter variables — alpha=0.25 removes high-frequency electrical jitter while keeping responsive movement
-const float emaAlpha = 0.25;
-float f_thumb = -1, f_index = -1, f_middle = -1, f_ring = -1, f_little = -1, f_elbow = -1;
+// ============================================================================
+// OVERSAMPLED ADC ACQUISITION WITH SPREAD (NOISE) TRACKING
+// ============================================================================
+struct SampleResult {
+  int raw;
+  int spread;
+};
 
-// Last sent angle (fine deadband 0.1 deg for maximum micro-bend sensitivity)
-const float angleDeadband = 0.1;
-float a_thumb = 0, a_index = 0, a_middle = 0, a_ring = 0, a_little = 0, a_elbow = 0;
-bool sensorsStable = false;
-
-// Helper maps filtered ADC values to angles (0 to 90 degrees) with direction-aware calculation & noise threshold dead zone
-float mapFlexAngle(float filteredVal, int straightVal, int bentVal) {
-  // Validate calibration baseline
-  if (straightVal <= 0 || bentVal <= 0 || abs(bentVal - straightVal) < 10) return 0.0;
-
-  bool isIncreasing = bentVal > straightVal;
-  float bendDiff = isIncreasing ? (filteredVal - straightVal) : (straightVal - filteredVal);
-  float swing = (float)abs(bentVal - straightVal);
-
-  // Noise threshold dead zone (eliminates baseline fluctuation jitter)
-  float noiseThreshold = min(6.0f, max(2.0f, swing * 0.25f));
-  if (bendDiff <= noiseThreshold) return 0.0;
-
-  float ratio = (bendDiff - noiseThreshold) / (swing - noiseThreshold);
-  return constrain(ratio, 0.0f, 1.0f) * 90.0f;
+SampleResult readOversampled(int pin) {
+  volatile int dummy = analogRead(pin); // mux settle
+  (void)dummy;
+  int minVal = 4095;
+  int maxVal = 0;
+  long sum = 0;
+  for (int i = 0; i < 16; i++) {
+    int val = analogRead(pin);
+    if (val < minVal) minVal = val;
+    if (val > maxVal) maxVal = val;
+    sum += val;
+    delayMicroseconds(40);
+  }
+  SampleResult res;
+  res.raw = (int)(sum >> 4);
+  res.spread = maxVal - minVal;
+  return res;
 }
 
-// WebSocket Event Handler Callback
+// ============================================================================
+// WEBSOCKET EVENT HANDLER
+// ============================================================================
+void sendHelloFrame() {
+  StaticJsonDocument<256> hello;
+  hello["type"] = "hello";
+  hello["src"] = "esp32";
+  JsonObject pins = hello.createNestedObject("pins");
+  pins["Thumb"] = 36;
+  pins["Index"] = 33;
+  pins["Middle"] = 34;
+  pins["Ring"] = 35;
+  pins["Little"] = 32;
+  hello["fw"] = "1.2.0";
+
+  String helloStr;
+  serializeJson(hello, helloStr);
+  webSocket.sendTXT(helloStr);
+}
+
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   switch(type) {
     case WStype_DISCONNECTED:
-      Serial.println("[WS] Disconnected from server");
       wsConnected = false;
       break;
     case WStype_CONNECTED:
-      Serial.printf("[WS] Connected to url: %s\n", payload);
       wsConnected = true;
+      sendHelloFrame();
       break;
     case WStype_TEXT:
-      Serial.printf("[WS] Received Text: %s\n", payload);
-      // Process incoming commands from backend
-      StaticJsonDocument<200> doc;
-      DeserializationError error = deserializeJson(doc, payload);
-      if (!error) {
-        const char* command = doc["command"];
-        if (command && strcmp(command, "set_step") == 0) {
-          const char* step = doc["step"];
-          Serial.printf("[WS] Step changed to: %s\n", step);
-        } else if (command && strcmp(command, "set_sensor_bounds") == 0) {
-          const char* sensor = doc["sensor"];
-          int strVal = doc["straight"];
-          int bntVal = doc["bent"];
-          
-          if (!sensor) return;
-          
-          Serial.printf("[WS] Calibration Command: set_sensor_bounds for %s (S:%d B:%d)\n", sensor, strVal, bntVal);
-          
-          if (abs(strVal - bntVal) < 20) {
-            Serial.printf("[FLEX] %s calibration invalid: insufficient sensor range (%d vs %d)\n", sensor, strVal, bntVal);
-            return; // Ignore garbage calibration
-          }
-          
-          preferences.begin("physio", false);
-          if (strcmp(sensor, "thumb") == 0) {
-            thumbStraight = strVal; thumbBent = bntVal;
-            preferences.putInt("thumbStr", strVal); preferences.putInt("thumbBnt", bntVal);
-          } else if (strcmp(sensor, "index") == 0) {
-            indexStraight = strVal; indexBent = bntVal;
-            preferences.putInt("indexStr", strVal); preferences.putInt("indexBnt", bntVal);
-          } else if (strcmp(sensor, "middle") == 0) {
-            middleStraight = strVal; middleBent = bntVal;
-            preferences.putInt("middleStr", strVal); preferences.putInt("middleBnt", bntVal);
-          } else if (strcmp(sensor, "ring") == 0) {
-            ringStraight = strVal; ringBent = bntVal;
-            preferences.putInt("ringStr", strVal); preferences.putInt("ringBnt", bntVal);
-          } else if (strcmp(sensor, "little") == 0) {
-            littleStraight = strVal; littleBent = bntVal;
-            preferences.putInt("littleStr", strVal); preferences.putInt("littleBnt", bntVal);
-          } else if (strcmp(sensor, "elbow") == 0) {
-            elbowStraight = strVal; elbowBent = bntVal;
-            preferences.putInt("elbowStr", strVal); preferences.putInt("elbowBnt", bntVal);
-          }
-          preferences.end();
-          Serial.printf("[FLEX] Saved %s Calibration.\n", sensor);
-        }
-      }
+      break;
+    default:
       break;
   }
 }
 
-// Helper to probe I2C bus and initialize MPU6050 on address 0x68 or 0x69 (or full bus scan)
-bool detectAndInitMPU(bool fullCalib) {
-  byte mpuAddress = 0;
-  
+// ============================================================================
+// MPU6050 INITIALIZATION
+// ============================================================================
+void initMPU() {
+  Wire.begin(21, 22);
+  Wire.setClock(400000);
   Wire.beginTransmission(0x68);
-  byte err68 = Wire.endTransmission();
-  
-  Wire.beginTransmission(0x69);
-  byte err69 = Wire.endTransmission();
-  
-  if (err68 == 0) {
-    mpuAddress = 0x68;
-  } else if (err69 == 0) {
-    mpuAddress = 0x69;
-  } else {
-    // If standard addresses fail, scan full 1-127 I2C bus to see if anything is connected
-    byte anyFound = 0;
-    for (byte addr = 1; addr < 127; addr++) {
-      Wire.beginTransmission(addr);
-      if (Wire.endTransmission() == 0) {
-        anyFound = addr;
-        break;
-      }
-    }
-    
-    if (anyFound != 0) {
-      Serial.printf("[I2C SCAN] Found unknown I2C device at 0x%02X (Expected MPU at 0x68 or 0x69)!\n", anyFound);
-      mpuAddress = anyFound;
-    } else {
-      if (fullCalib) {
-        Serial.printf("[I2C SCAN] No I2C response on GPIO 21 (SDA) & 22 (SCL). (Err: 0x68=%d, 0x69=%d)\n", err68, err69);
-        if (err68 == 4 || err68 == 5) {
-          Serial.println("--> I2C bus is STUCK or SHORTED. Check if SDA and SCL are touching or shorted to GND.");
-        } else {
-          Serial.println("--> Check wires: SDA must be on GPIO 21, SCL on GPIO 22. Connect AD0 to GND.");
-        }
-      }
-    }
-  }
-
-  if (mpuAddress != 0) {
-    Serial.printf("[MPU] Found chip on I2C address 0x%02X! Initializing...\n", mpuAddress);
+  if (Wire.endTransmission() == 0) {
     mpu.begin();
-    if (fullCalib) {
-      Serial.println("[MPU] Calibrating gyro offsets (keep sleeve still for 3s)...");
-      mpu.calcGyroOffsets(true);
-    } else {
-      mpu.calcGyroOffsets(false);
-    }
+    mpu.calcGyroOffsets(false);
     mpuFound = true;
-    Serial.println("[MPU] Sensor successfully initialized and ready!");
-    return true;
+  } else {
+    mpuFound = false;
   }
-  return false;
 }
 
+// ============================================================================
+// SETUP
+// ============================================================================
 void setup() {
   Serial.begin(115200);
-  delay(1000);
 
-  // Load preferences from non-volatile storage (NVS)
+  // Load preferences if saved
   preferences.begin("physio", false);
   String stored_ssid = preferences.getString("wifi_ssid", "");
   String stored_pass = preferences.getString("wifi_pass", "");
   String stored_host = preferences.getString("server_host", "");
   preferences.end();
 
-  if (stored_ssid.length() > 0) {
-    wifi_ssid = stored_ssid;
-    wifi_pass = stored_pass;
-    Serial.printf("[NVS] Loaded Wi-Fi SSID from memory: %s\n", wifi_ssid.c_str());
-  } else {
-    Serial.println("[NVS] No Wi-Fi configuration stored in memory. Using code defaults.");
-  }
-  if (stored_host.length() > 0) {
-    server_host = stored_host;
-    Serial.printf("[NVS] Loaded server host from memory: %s\n", server_host.c_str());
-  } else {
-    Serial.println("[NVS] No server host stored in memory. Using code defaults.");
-  }
-  
-  // Load Flex Calibration
-  thumbStraight = preferences.getInt("thumbStr", 0); thumbBent = preferences.getInt("thumbBnt", 4095);
-  indexStraight = preferences.getInt("indexStr", 0); indexBent = preferences.getInt("indexBnt", 4095);
-  middleStraight = preferences.getInt("middleStr", 0); middleBent = preferences.getInt("middleBnt", 4095);
-  ringStraight = preferences.getInt("ringStr", 0); ringBent = preferences.getInt("ringBnt", 4095);
-  littleStraight = preferences.getInt("littleStr", 0); littleBent = preferences.getInt("littleBnt", 4095);
-  elbowStraight = preferences.getInt("elbowStr", 0); elbowBent = preferences.getInt("elbowBnt", 4095);
+  if (stored_ssid.length() > 0) wifi_ssid = stored_ssid;
+  if (stored_pass.length() > 0) wifi_pass = stored_pass;
+  if (stored_host.length() > 0) server_host = stored_host;
 
-  if (thumbStraight == 0 && thumbBent == 4095) {
-    Serial.println("[FLEX] WARNING: Calibration required for finger flex sensors.");
-  }
-  
-  // 1. Initialize Wi-Fi Connection
-  Serial.printf("\nConnecting to Wi-Fi SSID: %s\n", wifi_ssid.c_str());
-  WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
-  
-  unsigned long startWifiTime = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(200);
-    Serial.print(".");
-    
-    // Check for serial configuration commands during connection block!
-    if (Serial.available() > 0) {
-      String serialData = Serial.readStringUntil('\n');
-      serialData.trim();
-      if (serialData.startsWith("SET_CONFIG:")) {
-        String configData = serialData.substring(11);
-        int firstComma = configData.indexOf(',');
-        int secondComma = configData.indexOf(',', firstComma + 1);
-        if (firstComma != -1 && secondComma != -1) {
-          String newSsid = configData.substring(0, firstComma);
-          String newPass = configData.substring(firstComma + 1, secondComma);
-          String newHost = configData.substring(secondComma + 1);
-          newSsid.trim(); newPass.trim(); newHost.trim();
-          
-          preferences.begin("physio", false);
-          preferences.putString("wifi_ssid", newSsid);
-          preferences.putString("wifi_pass", newPass);
-          preferences.putString("server_host", newHost);
-          preferences.end();
-          
-          Serial.println("\n[CONFIG] Saved new config to memory! Rebooting...");
-          delay(500);
-          ESP.restart();
-        }
-      }
-    }
-    
-    // 10 seconds connection timeout
-    if (millis() - startWifiTime > 10000) {
-      Serial.println("\n[WiFi] Connection timed out! Entering offline mode.");
-      break;
-    }
-  }
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWi-Fi Connected successfully!");
-    Serial.print("Local IP Address: ");
-    Serial.println(WiFi.localIP());
-    // Disable Wi-Fi modem sleep to prevent disconnection during idle periods
-    WiFi.setSleep(false);
-    WiFi.setAutoReconnect(true);
-  }
-
-  // 2. Initialize I2C and MPU6050 with explicit ESP32 pins
-  Wire.begin(21, 22); // GPIO 21 = SDA, GPIO 22 = SCL
-  delay(200); // Allow I2C bus pins to settle
-  Serial.println("Scanning I2C bus for MPU6050 on GPIO 21 (SDA) / GPIO 22 (SCL)...");
-  
-  if (!detectAndInitMPU(true)) {
-    Serial.println("Warning: MPU6050 chip not detected at 0x68 or 0x69 on boot!");
-    Serial.println("--> 1. Check if SDA is on GPIO 21 and SCL is on GPIO 22.");
-    Serial.println("--> 2. Check if AD0 pin is floating; connect AD0 to GND for address 0x68.");
-    Serial.println("--> 3. Power LED on MPU only indicates VCC/GND power, NOT I2C communication.");
-    Serial.println("--> 4. Auto-reconnect is active: will automatically connect as soon as wires are seated!");
-    mpuFound = false;
-  }
-
-  // 3. Initialize WebSocket client connection
-  // client_type=device query parameter informs backend this is the hardware device socket
-  Serial.printf("Connecting to WebSocket server: %s:%d...\n", server_host.c_str(), server_port);
-  webSocket.begin(server_host.c_str(), server_port, "/api/v1/device/ws?client_type=device");
-  webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(3000); // Reconnect quickly (3s) if connection drops
-  webSocket.enableHeartbeat(15000, 3000, 2); // Keep-alive ping every 15s to prevent router timeouts
-
-  // 4. Configure ADC resolution & analog input pins (Full 12-bit, 0V - 3.3V range)
+  // Configure ADC for full 12-bit resolution and 11dB attenuation
   analogReadResolution(12);
-  analogSetAttenuation(ADC_11db);
-  pinMode(PIN_THUMB, INPUT);
-  pinMode(PIN_INDEX, INPUT);
-  pinMode(PIN_MIDDLE, INPUT);
-  pinMode(PIN_RING, INPUT);
-  pinMode(PIN_LITTLE, INPUT);
+  for (int i = 0; i < NUM_FINGERS; i++) {
+    analogSetPinAttenuation(FINGER_PINS[i], ADC_11db);
+    pinMode(FINGER_PINS[i], INPUT);
+  }
+  analogSetPinAttenuation(PIN_ELBOW, ADC_11db);
   pinMode(PIN_ELBOW, INPUT);
   pinMode(PIN_PRESSURE, INPUT);
+
+  initMPU();
+
+  // Connect to Wi-Fi
+  WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
+
+  // Configure WebSocket Client to FastAPI backend
+  webSocket.begin(server_host.c_str(), server_port, "/api/v1/device/ws?client_type=device");
+  webSocket.onEvent(webSocketEvent);
+  webSocket.setReconnectInterval(2000);
+
+  Serial.println("[BOOT] SmartPhysio ESP32 Glove Firmware v1.2.0 ready.");
+  Serial.println("[BOOT] Pinout: Thumb:36 Index:33 Middle:34 Ring:35 Little:32");
 }
 
+// ============================================================================
+// MAIN LOOP
+// ============================================================================
 void loop() {
   webSocket.loop();
 
-  // Listen for serial configuration commands
-  if (Serial.available() > 0) {
-    String serialData = Serial.readStringUntil('\n');
-    serialData.trim();
-    if (serialData.startsWith("SET_CONFIG:")) {
-      // Command format: SET_CONFIG:SSID,PASSWORD,SERVER_IP
-      String configData = serialData.substring(11);
-      int firstComma = configData.indexOf(',');
-      int secondComma = configData.indexOf(',', firstComma + 1);
-      
-      if (firstComma != -1 && secondComma != -1) {
-        String newSsid = configData.substring(0, firstComma);
-        String newPass = configData.substring(firstComma + 1, secondComma);
-        String newHost = configData.substring(secondComma + 1);
-        
-        newSsid.trim();
-        newPass.trim();
-        newHost.trim();
-        
-        Serial.println("\n[CONFIG] Received new configuration over Serial:");
-        Serial.printf("SSID: %s\n", newSsid.c_str());
-        Serial.printf("Host: %s\n", newHost.c_str());
-        
-        // Write to NVS
-        preferences.begin("physio", false);
-        preferences.putString("wifi_ssid", newSsid);
-        preferences.putString("wifi_pass", newPass);
-        preferences.putString("server_host", newHost);
-        preferences.end();
-        
-        Serial.println("[CONFIG] Saved to NVS! Rebooting ESP32...");
-        delay(1000);
-        ESP.restart();
-      } else {
-        Serial.println("[CONFIG] Error: Invalid format. Expected: SET_CONFIG:SSID,PASSWORD,SERVER_IP");
-      }
+  unsigned long currentTime = millis();
+
+  // Rate-limited reconnect logging (once every 3 seconds)
+  if (!wsConnected && (currentTime - lastReconnectLogTime >= 3000)) {
+    lastReconnectLogTime = currentTime;
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.printf("[NET] Wi-Fi OK (%s). Connecting WS to %s:%d...\n", WiFi.localIP().toString().c_str(), server_host.c_str(), server_port);
+    } else {
+      Serial.println("[NET] Wi-Fi connecting...");
     }
   }
 
-  unsigned long currentTime = millis();
-
-  // Background auto-reconnect for MPU if it was disconnected or plugged after boot
+  // Periodic MPU reconnect check if disconnected
   if (!mpuFound && (currentTime - lastMpuRetryTime >= 3000)) {
     lastMpuRetryTime = currentTime;
-    detectAndInitMPU(false);
+    initMPU();
   }
 
-  // Stream data at 10Hz interval
+  // ==========================================================================
+  // SENSOR ACQUISITION & WEBSOCKET STREAMING (20 Hz = 50ms interval)
+  // ==========================================================================
   if (currentTime - lastStreamTime >= streamInterval) {
     lastStreamTime = currentTime;
 
-    // A. Read raw ADC values from flex and pressure sensors (12-bit, range 0 - 4095)
-    int rawThumb = analogRead(PIN_THUMB);
-    int rawIndex = analogRead(PIN_INDEX);
-    int rawMiddle = analogRead(PIN_MIDDLE);
-    int rawRing = analogRead(PIN_RING);
-    int rawLittle = analogRead(PIN_LITTLE);
-    int rawElbow = analogRead(PIN_ELBOW);
-    int rawPressure = analogRead(PIN_PRESSURE);
+    for (int i = 0; i < NUM_FINGERS; i++) {
+      SampleResult s = readOversampled(FINGER_PINS[i]);
+      rawValues[i] = s.raw;
+      int flat = CALIB_FLAT[i];
+      int bent = CALIB_BENT[i];
+      int swing = abs(flat - bent);
 
-    // Initialize EMA on first run
-    if (f_thumb < 0) {
-      f_thumb = rawThumb; f_index = rawIndex; f_middle = rawMiddle; f_ring = rawRing; f_little = rawLittle; f_elbow = rawElbow;
-    } else {
-      f_thumb = (emaAlpha * rawThumb) + ((1.0 - emaAlpha) * f_thumb);
-      f_index = (emaAlpha * rawIndex) + ((1.0 - emaAlpha) * f_index);
-      f_middle = (emaAlpha * rawMiddle) + ((1.0 - emaAlpha) * f_middle);
-      f_ring = (emaAlpha * rawRing) + ((1.0 - emaAlpha) * f_ring);
-      f_little = (emaAlpha * rawLittle) + ((1.0 - emaAlpha) * f_little);
-      f_elbow = (emaAlpha * rawElbow) + ((1.0 - emaAlpha) * f_elbow);
-    }
-    
-    // Check Stability (if raw variance from filtered is low across the board)
-    bool isStableNow = (abs(rawThumb - f_thumb) < 8) && (abs(rawIndex - f_index) < 8) && 
-                       (abs(rawMiddle - f_middle) < 8) && (abs(rawRing - f_ring) < 8) && 
-                       (abs(rawLittle - f_little) < 8) && (abs(rawElbow - f_elbow) < 8);
-    sensorsStable = isStableNow;
+      // Fault detection: raw out-of-bounds, high sample spread (floating), or bad calibration
+      bool fault = (s.raw < RAW_MIN_FAULT) ||
+                   (s.raw > RAW_MAX_FAULT) ||
+                   (s.spread > SPREAD_MAX_FAULT) ||
+                   (swing < SWING_MIN_FAULT);
 
-    // B. Calculate mapped angles
-    float t_angle = mapFlexAngle(f_thumb, thumbStraight, thumbBent);
-    if (abs(t_angle - a_thumb) > angleDeadband) a_thumb = t_angle;
-    
-    float i_angle = mapFlexAngle(f_index, indexStraight, indexBent);
-    if (abs(i_angle - a_index) > angleDeadband) a_index = i_angle;
-    
-    float m_angle = mapFlexAngle(f_middle, middleStraight, middleBent);
-    if (abs(m_angle - a_middle) > angleDeadband) a_middle = m_angle;
-    
-    float r_angle = mapFlexAngle(f_ring, ringStraight, ringBent);
-    if (abs(r_angle - a_ring) > angleDeadband) a_ring = r_angle;
-    
-    float l_angle = mapFlexAngle(f_little, littleStraight, littleBent);
-    if (abs(l_angle - a_little) > angleDeadband) a_little = l_angle;
-    
-    float el_angle = mapFlexAngle(f_elbow, elbowStraight, elbowBent);
-    if (abs(el_angle - a_elbow) > angleDeadband) a_elbow = el_angle;
+      okFlags[i] = fault ? 0 : 1;
 
-    // Grip pressure resistance force (arbitrary Newton approximation)
-    int gripForce = map(constrain(rawPressure, 0, 3000), 0, 3000, 0, 800);
+      if (fault) {
+        // HOLD last good curl; never compute a bend from a faulted reading.
+        // Initialized to 0.0 (open hand). A fault must never produce a fist!
+        curlValues[i] = lastGoodCurl[i];
+      } else {
+        // Normalization: curl = (FLAT - raw) / (FLAT - BENT)
+        float rawCurl = (float)(flat - s.raw) / (float)(flat - bent);
+        if (rawCurl < 0.0f) rawCurl = 0.0f;
+        if (rawCurl > 1.0f) rawCurl = 1.0f;
 
-    // C. Read MPU6050 orientation variables
-    float wristPitch = 0.0;
-    float wristRoll = 0.0;
-    
-    if (mpuFound) {
-      mpu.update();
-      wristPitch = mpu.getAngleX();
-      wristRoll = mpu.getAngleY();
+        // Apply deadzone
+        if (rawCurl < DEADZONE) rawCurl = 0.0f;
+
+        // EMA smoothing (alpha = 0.35)
+        float smoothed = (EMA_ALPHA * rawCurl) + ((1.0f - EMA_ALPHA) * lastGoodCurl[i]);
+        curlValues[i] = smoothed;
+        lastGoodCurl[i] = smoothed;
+      }
     }
 
-    // D. Always print readings to serial for user debugging/wiring tests
-    Serial.printf("[TELEMETRY] ServerWS=%s | MPU_I2C=%s | elbow=%.1f | wrist_pitch=%.1f wrist_roll=%.1f\n",
-                  wsConnected ? "CONNECTED" : "OFFLINE",
-                  mpuFound ? "CONNECTED (OK)" : "DISCONNECTED (No I2C Ack)",
-                  a_elbow, wristPitch, wristRoll);
-    Serial.printf("[FLEX]\nThumb raw=%d filtered=%.0f angle=%.1f\nIndex raw=%d filtered=%.0f angle=%.1f\nMiddle raw=%d filtered=%.0f angle=%.1f\nRing raw=%d filtered=%.0f angle=%.1f\nLittle raw=%d filtered=%.0f angle=%.1f\n",
-                  rawThumb, f_thumb, a_thumb,
-                  rawIndex, f_index, a_index,
-                  rawMiddle, f_middle, a_middle,
-                  rawRing, f_ring, a_ring,
-                  rawLittle, f_little, a_little);
-
-    // E. Serialize and send JSON string over WebSocket only if connected
+    // Serialize and send JSON WebSocket frame
     if (wsConnected) {
-      StaticJsonDocument<512> doc;
-      doc["battery"] = 94; // Simulating battery status level
-      doc["thumb"] = a_thumb;
-      doc["index"] = a_index;
-      doc["middle"] = a_middle;
-      doc["ring"] = a_ring;
-      doc["little"] = a_little;
-      doc["elbow"] = a_elbow;
-      doc["pressure"] = gripForce;
-      doc["wrist_pitch"] = round(wristPitch * 10.0) / 10.0;
-      doc["wrist_roll"] = round(wristRoll * 10.0) / 10.0;
-      doc["mpu_working"] = mpuFound;
-      doc["stable"] = sensorsStable;
+      StaticJsonDocument<384> doc;
+      doc["src"] = "esp32";
+      doc["seq"] = ++seq;
+      doc["t"]   = currentTime;
 
-      // Send Calibration Bounds for UI Display
-      JsonObject bounds = doc.createNestedObject("bounds");
-      bounds["thumbStr"] = thumbStraight; bounds["thumbBnt"] = thumbBent;
-      bounds["indexStr"] = indexStraight; bounds["indexBnt"] = indexBent;
-      bounds["middleStr"] = middleStraight; bounds["middleBnt"] = middleBent;
-      bounds["ringStr"] = ringStraight; bounds["ringBnt"] = ringBent;
-      bounds["littleStr"] = littleStraight; bounds["littleBnt"] = littleBent;
-      bounds["elbowStr"] = elbowStraight; bounds["elbowBnt"] = elbowBent;
+      JsonArray rawArr  = doc.createNestedArray("raw");
+      JsonArray curlArr = doc.createNestedArray("curl");
+      JsonArray okArr   = doc.createNestedArray("ok");
 
-      // Add raw ADC telemetry fields for advanced dashboard diagnostics
-      doc["raw_thumb"] = rawThumb;
-      doc["raw_index"] = rawIndex;
-      doc["raw_middle"] = rawMiddle;
-      doc["raw_ring"] = rawRing;
-      doc["raw_little"] = rawLittle;
-      doc["raw_elbow"] = rawElbow;
-      doc["raw_pressure"] = rawPressure;
+      for (int i = 0; i < NUM_FINGERS; i++) {
+        rawArr.add(rawValues[i]);
+        curlArr.add(round(curlValues[i] * 1000.0f) / 1000.0f);
+        okArr.add(okFlags[i]);
+      }
 
-      String jsonString;
-      serializeJson(doc, jsonString);
-      webSocket.sendTXT(jsonString);
+      String payload;
+      serializeJson(doc, payload);
+      webSocket.sendTXT(payload);
     }
+  }
+
+  // ==========================================================================
+  // SINGLE-LINE SERIAL LOGGING (ONCE EVERY 500 ms)
+  // ==========================================================================
+  if (currentTime - lastSerialLogTime >= 500) {
+    lastSerialLogTime = currentTime;
+    const char* letters[NUM_FINGERS] = {"T", "I", "M", "R", "L"};
+    char buf[128];
+    int offset = snprintf(buf, sizeof(buf), "[%6lu ms] ", currentTime);
+    for (int i = 0; i < NUM_FINGERS; i++) {
+      int pct = (int)(curlValues[i] * 100.0f + 0.5f);
+      if (!okFlags[i]) {
+        offset += snprintf(buf + offset, sizeof(buf) - offset, "%s:%4d %2d%% !FAULT ", letters[i], rawValues[i], pct);
+      } else {
+        offset += snprintf(buf + offset, sizeof(buf) - offset, "%s:%4d %2d%% ", letters[i], rawValues[i], pct);
+      }
+    }
+    Serial.println(buf);
   }
 }

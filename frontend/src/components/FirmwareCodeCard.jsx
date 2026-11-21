@@ -113,7 +113,7 @@ export default function FirmwareCodeCard() {
               {/* Wiring Pin Layout Pill */}
               <div className="flex items-center gap-1.5 text-[10px] font-mono text-zinc-400">
                 <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                <span>GPIO: 32 Thumb • 33 Index • 34 Mid • 35 Ring • 36 Little • 39 Elbow • 21/22 MPU</span>
+                <span>GPIO: 36 Thumb • 33 Index • 34 Mid • 35 Ring • 32 Little • 39 Elbow • 21/22 MPU</span>
               </div>
 
               {/* Action Buttons */}
