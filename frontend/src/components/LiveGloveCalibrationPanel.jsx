@@ -15,7 +15,8 @@ import {
   DEFAULT_FLEX_CALIBRATION,
   loadGloveCalibration,
   saveGloveCalibration,
-  resetGloveCalibration
+  resetGloveCalibration,
+  rezeroDynamicBaseline
 } from '../services/fingerSensorMapper';
 
 const FINGER_DISPLAY_ORDER = [
@@ -71,6 +72,7 @@ export default function LiveGloveCalibrationPanel({
 
     setCalibration(updated);
     saveGloveCalibration(updated);
+    rezeroDynamicBaseline();
     onCalibrationChange(updated);
     showToast('✓ Flat Pose Captured (Open Hand)! Saved to localStorage.');
   };
@@ -101,12 +103,31 @@ export default function LiveGloveCalibrationPanel({
   // 3. Reset Defaults: Restore hardcoded calibrated values
   const handleResetDefaults = () => {
     const restored = resetGloveCalibration();
+    rezeroDynamicBaseline();
     setCalibration(restored);
     onCalibrationChange(restored);
     showToast('↺ Restored default hardware calibration constants.');
   };
 
-  // 4. Update specific finger calibration manually (e.g. for Sensor #5 / Thumb testing)
+  // 4. Invert finger direction (swap flat and bent)
+  const handleInvertFinger = (fingerKey) => {
+    const cur = calibration[fingerKey] || DEFAULT_FLEX_CALIBRATION[fingerKey];
+    const updated = {
+      ...calibration,
+      [fingerKey]: {
+        ...cur,
+        flat: cur.bent,
+        bent: cur.flat,
+        swing: cur.flat - cur.bent
+      }
+    };
+    setCalibration(updated);
+    saveGloveCalibration(updated);
+    onCalibrationChange(updated);
+    showToast(`Inverted ${fingerKey} (Swapped Flat ↔ Bent)`);
+  };
+
+  // 5. Update specific finger calibration manually (e.g. for Sensor #5 / Thumb testing)
   const handleManualValueChange = (fingerKey, field, val) => {
     const num = parseInt(val, 10);
     if (isNaN(num)) return;
@@ -274,15 +295,25 @@ export default function LiveGloveCalibrationPanel({
                         />
                       </td>
 
-                      {/* Swing (Delta) */}
-                      <td className="py-2.5 px-3 text-center font-mono font-bold text-xs">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] border ${
-                          swing > 0 
-                            ? 'bg-blue-500/10 text-blue-300 border-blue-500/30' 
-                            : 'bg-purple-500/10 text-purple-300 border-purple-500/30'
-                        }`}>
-                          {swing > 0 ? `+${swing}` : `${swing}`}
-                        </span>
+                      {/* Swing (Delta) & Invert Button */}
+                      <td className="py-2.5 px-3 text-center">
+                        <div className="flex items-center justify-center gap-1.5 font-mono font-bold text-xs">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] border ${
+                            swing > 0 
+                              ? 'bg-blue-500/10 text-blue-300 border-blue-500/30' 
+                              : 'bg-purple-500/10 text-purple-300 border-purple-500/30'
+                          }`}>
+                            {swing > 0 ? `+${swing}` : `${swing}`}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleInvertFinger(key)}
+                            className="p-1 hover:bg-slate-800 text-slate-400 hover:text-amber-300 rounded transition cursor-pointer"
+                            title={`Invert ${label}: swap Flat (${cal.flat}) ↔ Bent (${cal.bent})`}
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                          </button>
+                        </div>
                       </td>
 
                       {/* Bend Ratio Progress Bar */}

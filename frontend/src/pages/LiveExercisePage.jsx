@@ -25,7 +25,8 @@ import {
   ChevronDown,
   RefreshCw,
   Sliders,
-  Hand
+  Hand,
+  RotateCcw
 } from 'lucide-react';
 import { startSession, endSession } from '../services/session';
 import apiClient from '../services/auth';
@@ -38,7 +39,7 @@ import ElbowSensorTrialPanel from '../components/ElbowSensorTrialPanel';
 import WristMotionDemoCard from '../components/WristMotionDemoCard';
 import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
 import LiveGloveCalibrationPanel from '../components/LiveGloveCalibrationPanel';
-import { processFingerTelemetry, resetDynamicRanges } from '../services/fingerSensorMapper';
+import { processFingerTelemetry, resetDynamicRanges, rezeroDynamicBaseline } from '../services/fingerSensorMapper';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
 
@@ -434,6 +435,18 @@ const FingerSyncPanel = ({
         >
           <Zap className={`w-3.5 h-3.5 ${simulatedActive ? 'text-amber-300' : 'text-slate-500'}`} />
           <span className="truncate">{simulatedActive ? 'Stop Simulation' : 'Simulate Flex Test'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            rezeroDynamicBaseline();
+          }}
+          className="col-span-2 py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
+          title="Instantly re-zeros all resting sensors to 0% open hand"
+        >
+          <RotateCcw className="w-3.5 h-3.5 text-slate-600" />
+          <span>Auto-Zero Baseline (Open Hand)</span>
         </button>
 
         <button
@@ -1951,11 +1964,11 @@ function LiveExercisePage() {
           little: manualSliderValues.little / 100,
         },
         debug: {
-          thumb:  { finger: 'thumb',  glbAngle: manualSliderAngles.thumb,  normalized: manualSliderValues.thumb,  raw: Math.round(1200 - (manualSliderValues.thumb / 100) * 150), min: 0, max: 48 },
-          index:  { finger: 'index',  glbAngle: manualSliderAngles.index,  normalized: manualSliderValues.index,  raw: Math.round(1152 + (manualSliderValues.index / 100) * 65),  min: 0, max: 75 },
-          middle: { finger: 'middle', glbAngle: manualSliderAngles.middle, normalized: manualSliderValues.middle, raw: Math.round(1446 + (manualSliderValues.middle / 100) * 17), min: 0, max: 75 },
-          ring:   { finger: 'ring',   glbAngle: manualSliderAngles.ring,   normalized: manualSliderValues.ring,   raw: Math.round(1147 + (manualSliderValues.ring / 100) * 53),   min: 0, max: 75 },
-          little: { finger: 'little', glbAngle: manualSliderAngles.little, normalized: manualSliderValues.little, raw: Math.round(935 + (manualSliderValues.little / 100) * 21),  min: 0, max: 70 },
+          thumb:  { finger: 'thumb',  glbAngle: manualSliderAngles.thumb,  normalized: manualSliderValues.thumb,  raw: Math.round(530 + (manualSliderValues.thumb / 100) * 45),   min: 0, max: 48 },
+          index:  { finger: 'index',  glbAngle: manualSliderAngles.index,  normalized: manualSliderValues.index,  raw: Math.round(1200 - (manualSliderValues.index / 100) * 50), min: 0, max: 75 },
+          middle: { finger: 'middle', glbAngle: manualSliderAngles.middle, normalized: manualSliderValues.middle, raw: Math.round(994 + (manualSliderValues.middle / 100) * 31),  min: 0, max: 75 },
+          ring:   { finger: 'ring',   glbAngle: manualSliderAngles.ring,   normalized: manualSliderValues.ring,   raw: Math.round(1915 + (manualSliderValues.ring / 100) * 40), min: 0, max: 75 },
+          little: { finger: 'little', glbAngle: manualSliderAngles.little, normalized: manualSliderValues.little, raw: Math.round(935 + (manualSliderValues.little / 100) * 25),  min: 0, max: 70 },
         }
       }
     : fingerTelemetryDetails;

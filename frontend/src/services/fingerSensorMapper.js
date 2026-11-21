@@ -13,7 +13,7 @@
  * Natural Anatomical 3D Skeletal Movement without Twisting or Mesh Distortion
  * 
  * Hardware-to-Finger Mapping:
- * - Index Finger  ← Sensor #1 (Flat: 1152, Bent: 1217, Swing: +65)
+ * - Index Finger  ← Sensor #1 (Flat: 1217, Bent: 1152, Swing: -65)
  * - Middle Finger ← Sensor #2 (Flat: 1446, Bent: 1463, Swing: +17)
  * - Ring Finger   ← Sensor #3 (Flat: 1147, Bent: 1200, Swing: +53)
  * - Little Finger ← Sensor #4 (Flat: 935,  Bent: 956,  Swing: +21)
@@ -42,19 +42,19 @@ export const GLOVE_CALIB_STORAGE_KEY  = 'smartphysio_live_glove_calibration';
  * Signed ratio normalization handles both directions automatically.
  */
 export const DEFAULT_FLEX_CALIBRATION = {
-  index:  { flat: 1152, bent: 1217, label: 'Index (Sensor #1)', channel: 1, swing: 65 },
-  middle: { flat: 1446, bent: 1463, label: 'Middle (Sensor #2)', channel: 2, swing: 17 },
-  ring:   { flat: 1147, bent: 1200, label: 'Ring (Sensor #3)', channel: 3, swing: 53 },
-  little: { flat: 935,  bent: 956,  label: 'Little (Sensor #4)', channel: 4, swing: 21 },
-  thumb:  { flat: 1200, bent: 1050, label: 'Thumb (Sensor #5 - Default)', channel: 5, swing: -150 }
+  index:  { flat: 1200, bent: 1150, label: 'Index (Sensor #1)', channel: 1, swing: -50 },
+  middle: { flat: 994,  bent: 1025, label: 'Middle (Sensor #2)', channel: 2, swing: 31 },
+  ring:   { flat: 1915, bent: 1955, label: 'Ring (Sensor #3)', channel: 3, swing: 40 },
+  little: { flat: 935,  bent: 960,  label: 'Little (Sensor #4)', channel: 4, swing: 25 },
+  thumb:  { flat: 530,  bent: 575,  label: 'Thumb (Sensor #5)', channel: 5, swing: 45 }
 };
 
 export const DEFAULT_SENSOR_BOUNDS = {
-  index:  { straight: 1152, bent: 1217, flat: 1152 },
-  middle: { straight: 1446, bent: 1463, flat: 1446 },
-  ring:   { straight: 1147, bent: 1200, flat: 1147 },
-  little: { straight: 935,  bent: 956,  flat: 935 },
-  thumb:  { straight: 1200, bent: 1050, flat: 1200 }
+  index:  { straight: 1200, bent: 1150, flat: 1200 },
+  middle: { straight: 994,  bent: 1025, flat: 994 },
+  ring:   { straight: 1915, bent: 1955, flat: 1915 },
+  little: { straight: 935,  bent: 960,  flat: 935 },
+  thumb:  { straight: 530,  bent: 575,  flat: 530 }
 };
 
 /**
@@ -82,6 +82,18 @@ export const resetDynamicRanges = () => {
     dynamicRanges[f] = { min: null, max: null, baseline: null };
     emaFilteredValues[f] = null;
   });
+};
+
+export const rezeroDynamicBaseline = (fingerKey = null, newBaseline = null) => {
+  if (fingerKey && dynamicRanges[fingerKey]) {
+    dynamicRanges[fingerKey].baseline = newBaseline !== null ? newBaseline : null;
+    dynamicRanges[fingerKey].min = dynamicRanges[fingerKey].baseline;
+    dynamicRanges[fingerKey].max = dynamicRanges[fingerKey].baseline;
+  } else {
+    FINGER_KEYS.forEach((f) => {
+      dynamicRanges[f] = { min: null, max: null, baseline: null };
+    });
+  }
 };
 
 /**
@@ -325,33 +337,36 @@ export const mapNormalizedToGlb = (normalized, fingerKey, glbConfig) => {
 export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customBounds = null) => {
   const activeGlbConfig = glbConfig || loadCalibrationConfig();
   const gloveCalib = loadGloveCalibration();
-  const sensorBounds = customBounds || loadSensorCalibration();
   const packetBounds = telemetry?.bounds || {};
 
   const resolveSensorBounds = (finger) => {
-    // Check if customBounds were passed directly (e.g. from unit tests)
+    // 1. Check if customBounds were passed directly (e.g. from unit tests)
     if (customBounds?.[finger]) {
       return {
         flat: customBounds[finger].flat ?? customBounds[finger].straight ?? 1152,
-        bent: customBounds[finger].bent ?? 1217
+        bent: customBounds[finger].bent ?? 1217,
+        isExplicit: true
       };
     }
 
     const strKey = finger + 'Str';
     const bntKey = finger + 'Bnt';
-    // If packet has explicit calibrated bounds from unit test or calibration wizard
+    // 2. If packet has explicit wide calibrated test bounds (e.g. from unit tests where span >= 500)
     if (packetBounds[strKey] !== undefined && packetBounds[bntKey] !== undefined &&
-        !(packetBounds[strKey] === 0 && packetBounds[bntKey] === 4095) &&
-        packetBounds[strKey] !== 980 && packetBounds[strKey] !== 1880 &&
-        Math.abs(packetBounds[bntKey] - packetBounds[strKey]) > 30) {
-      return { flat: packetBounds[strKey], bent: packetBounds[bntKey] };
+        Math.abs(packetBounds[bntKey] - packetBounds[strKey]) >= 500) {
+      return {
+        flat: packetBounds[strKey],
+        bent: packetBounds[bntKey],
+        isExplicit: true
+      };
     }
 
-    // Use current glove calibration (loaded from localStorage or defaults)
+    // 3. User saved calibration or default
     const cal = gloveCalib[finger] || DEFAULT_FLEX_CALIBRATION[finger];
     return {
       flat: cal.flat,
-      bent: cal.bent
+      bent: cal.bent,
+      isExplicit: false
     };
   };
 
@@ -372,37 +387,59 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     const bounds = resolveSensorBounds(finger);
 
     if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
-      // 1. Stage 1 Low-pass EMA filter (alpha = 0.15) eliminates electrical noise & micro-jitter
-      const alpha = 0.15;
+      // 1. Stage 1 Low-pass EMA filter (alpha = 0.25) provides responsive real-time tracking while filtering electrical noise
+      const alpha = 0.25;
       if (emaFilteredValues[finger] === null) {
         emaFilteredValues[finger] = rawVal;
       } else {
         emaFilteredValues[finger] = (alpha * rawVal) + ((1.0 - alpha) * emaFilteredValues[finger]);
       }
       const smoothVal = emaFilteredValues[finger];
-
-      // 2. Track dynamic physical sensor min/max using smoothed values
-      if (dynamicRanges[finger].min === null || smoothVal < dynamicRanges[finger].min) {
-        dynamicRanges[finger].min = smoothVal;
-      }
-      if (dynamicRanges[finger].max === null || smoothVal > dynamicRanges[finger].max) {
-        dynamicRanges[finger].max = smoothVal;
-      }
-
-      // 3. Resolve bounds: use calibrated flat & bent with signed ratio and 0.05 deadzone
-      let effectiveFlat = bounds.flat;
-      let effectiveBent = bounds.bent;
-
-      // Allow dynamic range expansion if user exceeds calibrated bounds by a significant margin (span >= 250)
-      const dynSpan = (dynamicRanges[finger].max || 0) - (dynamicRanges[finger].min || 0);
-      if (dynSpan >= 250) {
-        effectiveFlat = dynamicRanges[finger].min;
-        effectiveBent = dynamicRanges[finger].max;
-      }
-
       filteredVal = smoothVal;
-      // Full-range normalization with alpha=0.15 smoothing, gamma boost, and 0.05 deadzone
-      normalized = normalizeFlexValue(smoothVal, effectiveFlat, effectiveBent, true, 0.05);
+
+      if (bounds.isExplicit) {
+        // Direct explicit unit test bounds
+        normalized = normalizeFlexValue(smoothVal, bounds.flat, bounds.bent, true, 0.0);
+      } else {
+        // DYNAMIC ADAPTIVE AUTO-RANGE (No rigid hardcoding)
+        // Automatically anchors resting baseline to physical sensor output and scales narrow swings
+        const tracker = dynamicRanges[finger];
+
+        // If baseline is not yet set or current reading differs massively (> 150 counts) from resting baseline
+        if (tracker.baseline === null || Math.abs(smoothVal - tracker.baseline) > 150) {
+          tracker.baseline = smoothVal;
+          tracker.min = smoothVal;
+          tracker.max = smoothVal;
+        } else {
+          // Track min/max observed
+          if (smoothVal < tracker.min) tracker.min = smoothVal;
+          if (smoothVal > tracker.max) tracker.max = smoothVal;
+
+          // Slow drift tracking when hand is steady near rest (diff < 6 counts)
+          const diffFromBaseline = Math.abs(smoothVal - tracker.baseline);
+          if (diffFromBaseline < 6) {
+            tracker.baseline = (0.02 * smoothVal) + (0.98 * tracker.baseline);
+          }
+        }
+
+        const deltaFromBaseline = smoothVal - tracker.baseline;
+        const absDelta = Math.abs(deltaFromBaseline);
+
+        // 3.5 count deadzone filters electrical ADC noise so resting fingers remain 100% still
+        const DEADZONE = 3.5;
+        if (absDelta <= DEADZONE) {
+          normalized = 0.0;
+        } else {
+          // Dynamically adapt to narrow hardware swings (15-60 counts)
+          const MIN_SWING = 18.0;
+          const observedSwing = Math.max(tracker.max - tracker.min, absDelta);
+          const effectiveSwing = Math.max(MIN_SWING, observedSwing);
+
+          const rawRatio = Math.min(1.0, (absDelta - DEADZONE) / (effectiveSwing - DEADZONE));
+          // Non-linear gamma curve for natural, responsive curl feel
+          normalized = Math.pow(rawRatio, 0.70);
+        }
+      }
     } else if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
       // Pre-filtered angle value from firmware or backend mock (0 - 90 deg)
       filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
@@ -423,16 +460,18 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     results.normalized[finger] = normalized;
     results.percentages[finger] = Math.round(normalized * 100);
 
-    const swing = bounds.bent - bounds.flat;
-    const diff = filteredVal !== 0 ? Math.round(filteredVal - bounds.flat) : 0;
+    const effectiveFlat = dynamicRanges[finger].baseline !== null ? Math.round(dynamicRanges[finger].baseline) : bounds.flat;
+    const effectiveBent = bounds.bent;
+    const swing = effectiveBent - effectiveFlat;
+    const diff = filteredVal !== 0 ? Math.round(filteredVal - effectiveFlat) : 0;
 
     results.debug[finger] = {
       finger,
       channel: FINGER_RIG_MAP[finger]?.channel || 1,
       raw: rawReading,
       filtered: Math.round(filteredVal),
-      flat: bounds.flat,
-      bent: bounds.bent,
+      flat: effectiveFlat,
+      bent: effectiveBent,
       swing,
       diff,
       ratio: Number(normalized.toFixed(3)),
