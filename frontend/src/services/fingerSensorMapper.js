@@ -35,33 +35,42 @@ export const FINGER_RIG_MAP = {
 const SENSOR_CALIB_STORAGE_KEY = 'smartphysio_sensor_calibration';
 
 /**
- * Real-time dynamic auto-range tracker.
- * Adapts to physical flex sensor ADC output on-the-fly even before manual calibration.
+ * Real-time dynamic auto-range tracker & EMA smoothing filter.
+ * Adapts to physical flex sensor ADC output on-the-fly while eliminating high-frequency ADC noise.
  */
 const dynamicRanges = {
-  thumb:  { min: null, max: null },
-  index:  { min: null, max: null },
-  middle: { min: null, max: null },
-  ring:   { min: null, max: null },
-  little: { min: null, max: null }
+  thumb:  { min: null, max: null, baseline: null },
+  index:  { min: null, max: null, baseline: null },
+  middle: { min: null, max: null, baseline: null },
+  ring:   { min: null, max: null, baseline: null },
+  little: { min: null, max: null, baseline: null }
+};
+
+const emaFilteredValues = {
+  thumb: null,
+  index: null,
+  middle: null,
+  ring: null,
+  little: null
 };
 
 export const resetDynamicRanges = () => {
   FINGER_KEYS.forEach((f) => {
-    dynamicRanges[f] = { min: null, max: null };
+    dynamicRanges[f] = { min: null, max: null, baseline: null };
+    emaFilteredValues[f] = null;
   });
 };
 
 /**
- * Default hardware ADC sensor bounds for each finger.
- * (Typical flex sensor on ESP32 voltage divider has ~600-900 ADC active range from rest to bend)
+ * Default hardware ADC sensor bounds for each finger, tuned to match physical wearable sleeve baseline.
+ * (Resting values: Thumb ~520, Middle ~980, Index ~1150, Ring ~1880)
  */
 export const DEFAULT_SENSOR_BOUNDS = {
-  thumb:  { straight: 1400, bent: 2200 },
-  index:  { straight: 1350, bent: 2250 },
-  middle: { straight: 1380, bent: 2280 },
-  ring:   { straight: 1400, bent: 2250 },
-  little: { straight: 1300, bent: 2150 }
+  thumb:  { straight: 520,  bent: 1150 },
+  index:  { straight: 1150, bent: 1850 },
+  middle: { straight: 980,  bent: 1650 },
+  ring:   { straight: 1880, bent: 2550 },
+  little: { straight: 1100, bent: 1800 }
 };
 
 /**
@@ -189,31 +198,37 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     let filteredVal = 0;
     let rawReading = (rawVal !== undefined && rawVal !== null) ? Number(rawVal) : null;
 
-    // Track dynamic physical sensor min/max if reading valid signal (> 30 ADC counts)
     if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
-      if (dynamicRanges[finger].min === null || rawVal < dynamicRanges[finger].min) {
-        dynamicRanges[finger].min = rawVal;
+      // 1. Low-pass EMA filter (alpha = 0.22) to eliminate 20Hz electrical noise & flickering
+      if (emaFilteredValues[finger] === null) {
+        emaFilteredValues[finger] = rawVal;
+      } else {
+        emaFilteredValues[finger] = (0.22 * rawVal) + (0.78 * emaFilteredValues[finger]);
       }
-      if (dynamicRanges[finger].max === null || rawVal > dynamicRanges[finger].max) {
-        dynamicRanges[finger].max = rawVal;
-      }
-    }
+      const smoothVal = emaFilteredValues[finger];
 
-    if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
-      // Raw 12-bit ADC reading available
+      // 2. Track dynamic min/max using smoothed values
+      if (dynamicRanges[finger].min === null || smoothVal < dynamicRanges[finger].min) {
+        dynamicRanges[finger].min = smoothVal;
+      }
+      if (dynamicRanges[finger].max === null || smoothVal > dynamicRanges[finger].max) {
+        dynamicRanges[finger].max = smoothVal;
+      }
+
+      // 3. Resolve bounds:
       const bounds = resolveSensorBounds(finger);
       let effectiveStraight = bounds.straight;
       let effectiveBent = bounds.bent;
 
-      // Ultra-sensitive dynamic auto-range adapts to micro-bends (span >= 25)
+      // Real physical bend produces at least 250 ADC delta (prevents 25-count noise from collapsing the range)
       const dynSpan = (dynamicRanges[finger].max || 0) - (dynamicRanges[finger].min || 0);
-      if (dynSpan >= 25) {
+      if (dynSpan >= 250) {
         effectiveStraight = dynamicRanges[finger].min;
         effectiveBent = dynamicRanges[finger].max;
       }
 
-      filteredVal = rawVal;
-      normalized = normalizeFlexValue(rawVal, effectiveStraight, effectiveBent, true);
+      filteredVal = smoothVal;
+      normalized = normalizeFlexValue(smoothVal, effectiveStraight, effectiveBent, true);
     } else if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
       // Pre-filtered angle value from firmware or backend mock (0 - 90 deg)
       filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);

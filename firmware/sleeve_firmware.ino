@@ -73,16 +73,16 @@ unsigned long lastStreamTime = 0;
 unsigned long lastMpuRetryTime = 0;
 const int streamInterval = 50; // 50ms = 20Hz sample rate (was 100ms/10Hz)
 
-// Finger and Elbow calibration storage variables (Defaults tuned for high sensitivity flex response)
-int thumbStraight = 1400, thumbBent = 2200;
-int indexStraight = 1350, indexBent = 2250;
-int middleStraight = 1380, middleBent = 2280;
-int ringStraight = 1400, ringBent = 2250;
-int littleStraight = 1300, littleBent = 2150;
+// Finger and Elbow calibration storage variables (Tuned to physical sleeve resting baseline)
+int thumbStraight = 520, thumbBent = 1150;
+int indexStraight = 1150, indexBent = 1850;
+int middleStraight = 980, middleBent = 1650;
+int ringStraight = 1880, ringBent = 2550;
+int littleStraight = 1100, littleBent = 1800;
 int elbowStraight = 1200, elbowBent = 2400;
 
-// EMA Filter variables — alpha=0.7 gives instant response to micro-bends with clean filtering
-const float emaAlpha = 0.7;
+// EMA Filter variables — alpha=0.25 removes high-frequency electrical jitter while keeping responsive movement
+const float emaAlpha = 0.25;
 float f_thumb = -1, f_index = -1, f_middle = -1, f_ring = -1, f_little = -1, f_elbow = -1;
 
 // Last sent angle (fine deadband 0.1 deg for maximum micro-bend sensitivity)

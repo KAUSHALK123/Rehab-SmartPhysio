@@ -35,7 +35,7 @@ import WristSensorTrialPanel from '../components/WristSensorTrialPanel';
 import ElbowSensorTrialPanel from '../components/ElbowSensorTrialPanel';
 import WristMotionDemoCard from '../components/WristMotionDemoCard';
 import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
-import { processFingerTelemetry } from '../services/fingerSensorMapper';
+import { processFingerTelemetry, resetDynamicRanges } from '../services/fingerSensorMapper';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
 
@@ -940,6 +940,7 @@ function LiveExercisePage() {
 
   // Reset all joint angles, states, and counters when starting or switching any exercise
   useEffect(() => {
+    resetDynamicRanges();
     setSensors({
       wrist_pitch: 0.0,
       wrist_roll: 0.0,
@@ -2770,7 +2771,10 @@ function LiveExercisePage() {
                       rawSensorPacket={rawSensorPacket}
                       deviceConnected={deviceConnected || simulatedFingersActive}
                       isFlexSynced={isFlexSynced}
-                      onToggleSync={() => setIsFlexSynced(prev => !prev)}
+                      onToggleSync={() => {
+                        resetDynamicRanges();
+                        setIsFlexSynced(prev => !prev);
+                      }}
                       simulatedActive={simulatedFingersActive}
                       onToggleSimulation={() => setSimulatedFingersActive(prev => !prev)}
                     />
