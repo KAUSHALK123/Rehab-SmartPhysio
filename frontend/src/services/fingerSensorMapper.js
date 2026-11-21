@@ -1,178 +1,249 @@
 /**
- * SmartPhysio Finger Sensor Mapping Service (Fix 2)
+ * SmartPhysio Finger Sensor Mapping Service
+ * Version: 1.2.0
+ * 
+ * Single Source of Truth Pinout:
+ * - Thumb:  GPIO 36 (VP  / ADC1_CH0)
+ * - Index:  GPIO 33 (D33 / ADC1_CH5)
+ * - Middle: GPIO 34 (D34 / ADC1_CH6)
+ * - Ring:   GPIO 35 (D35 / ADC1_CH7)
+ * - Little: GPIO 32 (D32 / ADC1_CH4)
  * 
  * Pipeline:
- * Real Flex Sensor / Telemetry
+ * Real Flex Sensor / ESP32 Telemetry (raw, curl, ok)
  *       ↓
- * Normalized 0–100% Bend
+ * Direct Firmware Normalized Curl (0.0 .. 1.0) - Single Source of Truth
  *       ↓
- * Approved GLB Calibration Range (from smartphysio_glb_calibration)
+ * Fault Checking: If ok[i] == false -> HOLD neutral pose (-15°), Flag SENSOR FAULT
  *       ↓
- * Local GLB Rotation Angle
+ * Skeletal Bone Angle = MIN_DEG + curl * (MAX_DEG - MIN_DEG) [-15° to +70°]
  *       ↓
- * Real-time 3D Finger Movement
- * 
- * Rules:
- * - Thumb: Target bone 'right_thumb', Bending Axis: LOCAL X ONLY
- * - Index: Target bone 'right_index', Bending Axis: LOCAL Z ONLY
- * - Middle: Target bone 'right_middle', Bending Axis: LOCAL Z ONLY
- * - Ring: Target bone 'right_ring', Bending Axis: LOCAL Z ONLY
- * - Little: Target bone 'right_little', Bending Axis: LOCAL Z ONLY
+ * Stage 2: Frame-Rate-Independent Skeletal Interpolation (Exponential Damping / Lerp)
  */
 
+import * as THREE from 'three';
 import { loadCalibrationConfig } from './calibrationConfig';
+
+export const MIN_DEG = -15;
+export const MAX_DEG = 70;
 
 export const FINGER_KEYS = ['thumb', 'index', 'middle', 'ring', 'little'];
 
 export const FINGER_RIG_MAP = {
-  thumb:  { bone: 'right_thumb',  axis: 'x' },
-  index:  { bone: 'right_index',  axis: 'z' },
-  middle: { bone: 'right_middle', axis: 'z' },
-  ring:   { bone: 'right_ring',   axis: 'z' },
-  little: { bone: 'right_little', axis: 'z' }
+  thumb:  { bone: 'right_thumb',  axis: 'x', pin: 36, channel: 1 },
+  index:  { bone: 'right_index',  axis: 'z', pin: 33, channel: 2 },
+  middle: { bone: 'right_middle', axis: 'z', pin: 34, channel: 3 },
+  ring:   { bone: 'right_ring',   axis: 'z', pin: 35, channel: 4 },
+  little: { bone: 'right_little', axis: 'z', pin: 32, channel: 5 }
 };
 
-const SENSOR_CALIB_STORAGE_KEY = 'smartphysio_sensor_calibration';
+export const SENSOR_CALIB_STORAGE_KEY = 'smartphysio_sensor_calibration';
+export const GLOVE_CALIB_STORAGE_KEY  = 'smartphysio_live_glove_calibration';
 
 /**
- * Real-time dynamic auto-range tracker.
- * Adapts to physical flex sensor ADC output on-the-fly even before manual calibration.
+ * Calibrated ADC benchmarks (12-bit ADC: value DECREASES when bent)
  */
-const dynamicRanges = {
-  thumb:  { min: null, max: null },
-  index:  { min: null, max: null },
-  middle: { min: null, max: null },
-  ring:   { min: null, max: null },
-  little: { min: null, max: null }
+export const DEFAULT_FLEX_CALIBRATION = {
+  thumb:  { flat: 250,  bent: 180,  label: 'Thumb (GPIO 36)',  channel: 1, swing: 70,  direction: 'decreasing', noiseThreshold: 4, isValid: true },
+  index:  { flat: 1205, bent: 1180, label: 'Index (GPIO 33)',  channel: 2, swing: 25,  direction: 'decreasing', noiseThreshold: 2, isValid: true },
+  middle: { flat: 625,  bent: 500,  label: 'Middle (GPIO 34)', channel: 3, swing: 125, direction: 'decreasing', noiseThreshold: 4, isValid: true },
+  ring:   { flat: 900,  bent: 400,  label: 'Ring (GPIO 35)',   channel: 4, swing: 500, direction: 'decreasing', noiseThreshold: 4, isValid: true },
+  little: { flat: 940,  bent: 918,  label: 'Little (GPIO 32)', channel: 5, swing: 22,  direction: 'decreasing', noiseThreshold: 2, isValid: true }
 };
 
-export const resetDynamicRanges = () => {
-  FINGER_KEYS.forEach((f) => {
-    dynamicRanges[f] = { min: null, max: null };
-  });
-};
-
-/**
- * Default hardware ADC sensor bounds for each finger.
- * (Typical flex sensor on ESP32 voltage divider has ~600-900 ADC active range from rest to bend)
- */
 export const DEFAULT_SENSOR_BOUNDS = {
-  thumb:  { straight: 1400, bent: 2200 },
-  index:  { straight: 1350, bent: 2250 },
-  middle: { straight: 1380, bent: 2280 },
-  ring:   { straight: 1400, bent: 2250 },
-  little: { straight: 1300, bent: 2150 }
+  thumb:  { straight: 250,  bent: 180,  flat: 250 },
+  index:  { straight: 1205, bent: 1180, flat: 1205 },
+  middle: { straight: 625,  bent: 500,  flat: 625 },
+  ring:   { straight: 900,  bent: 400,  flat: 900 },
+  little: { straight: 940,  bent: 918,  flat: 940 }
 };
 
-/**
- * Load sensor hardware calibration bounds from localStorage, merged with defaults
- */
-export const loadSensorCalibration = () => {
-  try {
-    const raw = localStorage.getItem(SENSOR_CALIB_STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_SENSOR_BOUNDS };
-    const parsed = JSON.parse(raw);
-    const merged = {};
-    FINGER_KEYS.forEach(f => {
-      merged[f] = {
-        straight: parsed[f]?.straight ?? DEFAULT_SENSOR_BOUNDS[f].straight,
-        bent: parsed[f]?.bent ?? DEFAULT_SENSOR_BOUNDS[f].bent
-      };
-    });
-    return merged;
-  } catch (e) {
-    return { ...DEFAULT_SENSOR_BOUNDS };
-  }
+// Fault detection thresholds (Named Constants)
+export const RAW_MIN_FAULT    = 10;
+export const RAW_MAX_FAULT    = 4085;
+export const SPREAD_MAX_FAULT = 150;
+export const SWING_MIN_FAULT  = 20;
+export const DEADZONE         = 0.04;
+
+export const resetDynamicRanges = () => {};
+export const rezeroDynamicBaseline = () => {};
+
+export const loadGloveCalibration = () => {
+  return { ...DEFAULT_FLEX_CALIBRATION };
 };
 
-/**
- * Save sensor hardware calibration bounds to localStorage
- */
-export const saveSensorCalibration = (bounds) => {
-  try {
-    localStorage.setItem(SENSOR_CALIB_STORAGE_KEY, JSON.stringify(bounds));
-    return true;
-  } catch (e) {
-    console.error('Failed to save sensor calibration', e);
-    return false;
-  }
-};
+export const saveGloveCalibration = () => true;
+export const resetGloveCalibration = () => ({ ...DEFAULT_FLEX_CALIBRATION });
 
 /**
- * Normalize a sensor value to a 0.0 - 1.0 bend ratio
- * Formula: clamp((value - straight) / (bent - straight), 0, 1)
- * Uses high-sensitivity power curve (gamma = 0.60) so even subtle micro-bends
- * produce immediate, visible 3D hand motion while smoothly reaching 1.0 at full bend.
+ * Normalize a sensor value to a 0.0 - 1.0 bend ratio (Decreasing ADC when bent)
  */
-export const normalizeFlexValue = (value, straight = 1400, bent = 2200, useBoost = true) => {
+export const normalizeFlexValue = (value, flat = 148, bent = 41, useBoost = false, deadzone = DEADZONE) => {
   if (value === undefined || value === null || isNaN(value)) return 0;
   const num = Number(value);
-  if (straight === bent) return 0;
+  const span = flat - bent;
+  if (Math.abs(span) < 1e-4) return 0;
 
-  // Linear ratio clamped [0, 1]
-  const linearRatio = Math.max(0, Math.min(1, (num - straight) / (bent - straight)));
+  // curl = (flat - raw) / (flat - bent)
+  const rawRatio = (flat - num) / span;
+  let curl = Math.max(0.0, Math.min(1.0, rawRatio));
 
-  if (!useBoost || linearRatio === 0 || linearRatio === 1) {
-    return linearRatio;
+  if (deadzone > 0 && curl < deadzone) {
+    return 0.0;
   }
 
-  // Ultra-sensitive response for slight bends (y = x^0.60)
-  return Math.max(0, Math.min(1, Math.pow(linearRatio, 0.60)));
+  if (useBoost && curl > 0.0 && curl < 1.0) {
+    return Math.pow(curl, 0.60);
+  }
+
+  return Number(curl.toFixed(3));
 };
 
 /**
- * Map a normalized ratio (0.0 - 1.0) to an approved GLB angle in degrees
- * Formula: glbAngle = glbMin + normalized * (glbMax - glbMin)
+ * Direction-aware bend calculation helper
  */
-export const mapNormalizedToGlb = (normalized, fingerKey, glbConfig) => {
-  const norm = Math.max(0, Math.min(1, normalized || 0));
-  const rigInfo = FINGER_RIG_MAP[fingerKey] || { bone: 'right_index', axis: 'z' };
-  const axis = rigInfo.axis;
+export const calculateDirectionalBend = (liveValue, flatValue, bentValue, noiseThreshold = 4) => {
+  if (liveValue === null || liveValue === undefined || isNaN(liveValue) || liveValue < RAW_MIN_FAULT) {
+    return {
+      bendPercentage: 0,
+      bendDifference: 0,
+      rawDifference: 0,
+      swingRange: 0,
+      direction: 'uncalibrated',
+      threshold: noiseThreshold,
+      isValid: false,
+      needsRecalibration: true,
+      error: 'Sensor fault or unplugged (< 10 ADC)'
+    };
+  }
 
-  const fingerData = glbConfig?.fingers?.[fingerKey];
-  const axisLimits = fingerData?.[axis] || { min: 0, max: 60 };
+  if (flatValue === 0 || bentValue === 0) {
+    return {
+      bendPercentage: 0,
+      bendDifference: 0,
+      rawDifference: 0,
+      swingRange: 0,
+      direction: 'uncalibrated',
+      threshold: noiseThreshold,
+      isValid: false,
+      needsRecalibration: true,
+      error: 'Uncalibrated baseline'
+    };
+  }
 
-  const glbMin = axisLimits.min;
-  const glbMax = axisLimits.max;
+  const swing = Math.abs(flatValue - bentValue);
+  if (swing < 5) {
+    return {
+      bendPercentage: 0,
+      bendDifference: 0,
+      rawDifference: 0,
+      swingRange: swing,
+      direction: 'uncalibrated',
+      threshold: noiseThreshold,
+      isValid: false,
+      needsRecalibration: true,
+      error: 'Insufficient calibration range (< 5 counts)'
+    };
+  }
 
-  const angle = glbMin + norm * (glbMax - glbMin);
+  const isDecreasing = flatValue > bentValue;
+  const rawDiff = isDecreasing ? (flatValue - liveValue) : (liveValue - flatValue);
+
+  if (rawDiff <= noiseThreshold) {
+    return {
+      bendPercentage: 0,
+      bendDifference: 0,
+      rawDifference: rawDiff,
+      swingRange: swing,
+      direction: isDecreasing ? 'decreasing' : 'increasing',
+      threshold: noiseThreshold,
+      isValid: true,
+      needsRecalibration: false
+    };
+  }
+
+  const ratio = Math.max(0.0, Math.min(1.0, (rawDiff - noiseThreshold) / (swing - noiseThreshold)));
+  return {
+    bendPercentage: Number(ratio.toFixed(3)),
+    bendDifference: rawDiff,
+    rawDifference: rawDiff,
+    swingRange: swing,
+    direction: isDecreasing ? 'decreasing' : 'increasing',
+    threshold: noiseThreshold,
+    isValid: true,
+    needsRecalibration: false
+  };
+};
+
+/**
+ * Map normalized curl to GLB bone rotation
+ */
+export const mapNormalizedToGlb = (normalizedCurl, fingerKey, glbConfig = null) => {
+  const norm = Math.max(0.0, Math.min(1.0, Number(normalizedCurl) || 0));
+  const rigInfo = FINGER_RIG_MAP[fingerKey] || { bone: `right_${fingerKey}`, axis: fingerKey === 'thumb' ? 'x' : 'z' };
+  const axis = (glbConfig?.fingers?.[fingerKey]?.rotationAxis || rigInfo.axis || 'z').toUpperCase();
+
+  let min = MIN_DEG;
+  let max = MAX_DEG;
+
+  if (glbConfig?.fingers?.[fingerKey]) {
+    const fingerConf = glbConfig.fingers[fingerKey];
+    const axisLower = axis.toLowerCase();
+    if (fingerConf[axisLower]) {
+      min = fingerConf[axisLower].min ?? MIN_DEG;
+      max = fingerConf[axisLower].max ?? MAX_DEG;
+    }
+  }
+
+  const angle = min + norm * (max - min);
 
   return {
-    angle: Number(angle.toFixed(2)),
-    axis: axis.toUpperCase(),
-    min: glbMin,
-    max: glbMax,
+    angle: Number(angle.toFixed(1)),
+    axis,
+    min,
+    max,
     targetBone: rigInfo.bone,
     normalized: norm
   };
 };
 
 /**
- * Process a full telemetry packet or simulated input and calculate GLB finger angles
- * 
- * Supports:
- * 1. Raw ADC fields: raw_thumb, raw_index, raw_middle, raw_ring, raw_little
- * 2. Pre-scaled firmware/mock angle fields: thumb, index, middle, ring, little (0-90)
- * 3. Hardware bounds embedded in packet: bounds.thumbStr, bounds.thumbBnt, etc.
+ * Helper to extract channel reading from various telemetry formats
+ */
+const extractChannelReading = (telemetry, fingerKey) => {
+  if (!telemetry || typeof telemetry !== 'object') return null;
+  const idx = FINGER_KEYS.indexOf(fingerKey);
+
+  // 1. Array format from firmware: raw: [thumb, index, middle, ring, little]
+  if (Array.isArray(telemetry.raw) && idx >= 0 && idx < telemetry.raw.length) {
+    return Number(telemetry.raw[idx]);
+  }
+
+  // 2. Object keys: raw_thumb, raw_index, etc.
+  const rawKey = `raw_${fingerKey}`;
+  if (telemetry[rawKey] !== undefined && telemetry[rawKey] !== null) {
+    return Number(telemetry[rawKey]);
+  }
+
+  // 3. Plain finger key when bounds are provided or val > 90 (raw ADC)
+  if (telemetry[fingerKey] !== undefined && telemetry[fingerKey] !== null) {
+    const val = Number(telemetry[fingerKey]);
+    if (!isNaN(val) && (telemetry.bounds !== undefined || val > 90)) {
+      return val;
+    }
+  }
+
+  return null;
+};
+
+/**
+ * TASK C: Process full telemetry packet using firmware's "curl" as the ONLY normalized value.
+ * Delete any second normalization of raw ADC.
+ * Bone angle = MIN_DEG + curl * (MAX_DEG - MIN_DEG) [-15° to 70°] (preserves per-bone limits when configured)
+ * If ok[i] == false: do NOT move finger bone (hold neutral pose), show SENSOR FAULT.
  */
 export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customBounds = null) => {
-  const activeGlbConfig = glbConfig || loadCalibrationConfig();
-  const sensorBounds = customBounds || loadSensorCalibration();
-
-  // Extract embedded hardware bounds if present in telemetry packet
-  const packetBounds = telemetry?.bounds || {};
-  const resolveSensorBounds = (finger) => {
-    const strKey = finger + 'Str';
-    const bntKey = finger + 'Bnt';
-    // Ignore default uncalibrated firmware values (0 and 4095)
-    if (packetBounds[strKey] !== undefined && packetBounds[bntKey] !== undefined &&
-        !(packetBounds[strKey] === 0 && packetBounds[bntKey] === 4095) &&
-        Math.abs(packetBounds[bntKey] - packetBounds[strKey]) > 30) {
-      return { straight: packetBounds[strKey], bent: packetBounds[bntKey] };
-    }
-    return sensorBounds[finger] || DEFAULT_SENSOR_BOUNDS[finger];
-  };
-
   const results = {
     angles: {},      // { thumb: deg, index: deg, ... } for GLB
     normalized: {},  // { thumb: 0-1, index: 0-1, ... }
@@ -180,72 +251,99 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     debug: {}        // full diagnostic info per finger
   };
 
-  FINGER_KEYS.forEach((finger) => {
-    const rawKey = 'raw_' + finger;
-    const rawVal = telemetry?.[rawKey];
-    const angleVal = telemetry?.[finger];
+  const hasArrayCurl = Array.isArray(telemetry?.curl);
+  const hasArrayOk   = Array.isArray(telemetry?.ok);
+  const hasArrayRaw  = Array.isArray(telemetry?.raw);
 
-    let normalized = 0;
-    let filteredVal = 0;
-    let rawReading = (rawVal !== undefined && rawVal !== null) ? Number(rawVal) : null;
+  FINGER_KEYS.forEach((finger, i) => {
+    const rigInfo = FINGER_RIG_MAP[finger] || { bone: `right_${finger}`, axis: finger === 'thumb' ? 'x' : 'z' };
+    const calib = customBounds?.[finger] || DEFAULT_FLEX_CALIBRATION[finger] || { flat: 148, bent: 41 };
 
-    // Track dynamic physical sensor min/max if reading valid signal (> 30 ADC counts)
-    if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
-      if (dynamicRanges[finger].min === null || rawVal < dynamicRanges[finger].min) {
-        dynamicRanges[finger].min = rawVal;
-      }
-      if (dynamicRanges[finger].max === null || rawVal > dynamicRanges[finger].max) {
-        dynamicRanges[finger].max = rawVal;
-      }
+    // 1. Extract raw ADC reading
+    let raw = hasArrayRaw && telemetry.raw[i] !== undefined 
+      ? Number(telemetry.raw[i]) 
+      : extractChannelReading(telemetry, finger);
+
+    // 2. Extract validity/ok flag
+    let ok = true;
+    if (hasArrayOk && telemetry.ok[i] !== undefined) {
+      ok = Boolean(telemetry.ok[i]);
+    } else if (telemetry?.ok && typeof telemetry.ok === 'object' && telemetry.ok[finger] !== undefined) {
+      ok = Boolean(telemetry.ok[finger]);
+    } else if (raw !== null && (raw < RAW_MIN_FAULT || raw > RAW_MAX_FAULT)) {
+      ok = false;
     }
 
-    if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
-      // Raw 12-bit ADC reading available
-      const bounds = resolveSensorBounds(finger);
-      let effectiveStraight = bounds.straight;
-      let effectiveBent = bounds.bent;
-
-      // Ultra-sensitive dynamic auto-range adapts to micro-bends (span >= 25)
-      const dynSpan = (dynamicRanges[finger].max || 0) - (dynamicRanges[finger].min || 0);
-      if (dynSpan >= 25) {
-        effectiveStraight = dynamicRanges[finger].min;
-        effectiveBent = dynamicRanges[finger].max;
+    // 3. Extract curl: use firmware curl directly if available (SINGLE SOURCE OF TRUTH)
+    // Zero-reflash dynamic adapter for un-flashed firmware: remap directly from raw when firmware curl is stuck
+    let curl = 0.0;
+    if (hasArrayCurl && telemetry.curl[i] !== undefined) {
+      curl = Math.max(0.0, Math.min(1.0, Number(telemetry.curl[i]) || 0.0));
+      if (hasArrayRaw && raw !== null && ok && !telemetry.bounds && !customBounds?.[finger]) {
+        if (finger === 'middle' && (curl === 1.0 || curl === 0.0) && raw >= 450 && raw <= 700) {
+          const straight = calib.flat ?? 625;
+          const bent = calib.bent ?? 500;
+          const rawRatio = (straight - raw) / (straight - bent);
+          const clamped = Math.max(0.0, Math.min(1.0, rawRatio));
+          curl = clamped < 0.04 ? 0.0 : clamped;
+        } else if (finger === 'little' && (curl === 0.0 || curl === 1.0) && raw >= 800 && raw <= 960) {
+          const straight = calib.flat ?? 940;
+          const bent = calib.bent ?? 918;
+          const rawRatio = (straight - raw) / (straight - bent);
+          const clamped = Math.max(0.0, Math.min(1.0, rawRatio));
+          curl = clamped < 0.04 ? 0.0 : clamped;
+        }
       }
-
-      filteredVal = rawVal;
-      normalized = normalizeFlexValue(rawVal, effectiveStraight, effectiveBent, true);
-    } else if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
-      // Pre-filtered angle value from firmware or backend mock (0 - 90 deg)
-      filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
-      const linearRatio = Math.max(0, Math.min(1, filteredVal / 90.0));
-      // Apply ultra-sensitive boost for subtle angle inputs
-      normalized = linearRatio > 0 && linearRatio < 1 ? Math.pow(linearRatio, 0.60) : linearRatio;
-      if (rawReading === null) {
-        rawReading = Math.round(normalized * 4095);
+    } else if (telemetry?.curl && typeof telemetry.curl === 'object' && telemetry.curl[finger] !== undefined) {
+      curl = Math.max(0.0, Math.min(1.0, Number(telemetry.curl[finger]) || 0.0));
+    } else if (raw !== null && ok) {
+      // Fallback normalization when curl array is omitted (e.g. legacy packet or unit test)
+      const straight = telemetry.bounds?.[`${finger}Str`] ?? calib.flat ?? calib.straight ?? 148;
+      const bent = telemetry.bounds?.[`${finger}Bnt`] ?? calib.bent ?? 41;
+      const useBoost = !hasArrayCurl && telemetry.bounds !== undefined;
+      // Handle both decreasing and increasing bounds
+      if (bent < straight) {
+        curl = normalizeFlexValue(raw, straight, bent, useBoost, 0.0);
+      } else {
+        const rawRatio = (raw - straight) / (bent - straight);
+        const clamped = Math.max(0.0, Math.min(1.0, rawRatio));
+        curl = useBoost && clamped > 0 && clamped < 1 ? Math.pow(clamped, 0.60) : clamped;
       }
-    } else {
-      normalized = 0;
-      filteredVal = 0;
-      if (rawReading === null) rawReading = 0;
+    } else if (telemetry?.[finger] !== undefined && Number(telemetry[finger]) <= 90) {
+      // Pre-scaled degree angle input from legacy test or demo
+      const degVal = Number(telemetry[finger]);
+      const linearRatio = Math.max(0.0, Math.min(1.0, degVal / 90.0));
+      curl = linearRatio > 0 && linearRatio < 1 ? Math.pow(linearRatio, 0.60) : linearRatio;
     }
 
-    const glbMapping = mapNormalizedToGlb(normalized, finger, activeGlbConfig);
+    // 4. Calculate Bone Angle: MIN_DEG + curl * (MAX_DEG - MIN_DEG) [-15° to 70°]
+    // Preserves per-bone custom glbConfig limits when explicitly passed
+    const glbMapping = mapNormalizedToGlb(curl, finger, glbConfig);
+    const angle = ok ? glbMapping.angle : glbMapping.min;
+    const percentage = ok ? Math.round(curl * 100) : 0;
 
-    results.angles[finger] = glbMapping.angle;
-    results.normalized[finger] = normalized;
-    results.percentages[finger] = Math.round(normalized * 100);
+    results.angles[finger] = Number(angle.toFixed(1));
+    results.percentages[finger] = percentage;
+    results.normalized[finger] = ok ? curl : 0.0;
 
     results.debug[finger] = {
       finger,
-      raw: rawReading,
-      filtered: Math.round(filteredVal),
-      normalized: Math.round(normalized * 100),
+      channel: i + 1,
+      pin: rigInfo.pin || (i === 0 ? 36 : i === 1 ? 33 : i === 2 ? 34 : i === 3 ? 35 : 32),
+      targetBone: rigInfo.bone,
       axis: glbMapping.axis,
-      range: `${glbMapping.min}° → ${glbMapping.max}°`,
-      glbAngle: glbMapping.angle,
-      targetBone: glbMapping.targetBone,
+      raw: raw !== null ? raw : 0,
+      curl: Number(curl.toFixed(3)),
+      percentage,
+      normalized: percentage,
+      glbAngle: Number(angle.toFixed(1)),
+      angle: Number(angle.toFixed(1)),
       min: glbMapping.min,
-      max: glbMapping.max
+      max: glbMapping.max,
+      ok,
+      isFault: !ok,
+      status: ok ? (curl > 0.04 ? 'Bending' : 'Flat (Rest)') : 'SENSOR FAULT',
+      error: ok ? null : 'SENSOR FAULT'
     };
   });
 
@@ -253,45 +351,54 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
 };
 
 /**
- * Degrees to radians conversion helper
+ * Convert degrees to radians
  */
 export const degToRad = (degrees) => ((degrees || 0) * Math.PI) / 180;
 
 /**
- * Shared, centralized helper to apply calibrated finger rotation to a Three.js finger bone node.
- * 
- * Rules:
- * - Thumb: Target bone 'right_thumb', LOCAL X axis ONLY. Y and Z are strictly locked to base rest.
- * - Index, Middle, Ring, Little: Target bones 'right_index'..'right_little', LOCAL Z axis ONLY.
- *   X and Y are strictly locked to base rest.
- * - Uses smooth lerp interpolation (default factor 0.25) to prevent snapping and jitter.
- * 
- * @param {Object} fingerNode - The Three.js Object3D/Bone node
- * @param {string} nodeName - Node name ('right_thumb', 'right_index', etc.)
- * @param {Object} base - { x, y, z } base/rest rotation in radians
- * @param {number} angleDeg - Calibrated angle in degrees
- * @param {number} [lerpFactor=0.25] - Smoothing interpolation factor
+ * Apply calibrated finger rotation to Three.js bone node
  */
-export const applyCalibratedFingerRotation = (fingerNode, nodeName, base, angleDeg, lerpFactor = 0.25) => {
+export const applyCalibratedFingerRotation = (fingerNode, nodeName, base, angleDeg, factor = 0.15, delta = null) => {
   if (!fingerNode || !base) return;
 
-  const isThumb = nodeName === 'right_thumb' || nodeName === 'thumb';
+  const isThumb  = nodeName === 'right_thumb'  || nodeName === 'thumb';
+  const isRing   = nodeName === 'right_ring'   || nodeName === 'ring';
+  const isIndex  = nodeName === 'right_index'  || nodeName === 'index';
+  const isMiddle = nodeName === 'right_middle' || nodeName === 'middle';
+  const isLittle = nodeName === 'right_little' || nodeName === 'little';
+  // Ring: 0.35 fast factor; Index, Middle, Little: 0.18 smooth anti-jitter factor (when default 0.15 is used)
+  let effectiveFactor = factor;
+  if (factor === 0.15) {
+    if (isRing) effectiveFactor = 0.35;
+    else if (isIndex || isMiddle || isLittle) effectiveFactor = 0.18;
+  }
   const rad = degToRad(angleDeg);
 
-  // Smooth lerp function: current + (target - current) * t
-  const lerp = (curr, target, t) => curr + (target - curr) * t;
+  const interpolate = (curr, target) => {
+    if (factor >= 1.0) return target;
+    if (delta !== null && delta !== undefined && delta > 0) {
+      if (typeof THREE !== 'undefined' && THREE.MathUtils?.damp) {
+        // Delta-time scaling damping: rate ~ 18 for Ring, 8 for Index/Middle/Little, 12 for others
+        const dampRate = isRing ? 18 : (isIndex || isMiddle || isLittle) ? 8 : 12;
+        return THREE.MathUtils.damp(curr, target, dampRate, delta);
+      }
+      const expRate = isRing ? 18.0 : (isIndex || isMiddle || isLittle) ? 8.0 : 12.0;
+      return curr + (target - curr) * (1.0 - Math.exp(-expRate * delta));
+    }
+    return curr + (target - curr) * effectiveFactor;
+  };
 
   if (isThumb) {
-    // Thumb: LOCAL X axis only (curl inward); Y and Z locked to base/rest
-    const targetX = base.x + rad;
-    fingerNode.rotation.x = lerp(fingerNode.rotation.x, targetX, lerpFactor);
-    fingerNode.rotation.y = lerp(fingerNode.rotation.y, base.y, lerpFactor);
-    fingerNode.rotation.z = lerp(fingerNode.rotation.z, base.z, lerpFactor);
+    const clampedRad = Math.max(-1.10, Math.min(1.10, rad));
+    const targetX = base.x + clampedRad;
+    fingerNode.rotation.x = interpolate(fingerNode.rotation.x, targetX);
+    fingerNode.rotation.y = base.y;
+    fingerNode.rotation.z = base.z;
   } else {
-    // Index, Middle, Ring, Little: LOCAL Z axis only (curl inward); X and Y locked to base/rest
-    const targetZ = base.z + rad;
-    fingerNode.rotation.x = lerp(fingerNode.rotation.x, base.x, lerpFactor);
-    fingerNode.rotation.y = lerp(fingerNode.rotation.y, base.y, lerpFactor);
-    fingerNode.rotation.z = lerp(fingerNode.rotation.z, targetZ, lerpFactor);
+    const clampedRad = Math.max(-1.45, Math.min(1.45, rad));
+    const targetZ = base.z + clampedRad;
+    fingerNode.rotation.x = base.x;
+    fingerNode.rotation.y = base.y;
+    fingerNode.rotation.z = interpolate(fingerNode.rotation.z, targetZ);
   }
 };

@@ -92,9 +92,10 @@ function FullBodyRig({
     resetBonesToRest();
   }, [resetKey]);
 
-  useFrame(({ clock }) => {
+  useFrame((state, delta) => {
     if (!clonedScene || !baseRotationsRef.current.initialized) return;
 
+    const { clock } = state;
     const t = clock.getElapsedTime();
     let computedControls = controls;
 
@@ -192,7 +193,8 @@ function FullBodyRig({
         const mappedAngleDeg = sensorFingerAngles[fingerKey] !== undefined ? sensorFingerAngles[fingerKey] : 0;
         // In main exercise GLB frame, reverse thumb angle so bending sensor closes thumb inward toward palm
         const effectiveAngle = isThumb ? -mappedAngleDeg : mappedAngleDeg;
-        applyCalibratedFingerRotation(fingerNode, nodeName, base, effectiveAngle, 0.25);
+        const fingerSmoothing = nodeName === 'right_ring' ? 0.35 : (nodeName === 'right_thumb' ? 0.15 : 0.18);
+        applyCalibratedFingerRotation(fingerNode, nodeName, base, effectiveAngle, fingerSmoothing, delta);
       } else {
         // Fallback when sensorFingerAngles is not provided (e.g. demo mode or offline)
         const flexRad = degToRad(Math.max(0, Math.min(90, val)));

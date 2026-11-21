@@ -795,6 +795,26 @@ function CalibrationPage() {
 
   // Evaluate Threshold Criteria for Calibration
   useEffect(() => {
+    // Finger logic - requires variance on at least 2 fingers
+    if (activeSensorIndex === 1 && sensorStatuses.flex === 'calibrating' && minSeen.flex && maxSeen.flex) {
+      let count = 0;
+      ['thumb', 'index', 'middle', 'ring', 'little'].forEach(f => {
+        if ((maxSeen.flex[f] - minSeen.flex[f]) >= 500) {
+          count++;
+        }
+      });
+      if (count >= 2) {
+        setSensorStatuses(prev => ({ ...prev, flex: 'ready' }));
+      }
+    }
+
+    // Elbow logic - requires variance >= 12 degrees
+    if (activeSensorIndex === 2 && sensorStatuses.elbow === 'calibrating' && minSeen.elbow !== undefined && maxSeen.elbow !== undefined) {
+      if (maxSeen.elbow - minSeen.elbow >= 12) {
+        setSensorStatuses(prev => ({ ...prev, elbow: 'ready' }));
+      }
+    }
+
     // Wrist MPU logic - requires real MPU working signal and rotation variance >= 5 degrees
     if (activeSensorIndex === 3 && sensorStatuses.mpu === 'calibrating') {
       if (lastTelemetry?.mpu_working === false) {
@@ -1085,7 +1105,7 @@ function CalibrationPage() {
                                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">GPIO Pin Health Status</span>
                                       <div className="grid grid-cols-2 gap-1.5 text-[10px] font-semibold">
                                         <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                          <span className="text-slate-500 font-medium">GPIO 32 (Thumb)</span>
+                                          <span className="text-slate-500 font-medium">GPIO 36 (Thumb)</span>
                                           <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
                                             {lastTelemetry ? "● OK" : "○ OFFLINE"}
                                           </span>
@@ -1109,7 +1129,7 @@ function CalibrationPage() {
                                           </span>
                                         </div>
                                         <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                                          <span className="text-slate-500 font-medium">GPIO 36 (Little)</span>
+                                          <span className="text-slate-500 font-medium">GPIO 32 (Little)</span>
                                           <span className={lastTelemetry ? "text-emerald-500" : "text-slate-400"}>
                                             {lastTelemetry ? "● OK" : "○ OFFLINE"}
                                           </span>

@@ -182,9 +182,10 @@ function FullBodyRig({
     resetBonesToRest();
   }, [resetKey]);
 
-  useFrame(({ clock }) => {
+  useFrame((state, delta) => {
     if (!clonedScene || !baseRotationsRef.current.initialized) return;
 
+    const { clock } = state;
     const t = clock.getElapsedTime();
     let computedControls = controls;
 
@@ -297,7 +298,9 @@ function FullBodyRig({
         // Real-time sensor-driven or simulated GLB movement (Fix 2 & Fix 3 shared logic)
         const fingerKey = nodeName.replace('right_', '');
         const mappedAngleDeg = sensorFingerAngles[fingerKey] !== undefined ? sensorFingerAngles[fingerKey] : 0;
-        applyCalibratedFingerRotation(fingerNode, nodeName, base, mappedAngleDeg, 0.25);
+        const effectiveAngle = isThumb ? -mappedAngleDeg : mappedAngleDeg;
+        const fingerSmoothing = nodeName === 'right_ring' ? 0.35 : (nodeName === 'right_thumb' ? 0.15 : 0.18);
+        applyCalibratedFingerRotation(fingerNode, nodeName, base, effectiveAngle, fingerSmoothing, delta);
       } else {
         // In calibration mode, non-target fingers remain steady at rest pose
         if (calibrationActive) {

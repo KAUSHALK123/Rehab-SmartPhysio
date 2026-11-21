@@ -114,3 +114,69 @@ For deep-dives into specific aspects of the codebase or to provide detailed cont
     *   [09_AI_DEVELOPMENT_PLAN.md](./docs/09_AI_DEVELOPMENT_PLAN.md) - Roadmap for implementing ML features.
     *   [10_PROMPT_LIBRARY.md](./docs/10_PROMPT_LIBRARY.md) - Pre-made context prompts for instructing AI coding subagents.
 *   **Hardware / ESP32 Specifications**: [11_HARDWARE_SPEC.md](./docs/11_HARDWARE_SPEC.md) - Sleeve electronics details.
+
+---
+
+## ⚡ Hardware Pinout & Wiring Specification
+
+### Confirmed Pinout (All ADC1 Channels, Wi-Fi Safe)
+
+| Channel | Sensor | ESP32 GPIO | ADC Channel | Calibrated Benchmarks (Raw 12-Bit) |
+|:---|:---|:---|:---|:---|
+| **Ch 1** | **Thumb Flex** | **GPIO 36 (VP)** | `ADC1_CH0` | Flat: 250, Bent: 180 (placeholder) |
+| **Ch 2** | **Index Flex** | **GPIO 33 (D33)** | `ADC1_CH5` | Flat: 173, Bent: 108 |
+| **Ch 3** | **Middle Flex** | **GPIO 34 (D34)** | `ADC1_CH6` | Flat: 265, Bent: 220 |
+| **Ch 4** | **Ring Flex** | **GPIO 35 (D35)** | `ADC1_CH7` | Flat: 216, Bent: 180 |
+| **Ch 5** | **Little Flex** | **GPIO 32 (D32)** | `ADC1_CH4` | Flat: 148, Bent: 41 (Confirmed) |
+| **Elbow** | **Elbow Flex** | **GPIO 39 (VN)** | `ADC1_CH3` | 10kΩ Pull-down to GND |
+| **Force** | **Pressure Squeeze** | **GPIO 25 (D25)** | `ADC2_CH8` | 10kΩ Pull-down to GND |
+| **IMU** | **MPU6050 I2C** | **GPIO 21 (SDA) / 22 (SCL)** | I2C | 4.7kΩ Onboard Pull-ups |
+
+### Voltage Divider Wiring Circuit
+For each of the 5 finger flex sensors:
+```text
+           +3.3V Power Rail
+                 │
+                 ├──[ Flex Sensor (~25kΩ - 60kΩ+) ]
+                 │
+                 ├── Node ─────────────────────────> ESP32 ADC Pin (GPIO 36, 33, 34, 35, 32)
+                 │     │
+                 │     └──[ 0.1µF Ceramic Capacitor ]── GND (Filters Wi-Fi ADC noise)
+                 │
+                 └──[ Fixed Resistor R (10kΩ - 22kΩ) ]
+                         │
+                        GND Common Rail
+```
+- **Recommended Resistor (R)**: $10\text{k}\Omega\text{ to }22\text{k}\Omega$ pull-down resistor matched to sensor midpoint.
+- **Direction**: Flex ADC value **DECREASES** when bent ($\text{Flat} > \text{Bent}$).
+- **Fault Detection**:
+  - An unplugged channel with a pull-down resistor reads $\approx 0\text{ ADC}$ ($< 10$) and immediately flags a **FAULT** (holding the finger open at $-15^\circ$; never curling into a fist).
+  - A floating pin (e.g. ungrounded GPIO 32) produces sample spread $> 150\text{ counts}$ across 16-sample bursts and immediately flags a **FAULT**.
+
+---
+
+## 📋 Manual Verification Checklist
+
+Follow these steps to verify full end-to-end integration across hardware, firmware, backend, and 3D hand visualization:
+
+1. **Serial vs WebSocket Telemetry Match:**
+   - Open Serial Monitor at `115200` baud. Check the single rate-limited log line:
+     `[ 12345 ms] T: 250 0% I: 173 0% M: 265 0% R: 216 0% L: 148 0%`
+   - Run `python tools/ws_probe.py`.
+   - Verify that raw ADC values and `curl %` match between Serial and WebSocket frames 1:1.
+2. **Power-Cycle & Disconnect Safety (No Phantom Animation):**
+   - Unplug or power-cycle the ESP32.
+   - The web UI connection badge must flip to **`NO DEVICE`** within 1 second.
+   - The 3D hand must **freeze in its neutral position** and NOT keep animating.
+3. **Sensor Unplugged / Ground Fault (No Fist Lock):**
+   - Unplug the Little finger flex sensor from 3.3V (pulled to GND by resistor).
+   - Sensor reads $\approx 0\text{ ADC} < 10$.
+   - Serial displays `L: 0 0% !FAULT`.
+   - Web UI displays **`FAULT`** and the 3D Little finger **remains open (flat at $-15^\circ$)**, never curling into a fist.
+4. **Touch GPIO 32 to GND:**
+   - Touch GPIO 32 directly to GND.
+   - It reads $0\text{ ADC}$, flags `!FAULT`, and the 3D bone does not curl.
+5. **Single-Finger Isolation:**
+   - Gently bend only the Little finger from Flat (`148`) toward Bent (`41`).
+   - Only the Little finger bone rotates smoothly on the 3D hand (between $-15^\circ$ and $70^\circ$).
+   - Other fingers remain completely still.

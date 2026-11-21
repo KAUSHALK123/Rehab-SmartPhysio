@@ -195,23 +195,45 @@ Future versions may include an additional IMU near the shoulder for improved acc
 
 ---
 
-# 6. ESP32 Pin Mapping
+# 6. ESP32 Pin Mapping & Wiring Specification
 
-**Note:** Final GPIO numbers may change depending on PCB design and available ADC pins.
+### Confirmed Hardware Pinout (All ADC1, Wi-Fi Safe)
 
-| ESP32 Pin | Connected Device |
-|------------|------------------|
-| GPIO34 (ADC) | Thumb Flex |
-| GPIO35 (ADC) | Index Flex |
-| GPIO32 (ADC) | Middle Flex |
-| GPIO33 (ADC) | Ring Flex |
-| GPIO39 (ADC) | Little Finger Flex |
-| GPIO36 (ADC) | Elbow Flex |
-| GPIO25 (ADC) | Pressure Sensor |
-| GPIO21 | MPU6050 SDA |
-| GPIO22 | MPU6050 SCL |
-| 3.3V | Sensor Power |
-| GND | Common Ground |
+| ESP32 Pin | Function / Sensor | ADC Channel | Circuit Notes |
+|:---|:---|:---|:---|
+| **GPIO 36 (VP)** | **Thumb Flex Sensor** | `ADC1_CH0` | Fixed R to GND + 0.1µF to GND |
+| **GPIO 33 (D33)** | **Index Flex Sensor** | `ADC1_CH5` | Fixed R to GND + 0.1µF to GND |
+| **GPIO 34 (D34)** | **Middle Flex Sensor** | `ADC1_CH6` | Fixed R to GND + 0.1µF to GND |
+| **GPIO 35 (D35)** | **Ring Flex Sensor** | `ADC1_CH7` | Fixed R to GND + 0.1µF to GND |
+| **GPIO 32 (D32)** | **Little Flex Sensor** | `ADC1_CH4` | Fixed R to GND + 0.1µF to GND |
+| **GPIO 39 (VN)** | **Elbow Flex Sensor** | `ADC1_CH3` | 10kΩ Pull-down to GND |
+| **GPIO 25 (D25)** | **Pressure (FSR) Sensor** | `ADC2_CH8` | 10kΩ Pull-down to GND |
+| **GPIO 21 (D21)** | **MPU6050 SDA** | I2C Data | 4.7kΩ Onboard Pull-up to 3.3V |
+| **GPIO 22 (D22)** | **MPU6050 SCL** | I2C Clock | 4.7kΩ Onboard Pull-up to 3.3V |
+| **3V3 Pin** | **Sensor Power Rail** | Power | Regulated 3.3V only (never 5V) |
+| **GND Pin** | **Common Ground** | Ground | Common system ground |
+
+### Voltage Divider Wiring Circuit
+For each of the 5 finger flex sensors:
+```text
+           +3.3V Power Rail
+                 │
+                 ├──[ Flex Sensor (~25kΩ - 60kΩ+) ]
+                 │
+                 ├── Node ─────────────────────────> ESP32 ADC Pin (GPIO 36,33,34,35,32)
+                 │     │
+                 │     └──[ 0.1µF Ceramic Capacitor ]── GND (Filter noise)
+                 │
+                 └──[ Fixed Resistor R (10kΩ - 22kΩ) ]
+                         │
+                        GND Common Rail
+```
+
+- **Recommended Resistor (R):** Use $10\text{k}\Omega\text{ to }22\text{k}\Omega$ resistors matched to the flex sensor's mid-point resistance.
+- **Direction:** Flex ADC value **DECREASES** when bent ($\text{Flat} > \text{Bent}$).
+- **Fault Detection:**
+  - An unplugged channel with a pull-down reads $\approx 0$ ADC ($< 10$) and immediately flags a **FAULT** (holding the finger open; never curling into a fist).
+  - A floating pin (such as ungrounded GPIO 32) creates sample spread $> 150$ counts across oversampled reads and immediately flags a **FAULT**.
 
 ---
 

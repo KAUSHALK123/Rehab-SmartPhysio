@@ -1,6 +1,8 @@
+import os
 import asyncio
 import json
 import time
+import math
 import random
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -8,6 +10,9 @@ router = APIRouter(
     prefix="/device",
     tags=["device-websocket"]
 )
+
+# Environment configuration: Allow mock fallback only when explicitly enabled (default "0")
+ALLOW_MOCK = os.getenv("ALLOW_MOCK", "0") == "1"
 
 # Helper to manage connected websocket clients
 class ConnectionManager:
@@ -27,7 +32,6 @@ class ConnectionManager:
     def disconnect_device(self, websocket: WebSocket):
         if websocket in self.device_connections:
             self.device_connections.remove(websocket)
-            # Notify viewers that hardware is disconnected (causes fallback to mock)
             asyncio.create_task(self.broadcast_to_viewers({
                 "type": "status_update",
                 "status": "hardware_status_changed",
@@ -61,139 +65,135 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# Global state for calibration steps (so viewers and simulator share it)
-global_calibration_state = {
-    "calibration_step": "idle", # mpu, flex, pressure, raise_arm, bend_elbow, close_hand
+# Global device tracking state
+device_state = {
+    "last_packet_time": 0.0,
+    "last_seq": None,
+    "frame_count": 0,
+    "seq_gap_count": 0,
+    "mock_time": 0.0,
+    "calibration_step": "idle",
     "battery": 92
 }
 
+monitor_task = None
+
+async def telemetry_monitor_loop():
+    """Background monitor that logs stats once per second and broadcasts offline status when no device is active."""
+    while True:
+        try:
+            await asyncio.sleep(1.0)
+            now = time.time()
+            fps = device_state["frame_count"]
+            device_state["frame_count"] = 0
+            has_device_conn = len(manager.device_connections) > 0
+            is_active = has_device_conn and (now - device_state["last_packet_time"] <= 1.0)
+
+            if is_active:
+                print(f"[TELEMETRY] src=esp32 seq={device_state['last_seq']} fps={fps}")
+            else:
+                if has_device_conn and (now - device_state["last_packet_time"] > 1.0):
+                    stale_duration = now - device_state["last_packet_time"]
+                    print(f"[WS WARNING] Device stale! No frame received for {stale_duration:.1f}s")
+
+                if ALLOW_MOCK:
+                    # When ALLOW_MOCK=1, every mock frame MUST include "src":"mock" so it can never be mistaken for hardware
+                    device_state["mock_time"] += 1.0
+                    flex_cycle = (math.sin(device_state["mock_time"] * 1.05) + 1.0) / 2.0  # 0.0 to 1.0
+                    mock_curl = round(flex_cycle, 3)
+                    mock_raw = int(148 - (mock_curl * 107))
+                    mock_frame = {
+                        "type": "sensor_data",
+                        "src": "mock",
+                        "seq": int(now),
+                        "t": int(now * 1000),
+                        "raw": [mock_raw, mock_raw, mock_raw, mock_raw, mock_raw],
+                        "curl": [mock_curl, mock_curl, mock_curl, mock_curl, mock_curl],
+                        "ok": [1, 1, 1, 1, 1],
+                        "battery": 92,
+                        "is_mock": True
+                    }
+                    await manager.broadcast_to_viewers(mock_frame)
+                else:
+                    # When ALLOW_MOCK=0 and no device frame for >1s, broadcast offline status once per second and send NO fake sensor data.
+                    offline_since = int(device_state["last_packet_time"]) if device_state["last_packet_time"] > 0 else int(now)
+                    await manager.broadcast_to_viewers({
+                        "type": "status",
+                        "state": "device_offline",
+                        "since": offline_since
+                    })
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[WS MONITOR ERROR] {e}")
+
+@router.on_event("startup")
+async def start_monitor():
+    global monitor_task
+    if monitor_task is None or monitor_task.done():
+        monitor_task = asyncio.create_task(telemetry_monitor_loop())
+
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
-    print(f"[WS] Incoming connection request from client_type={client_type}")
+    global monitor_task
+    if monitor_task is None or monitor_task.done():
+        monitor_task = asyncio.create_task(telemetry_monitor_loop())
+
     if client_type == "device":
         print("[WS] Device connecting...")
         await manager.connect_device(websocket)
         print("[WS] Device connected successfully!")
+        device_state["last_seq"] = None
         try:
             while True:
-                # Receive raw telemetry reading from ESP32 with an 8.0-second timeout for wireless resilience
-                try:
-                    data = await asyncio.wait_for(websocket.receive_text(), timeout=8.0)
-                except asyncio.TimeoutError:
-                    print("[WS] Device telemetry timeout: No data received for 8 seconds. Disconnecting...")
-                    break
+                data = await websocket.receive_text()
                 try:
                     packet = json.loads(data)
-                    # Enforce type and is_mock flag
-                    packet["type"] = "sensor_data"
-                    packet["is_mock"] = False
-                    packet["timestamp"] = int(time.time())
-                    # Broadcast telemetry to all listening viewer sockets
-                    await manager.broadcast_to_viewers(packet)
                 except json.JSONDecodeError:
-                    pass
+                    continue
+
+                # Pass real device frames through unchanged (preserve src, seq, t, raw, curl, ok)
+                if not packet.get("src"):
+                    packet["src"] = "esp32"
+                if not packet.get("type"):
+                    packet["type"] = "sensor_data"
+
+                cur_seq = packet.get("seq")
+                if cur_seq is not None:
+                    if device_state["last_seq"] is not None and cur_seq != device_state["last_seq"] + 1:
+                        print(f"[WS WARNING] Sequence gap detected: expected {device_state['last_seq'] + 1}, got {cur_seq}")
+                        device_state["seq_gap_count"] += 1
+                    device_state["last_seq"] = cur_seq
+
+                device_state["last_packet_time"] = time.time()
+                device_state["frame_count"] += 1
+
+                # Broadcast real hardware frame unchanged to all viewers
+                await manager.broadcast_to_viewers(packet)
+
         except WebSocketDisconnect:
             print("[WS] Device disconnected (WebSocketDisconnect)")
         except Exception as e:
             print(f"[WS] Device connection error: {e}")
         finally:
             manager.disconnect_device(websocket)
-            
-    else: # viewer
-        print("[WS] Viewer connecting...")
+
+    else:  # viewer
         await manager.connect_viewer(websocket)
-        print("[WS] Viewer connected successfully!")
-        
-        # State flags for local simulation loop if no physical device is active
-        streaming_task = None
-        
-        # Track animation time for smooth mock demo
-        mock_time = 0.0
-        
-        async def stream_mock_data():
-            nonlocal mock_time
-            try:
-                while True:
-                    # Only send mock data if no physical device is currently streaming!
-                    if len(manager.device_connections) == 0:
-                        step = global_calibration_state["calibration_step"]
-                        mock_time += 0.1  # Advance time by 100ms per tick
-                        
-                        # Sinusoidal animation: fingers smoothly open (0°) and close (70°)
-                        # Period ~6 seconds, one full open-close cycle
-                        import math
-                        flex_cycle = (math.sin(mock_time * 1.05) + 1.0) / 2.0  # 0.0 to 1.0
-                        
-                        if step == "close_hand":
-                            # Force close position for calibration steps
-                            finger_val = 75 + random.randint(-2, 2)
-                        elif step == "bend_elbow":
-                            finger_val = 5 + random.randint(-1, 1)
-                        else:
-                            # Smooth animated open/close (0=straight, 70=bent)
-                            finger_val = int(flex_cycle * 70)
-                        
-                        # Approximate raw ADC values (0-4095)
-                        def to_adc(deg):
-                            return max(0, min(4095, int((deg / 90.0) * 4095) + random.randint(-20, 20)))
-
-                        packet = {
-                            "type": "sensor_data",
-                            "is_mock": True,
-                            "timestamp": int(time.time()),
-                            "battery": global_calibration_state["battery"],
-                            
-                            # Angles in degrees 0=straight, 90=fully bent — matching real firmware
-                            "thumb":  finger_val + random.randint(-2, 2),
-                            "index":  finger_val + random.randint(-2, 2),
-                            "middle": finger_val + random.randint(-2, 2),
-                            "ring":   finger_val + random.randint(-2, 2),
-                            "little": finger_val + random.randint(-2, 2),
-                            
-                            # Raw ADC fields (0-4095) for Live Sensor Monitor
-                            "raw_thumb":    to_adc(finger_val),
-                            "raw_index":    to_adc(finger_val),
-                            "raw_middle":   to_adc(finger_val),
-                            "raw_ring":     to_adc(finger_val),
-                            "raw_little":   to_adc(finger_val),
-                            "raw_elbow":    to_adc(180 - (180 if step != "bend_elbow" else 90)),
-                            "raw_pressure": 5 + random.randint(-1, 2) if step != "close_hand" else 650 + random.randint(-10, 10),
-                            
-                            # Elbow: 180=straight, 90=bent
-                            "elbow": 180 + random.randint(-3, 3) if step != "bend_elbow" else 90 + random.randint(-2, 2),
-                            "pressure": 5 + random.randint(-1, 2) if step != "close_hand" else 650 + random.randint(-10, 10),
-                            
-                            "wrist_pitch": 0.0 if step == "raise_arm" else 0.0,
-                            "wrist_roll": 0.0 if step == "raise_arm" else 0.0,
-                            "mpu_working": False,
-                        }
-                        await websocket.send_text(json.dumps(packet))
-                    await asyncio.sleep(0.05) # 20Hz stream (matches firmware streamInterval=50ms)
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                pass
-
         try:
-            streaming_task = asyncio.create_task(stream_mock_data())
             while True:
-                # Viewers can send commands (e.g. set_step during calibration)
                 data = await websocket.receive_text()
                 message = json.loads(data)
                 command = message.get("command")
-                
+
                 if command == "set_step":
                     step = message.get("step")
-                    global_calibration_state["calibration_step"] = step
-                    
-                    # Notify viewers of step change
+                    device_state["calibration_step"] = step
                     await manager.broadcast_to_viewers({
                         "type": "status_update",
                         "status": "step_changed",
                         "step": step
                     })
-                    
-                    # Relay to physical devices if any are connected
                     for dev_conn in manager.device_connections:
                         try:
                             await dev_conn.send_text(json.dumps({
@@ -202,23 +202,22 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                             }))
                         except Exception:
                             pass
-                
+
                 elif command == "get_status":
+                    now = time.time()
+                    is_active = (len(manager.device_connections) > 0) and (now - device_state["last_packet_time"] <= 1.0)
                     await websocket.send_text(json.dumps({
                         "type": "status_update",
                         "status": "current_state",
                         "state": {
-                            "calibration_step": global_calibration_state["calibration_step"],
-                            "hardware_connected": len(manager.device_connections) > 0,
-                            "battery": global_calibration_state["battery"]
+                            "calibration_step": device_state["calibration_step"],
+                            "hardware_connected": is_active,
+                            "allow_mock": ALLOW_MOCK,
+                            "battery": device_state["battery"]
                         }
                     }))
-                    
+
         except WebSocketDisconnect:
             manager.disconnect_viewer(websocket)
-            if streaming_task:
-                streaming_task.cancel()
         except Exception:
             manager.disconnect_viewer(websocket)
-            if streaming_task:
-                streaming_task.cancel()
