@@ -2134,6 +2134,128 @@ function LiveExercisePage() {
 
   const { primary, secondary } = getExerciseFeedback();
 
+  // Contextual yellow AI suggestion line for wrist exercises
+  const yellowWristSuggestion = (() => {
+    if (!isWristExercise) return null;
+
+    // If device is not connected or sensor data is not yet available
+    if (!deviceConnected && !simulatedFingersActive) {
+      return "Move your wrist slowly toward the target.";
+    }
+
+    const ex = exerciseDetails || activeExerciseRef.current;
+    const nameLower = (exerciseName || ex?.exercise_name || '').toLowerCase();
+    const primaryLower = (ex?.primary_sensor || '').toLowerCase();
+    const pitch = activeSensors.wrist_pitch ?? 0;
+    const roll = activeSensors.wrist_roll ?? 0;
+    const target = Math.max(20, Math.abs(ex?.target_angle || 45));
+
+    // 1. Wrist Stability: maintaining neutral 0°
+    if (nameLower.includes('stability')) {
+      if (Math.abs(pitch) <= 8 && Math.abs(roll) <= 8) {
+        return "Great! Your wrist is aligned. Hold this position.";
+      }
+      if (Math.abs(roll) > Math.abs(pitch)) {
+        return roll > 0
+          ? "Rotate your wrist a little more to the LEFT."
+          : "Rotate your wrist a little more to the RIGHT.";
+      }
+      return pitch > 0
+        ? "Bend your wrist slightly further upward."
+        : "Bend your wrist slightly further downward.";
+    }
+
+    // 2. Wrist Extension: bending wrist upward (negative pitch in SmartPhysio convention)
+    if (nameLower.includes('extension')) {
+      const currentExt = -pitch;
+      if (Math.abs(currentExt - target) <= 8) {
+        return "Great! Your wrist is aligned. Hold this position.";
+      }
+      if (currentExt > target + 8) {
+        return "Move your wrist back toward the target angle.";
+      }
+      return "Bend your wrist slightly further upward.";
+    }
+
+    // 3. Wrist Flexion: bending wrist downward (positive pitch in SmartPhysio convention)
+    if (nameLower.includes('flexion')) {
+      const currentFlex = pitch;
+      if (Math.abs(currentFlex - target) <= 8) {
+        return "Great! Your wrist is aligned. Hold this position.";
+      }
+      if (currentFlex > target + 8) {
+        return "Move your wrist back toward the target angle.";
+      }
+      return "Bend your wrist slightly further downward.";
+    }
+
+    // 4. Wrist Rotation / Twist (Left / Right):
+    if (nameLower.includes('rotation') || nameLower.includes('twist') || primaryLower === 'wrist_roll') {
+      const isExplicitLeft = nameLower.includes('left');
+      const isExplicitRight = nameLower.includes('right');
+
+      if (isExplicitLeft) {
+        if (roll <= -target + 8) return "Great! Your wrist is aligned. Hold this position.";
+        if (roll < -target - 8) return "Move your wrist back toward the target angle.";
+        return "Rotate your wrist a little more to the LEFT.";
+      }
+
+      if (isExplicitRight) {
+        if (roll >= target - 8) return "Great! Your wrist is aligned. Hold this position.";
+        if (roll > target + 8) return "Move your wrist back toward the target angle.";
+        return "Rotate your wrist a little more to the RIGHT.";
+      }
+
+      // Bilateral Rotation Routine: follow current repetition phase
+      const { left: leftDone, right: rightDone } = wristBilateralPhase;
+      const leftTargetThreshold = -target * 0.70;
+      const rightTargetThreshold = target * 0.70;
+
+      if (leftDone && rightDone) {
+        // Returning to center
+        if (Math.abs(roll) <= 12) {
+          return "Great! Your wrist is aligned. Hold this position.";
+        }
+        return roll < 0
+          ? "Rotate your wrist a little more to the RIGHT."
+          : "Rotate your wrist a little more to the LEFT.";
+      }
+
+      if (leftDone && !rightDone) {
+        // Left complete, now moving right
+        if (roll >= rightTargetThreshold) {
+          return "Great! Your wrist is aligned. Hold this position.";
+        }
+        return "Rotate your wrist a little more to the RIGHT.";
+      }
+
+      if (rightDone && !leftDone) {
+        // Right complete, now moving left
+        if (roll <= leftTargetThreshold) {
+          return "Great! Your wrist is aligned. Hold this position.";
+        }
+        return "Rotate your wrist a little more to the LEFT.";
+      }
+
+      // Neither side completed yet (initial movement)
+      if (roll <= leftTargetThreshold || roll >= rightTargetThreshold) {
+        return "Great! Your wrist is aligned. Hold this position.";
+      }
+      if (roll < -10) {
+        return "Rotate your wrist a little more to the LEFT.";
+      }
+      if (roll > 10) {
+        return "Rotate your wrist a little more to the RIGHT.";
+      }
+
+      // At rest (0° center)
+      return "Move your wrist slowly toward the target.";
+    }
+
+    // Default neutral fallback for other wrist movements
+    return "Move your wrist slowly toward the target.";
+  })();
+
   return (
     <div className="space-y-6 relative h-[calc(100vh-6.5rem)] overflow-hidden flex flex-col justify-between">
       {loading ? (
@@ -2325,8 +2447,15 @@ function LiveExercisePage() {
                   </div>
 
                   {/* AI Suggestion Instruction Text (High-contrast bold white text) */}
-                  <div className="text-xs sm:text-sm font-bold text-white leading-snug flex-1 truncate sm:whitespace-normal">
-                    {renderFormattedOverlayText(aiFeedback?.suggestion || guidance)}
+                  <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                    <div className="text-xs sm:text-sm font-bold text-white leading-snug truncate sm:whitespace-normal">
+                      {renderFormattedOverlayText(aiFeedback?.suggestion || guidance)}
+                    </div>
+                    {isWristExercise && yellowWristSuggestion && (
+                      <p className="text-xs sm:text-sm md:text-base font-extrabold text-[#FFD43B] tracking-wide leading-tight truncate sm:whitespace-normal drop-shadow">
+                        "{yellowWristSuggestion}"
+                      </p>
+                    )}
                   </div>
 
                   {/* Bilateral Left/Right Status Badges for Wrist Exercises */}
@@ -2576,6 +2705,15 @@ function LiveExercisePage() {
                   <div className="text-xs font-semibold leading-relaxed text-slate-800">
                     {renderFormattedAiText(aiFeedback.suggestion)}
                   </div>
+
+                  {/* Yellow AI Suggestion (Wrist Exercises Only) */}
+                  {isWristExercise && yellowWristSuggestion && (
+                    <div className="p-2.5 bg-slate-950/90 rounded-xl border border-yellow-500/40 shadow-sm">
+                      <p className="text-sm sm:text-base font-extrabold text-[#FFD43B] tracking-wide leading-snug">
+                        "{yellowWristSuggestion}"
+                      </p>
+                    </div>
+                  )}
                   
                   {/* Active Posture Warnings */}
                   {aiFeedback.warning && (
