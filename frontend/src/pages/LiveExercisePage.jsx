@@ -1257,6 +1257,19 @@ function LiveExercisePage() {
       const { left: leftDone, right: rightDone } = wristBilateralPhaseRef.current;
       const currentState = repStateRef.current;
       const now = Date.now();
+      const prescribedGoal = activeExerciseRef.current?.repetitions || 10;
+
+      // Cap at target reps: stop counting and set complete
+      if (repsCompletedRef.current >= prescribedGoal) {
+        setGuidance('Great job! Set complete.');
+        setAiFeedback({
+          progress: 100,
+          suggestion: 'Great job! Set complete.',
+          warning: null,
+          status: 'success'
+        });
+        return;
+      }
 
       if (currentState === 'rest') {
         if (now - lastRepTimeRef.current >= 800) {
@@ -1313,16 +1326,19 @@ function LiveExercisePage() {
             repStateRef.current = 'rest';
             setRepState('rest');
 
-            repsCompletedRef.current += 1;
-            const updated = repsCompletedRef.current;
+            const updated = Math.min(prescribedGoal, repsCompletedRef.current + 1);
+            repsCompletedRef.current = updated;
             setRepsCompleted(updated);
             updateAccuracyScore(updated, repsFailedRef.current);
-            setGuidance('Repetition complete! (1 Full Left + 1 Full Right). Relax and prepare for next.');
 
-            const prescribedGoal = activeExerciseRef.current?.repetitions || 10;
-            if (updated >= prescribedGoal && !milestoneShownRef.current) {
-              milestoneShownRef.current = true;
-              setShowMilestonePopup(true);
+            if (updated >= prescribedGoal) {
+              setGuidance('Great job! Set complete.');
+              if (!milestoneShownRef.current) {
+                milestoneShownRef.current = true;
+                setShowMilestonePopup(true);
+              }
+            } else {
+              setGuidance('Repetition complete! (1 Full Left + 1 Full Right). Relax and prepare for next.');
             }
           }
         } else {
@@ -1402,6 +1418,12 @@ function LiveExercisePage() {
       const now = Date.now();
       const holdSecs = Math.min(2, Math.max(1, ex.hold_seconds || 1));
 
+      // Cap at target reps: stop counting and set complete
+      if (repsCompletedRef.current >= targetReps) {
+        setGuidance('Great job! Set complete.');
+        return;
+      }
+
       if (currentState === 'rest') {
         // Debounce: must be at least 800ms after previous rep completion
         if (now - lastRepTimeRef.current >= 800) {
@@ -1447,16 +1469,19 @@ function LiveExercisePage() {
             repStateRef.current = 'rest';
             setRepState('rest');
 
-            repsCompletedRef.current += 1;
-            const updated = repsCompletedRef.current;
+            const updated = Math.min(targetReps, repsCompletedRef.current + 1);
+            repsCompletedRef.current = updated;
             setRepsCompleted(updated);
             updateAccuracyScore(updated, repsFailedRef.current);
-            setGuidance(`Repetition ${updated} of ${targetReps} completed! Relax and prepare for next rep.`);
 
-            // Milestone popup when reaching target reps (12 reps)
-            if (updated >= targetReps && !milestoneShownRef.current) {
-              milestoneShownRef.current = true;
-              setShowMilestonePopup(true);
+            if (updated >= targetReps) {
+              setGuidance('Great job! Set complete.');
+              if (!milestoneShownRef.current) {
+                milestoneShownRef.current = true;
+                setShowMilestonePopup(true);
+              }
+            } else {
+              setGuidance(`Repetition ${updated} of ${targetReps} completed! Relax and prepare for next rep.`);
             }
           }
         } else {
@@ -1528,6 +1553,13 @@ function LiveExercisePage() {
     // STATE MACHINE TRANSITIONS (Synchronous ref-based to eliminate packet race conditions)
     const currentState = repStateRef.current;
     let nextState = currentState;
+    const prescribedGoal = activeExerciseRef.current?.repetitions || 10;
+
+    // Cap at target reps: stop counting and set complete
+    if (repsCompletedRef.current >= prescribedGoal) {
+      setGuidance('Great job! Set complete.');
+      return;
+    }
 
     if (currentState === 'rest') {
       const now = Date.now();
@@ -1603,17 +1635,19 @@ function LiveExercisePage() {
           setRepState('rest');
           nextState = 'rest';
 
-          repsCompletedRef.current += 1;
-          const updated = repsCompletedRef.current;
+          const updated = Math.min(prescribedGoal, repsCompletedRef.current + 1);
+          repsCompletedRef.current = updated;
           setRepsCompleted(updated);
           updateAccuracyScore(updated, repsFailedRef.current);
-          setGuidance('Repetition complete! Relax and prepare for next.');
 
-          // Milestone target popup (when prescribed goal e.g. 10 reps is reached)
-          const prescribedGoal = activeExerciseRef.current?.repetitions || 10;
-          if (updated >= prescribedGoal && !milestoneShownRef.current) {
-            milestoneShownRef.current = true;
-            setShowMilestonePopup(true);
+          if (updated >= prescribedGoal) {
+            setGuidance('Great job! Set complete.');
+            if (!milestoneShownRef.current) {
+              milestoneShownRef.current = true;
+              setShowMilestonePopup(true);
+            }
+          } else {
+            setGuidance('Repetition complete! Relax and prepare for next.');
           }
         }
       }
