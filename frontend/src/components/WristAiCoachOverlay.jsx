@@ -187,6 +187,31 @@ export default function WristAiCoachOverlay({
         >
           {debouncedMessage || "Move your wrist to start"}
         </div>
+        {isDev && (
+          <div className="pointer-events-auto mt-1 flex items-center gap-1.5">
+            <Disc className={`w-3 h-3 ${recording ? "text-rose-500 animate-spin" : "text-slate-400"}`} />
+            <select 
+              value={recordLabel} 
+              onChange={(e) => setRecordLabel(e.target.value)}
+              disabled={recording}
+              className="bg-slate-900 text-slate-200 text-[9px] font-semibold px-1 py-0.5 rounded border border-slate-700"
+            >
+              <option value="correct">correct</option>
+              <option value="too_shallow">too_shallow</option>
+              <option value="too_fast">too_fast</option>
+              <option value="jerky">jerky</option>
+            </select>
+            <button
+              type="button"
+              onClick={toggleRecording}
+              className={`px-1.5 py-0.2 rounded text-[9px] font-black uppercase transition ${
+                recording ? "bg-rose-600 hover:bg-rose-500 text-white" : "bg-emerald-600 hover:bg-emerald-500 text-white"
+              }`}
+            >
+              {recording ? "Stop" : "Rec"}
+            </button>
+          </div>
+        )}
       </div>
     );
   }
