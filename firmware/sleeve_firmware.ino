@@ -83,6 +83,24 @@ Preferences preferences;
 MPU6050 mpu(Wire);
 WebSocketsClient webSocket;
 
+// ML-COACH HOOK: Hardware Constants & IMU Telemetry State
+const int PIN_MPU_SDA = 21;
+const int PIN_MPU_SCL = 22;
+const uint8_t MPU_I2C_ADDR = 0x68;
+const float MPU_FILTER_ALPHA = 0.98f;
+
+uint32_t imuSeq = 0;
+unsigned long lastImuStreamTime = 0;
+const int imuStreamInterval = 20; // 20ms = 50 Hz
+
+float compPitch = 0.0f;
+float compRoll = 0.0f;
+float pitchOffset = 0.0f;
+float rollOffset = 0.0f;
+unsigned long lastCompFilterTime = 0;
+bool mpuWarned = false;
+// END ML-COACH HOOK
+
 bool wsConnected = false;
 bool mpuFound = false;
 uint32_t seq = 0;
@@ -165,15 +183,21 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 // MPU6050 INITIALIZATION
 // ============================================================================
 void initMPU() {
-  Wire.begin(21, 22);
+  Wire.begin(PIN_MPU_SDA, PIN_MPU_SCL);
   Wire.setClock(400000);
-  Wire.beginTransmission(0x68);
+  Wire.beginTransmission(MPU_I2C_ADDR);
   if (Wire.endTransmission() == 0) {
     mpu.begin();
     mpu.calcGyroOffsets(false);
     mpuFound = true;
+    mpuWarned = false;
   } else {
     mpuFound = false;
+    // ML-COACH HOOK: Rate-limited non-blocking warning (fingers continue operating)
+    if (!mpuWarned) {
+      Serial.println("[MPU WARNING] MPU6050 not detected at 0x68. IMU frames disabled; fingers continue operating.");
+      mpuWarned = true;
+    }
   }
 }
 
@@ -205,6 +229,13 @@ void setup() {
   pinMode(PIN_PRESSURE, INPUT);
 
   initMPU();
+
+  // ML-COACH HOOK: Load stored zero-pose calibration offsets from Preferences
+  preferences.begin("coach_calib", true);
+  pitchOffset = preferences.getFloat("pitch_off", 0.0f);
+  rollOffset = preferences.getFloat("roll_off", 0.0f);
+  preferences.end();
+  // END ML-COACH HOOK
 
   // Connect to Wi-Fi
   WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
@@ -241,6 +272,73 @@ void loop() {
     lastMpuRetryTime = currentTime;
     initMPU();
   }
+
+  // ==========================================================================
+  // ML-COACH HOOK: ZERO-POSE CALIBRATION COMMAND ('z') OVER SERIAL
+  // ==========================================================================
+  if (Serial.available() > 0) {
+    char ch = Serial.read();
+    if (ch == 'z' || ch == 'Z') {
+      pitchOffset = compPitch;
+      rollOffset = compRoll;
+      preferences.begin("coach_calib", false);
+      preferences.putFloat("pitch_off", pitchOffset);
+      preferences.putFloat("roll_off", rollOffset);
+      preferences.end();
+      Serial.printf("[COACH CALIB] Zero-pose stored: pitch_off=%.2f, roll_off=%.2f\n", pitchOffset, rollOffset);
+    }
+  }
+
+  // ==========================================================================
+  // ML-COACH HOOK: 50 Hz COMPLEMENTARY FILTER & IMU STREAM (20 ms interval)
+  // ==========================================================================
+  if (mpuFound && (currentTime - lastImuStreamTime >= imuStreamInterval)) {
+    float dt = (lastCompFilterTime > 0) ? (float)(currentTime - lastCompFilterTime) / 1000.0f : 0.02f;
+    lastCompFilterTime = currentTime;
+    lastImuStreamTime = currentTime;
+
+    mpu.update();
+
+    float ax = mpu.getAccX();
+    float ay = mpu.getAccY();
+    float az = mpu.getAccZ();
+    float gx = mpu.getGyroX();
+    float gy = mpu.getGyroY();
+    float gz = mpu.getGyroZ();
+
+    // Accelerometer tilt estimation
+    float accelPitch = atan2(-ax, sqrt(ay * ay + az * az)) * 180.0f / PI;
+    float accelRoll  = atan2(ay, az) * 180.0f / PI;
+
+    // Complementary filter (alpha ~ 0.98)
+    compPitch = MPU_FILTER_ALPHA * (compPitch + gy * dt) + (1.0f - MPU_FILTER_ALPHA) * accelPitch;
+    compRoll  = MPU_FILTER_ALPHA * (compRoll + gx * dt) + (1.0f - MPU_FILTER_ALPHA) * accelRoll;
+
+    float adjPitch = compPitch - pitchOffset;
+    float adjRoll  = compRoll - rollOffset;
+
+    // Send separate JSON frame type every 20 ms (does not alter finger frame)
+    if (wsConnected) {
+      StaticJsonDocument<256> imuDoc;
+      imuDoc["type"]  = "imu";
+      imuDoc["src"]   = "esp32";
+      imuDoc["seq"]   = ++imuSeq;
+      imuDoc["t"]     = currentTime;
+      imuDoc["ax"]    = round(ax * 1000.0f) / 1000.0f;
+      imuDoc["ay"]    = round(ay * 1000.0f) / 1000.0f;
+      imuDoc["az"]    = round(az * 1000.0f) / 1000.0f;
+      imuDoc["gx"]    = round(gx * 10.0f) / 10.0f;
+      imuDoc["gy"]    = round(gy * 10.0f) / 10.0f;
+      imuDoc["gz"]    = round(gz * 10.0f) / 10.0f;
+      imuDoc["pitch"] = round(adjPitch * 10.0f) / 10.0f;
+      imuDoc["roll"]  = round(adjRoll * 10.0f) / 10.0f;
+
+      String imuPayload;
+      serializeJson(imuDoc, imuPayload);
+      webSocket.sendTXT(imuPayload);
+    }
+  }
+  // END ML-COACH HOOK
 
   // ==========================================================================
   // SENSOR ACQUISITION & WEBSOCKET STREAMING (20 Hz = 50ms interval)
