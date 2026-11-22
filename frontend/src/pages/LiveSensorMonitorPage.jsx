@@ -178,9 +178,17 @@ export default function LiveSensorMonitorPage() {
             setConnected(!!data.hardware_connected);
           }
 
-          // Accept sensor packets with or without explicit type === 'sensor_data'
+          // Accept sensor packets (finger data, IMU frames, hardware or mock/simulated)
           if (
             data.type === 'sensor_data' ||
+            data.type === 'imu' ||
+            data.src === 'esp32' ||
+            data.src === 'mock' ||
+            data.src === 'simulated' ||
+            data.curl !== undefined ||
+            data.raw !== undefined ||
+            data.pitch !== undefined ||
+            data.wrist_pitch !== undefined ||
             data.thumb !== undefined ||
             data.raw_thumb !== undefined ||
             data.elbow !== undefined ||
@@ -188,9 +196,15 @@ export default function LiveSensorMonitorPage() {
           ) {
             const mock = !!data.is_mock;
             setIsMock(mock);
-            setIsHardware(!mock);
+            setIsHardware(!mock && !data.is_simulated);
             setConnected(true);
-            setPacket(data);
+            setPacket(prev => ({
+              ...prev,
+              ...data,
+              wrist_pitch: (data.wrist_pitch !== undefined && data.wrist_pitch !== null) ? data.wrist_pitch : ((data.pitch !== undefined && data.pitch !== null) ? data.pitch : prev?.wrist_pitch ?? prev?.pitch),
+              wrist_roll: (data.wrist_roll !== undefined && data.wrist_roll !== null) ? data.wrist_roll : ((data.roll !== undefined && data.roll !== null) ? data.roll : prev?.wrist_roll ?? prev?.roll),
+              mpu_working: data.mpu_working !== undefined ? data.mpu_working : (prev?.mpu_working !== undefined ? prev.mpu_working : (data.type === 'imu' || data.pitch !== undefined))
+            }));
             setLastPacketTime(Date.now());
             setPacketCount(n => n + 1);
           }

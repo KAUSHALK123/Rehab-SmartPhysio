@@ -667,13 +667,25 @@ function CalibrationPage() {
       }
       
       // Telemetry stream checks
-      if (data.type === 'sensor_data') {
+      if (data.type === 'sensor_data' || data.type === 'imu' || data.src === 'esp32' || data.src === 'mock' || data.src === 'simulated') {
         // If physical ESP32 device is connected, strictly ignore fallback mock packets
         if (physicalDeviceConnected && data.is_mock) return;
 
         setBattery(data.battery || 94);
-        setLiveValues(data);
-        setLastTelemetry(data);
+        setLiveValues(prev => ({
+          ...prev,
+          ...data,
+          wrist_pitch: (data.wrist_pitch !== undefined && data.wrist_pitch !== null) ? Number(data.wrist_pitch) : ((data.pitch !== undefined && data.pitch !== null) ? Number(data.pitch) : prev?.wrist_pitch ?? prev?.pitch ?? 0),
+          wrist_roll: (data.wrist_roll !== undefined && data.wrist_roll !== null) ? Number(data.wrist_roll) : ((data.roll !== undefined && data.roll !== null) ? Number(data.roll) : prev?.wrist_roll ?? prev?.roll ?? 0),
+          mpu_working: data.mpu_working !== undefined ? data.mpu_working : (prev?.mpu_working !== undefined ? prev.mpu_working : (data.type === 'imu' || data.pitch !== undefined))
+        }));
+        setLastTelemetry(prev => ({
+          ...prev,
+          ...data,
+          wrist_pitch: (data.wrist_pitch !== undefined && data.wrist_pitch !== null) ? Number(data.wrist_pitch) : ((data.pitch !== undefined && data.pitch !== null) ? Number(data.pitch) : prev?.wrist_pitch ?? prev?.pitch ?? 0),
+          wrist_roll: (data.wrist_roll !== undefined && data.wrist_roll !== null) ? Number(data.wrist_roll) : ((data.roll !== undefined && data.roll !== null) ? Number(data.roll) : prev?.wrist_roll ?? prev?.roll ?? 0),
+          mpu_working: data.mpu_working !== undefined ? data.mpu_working : (prev?.mpu_working !== undefined ? prev.mpu_working : (data.type === 'imu' || data.pitch !== undefined))
+        }));
 
         // Update MPU connection status dynamically based on hardware feedback
         if (data.mpu_working === false) {

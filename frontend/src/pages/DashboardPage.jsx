@@ -210,7 +210,7 @@ function DashboardPage() {
       if (data.type === 'status_update' && data.status === 'hardware_status_changed') {
         setDeviceConnected(data.hardware_connected);
       }
-      if (data.type === 'sensor_data') {
+      if (data.type === 'sensor_data' || data.type === 'imu' || data.src === 'esp32' || data.src === 'mock' || data.src === 'simulated' || data.curl) {
         const extractFinger = (name) => {
           const rawKey = 'raw_' + name;
           if (data[rawKey] !== undefined) return Math.min(100, Math.max(0, (data[rawKey] / 4095) * 100));
@@ -230,20 +230,27 @@ function DashboardPage() {
           return val;
         };
 
-        const parsedData = {
-          ...data,
-          elbow: extractElbow(),
-          wrist_pitch: data.wrist_pitch ?? data.pitch ?? 0.0,
-          wrist_roll: data.wrist_roll ?? data.roll ?? 0.0,
-          thumb: extractFinger('thumb'),
-          index: extractFinger('index'),
-          middle: extractFinger('middle'),
-          ring: extractFinger('ring'),
-          little: extractFinger('little')
-        };
-
-        setLiveTelemetry(parsedData);
-        setDeviceConnected(!data.is_mock);
+        setLiveTelemetry(prev => {
+          const next = { ...prev, ...data };
+          if (data.wrist_pitch !== undefined || data.pitch !== undefined) {
+            next.wrist_pitch = Number(data.wrist_pitch ?? data.pitch);
+          }
+          if (data.wrist_roll !== undefined || data.roll !== undefined) {
+            next.wrist_roll = Number(data.wrist_roll ?? data.roll);
+          }
+          if (data.raw_elbow !== undefined || data.elbow !== undefined) {
+            next.elbow = extractElbow();
+          }
+          if (data.raw || data.curl) {
+            next.thumb = extractFinger('thumb');
+            next.index = extractFinger('index');
+            next.middle = extractFinger('middle');
+            next.ring = extractFinger('ring');
+            next.little = extractFinger('little');
+          }
+          return next;
+        });
+        setDeviceConnected(!data.is_mock && !data.is_simulated);
       }
     };
     

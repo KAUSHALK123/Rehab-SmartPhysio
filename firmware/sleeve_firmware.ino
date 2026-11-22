@@ -332,6 +332,9 @@ void loop() {
       imuDoc["gz"]    = round(gz * 10.0f) / 10.0f;
       imuDoc["pitch"] = round(adjPitch * 10.0f) / 10.0f;
       imuDoc["roll"]  = round(adjRoll * 10.0f) / 10.0f;
+      imuDoc["wrist_pitch"] = imuDoc["pitch"];
+      imuDoc["wrist_roll"]  = imuDoc["roll"];
+      imuDoc["mpu_working"] = true;
 
       String imuPayload;
       serializeJson(imuDoc, imuPayload);
@@ -388,6 +391,20 @@ void loop() {
       doc["seq"] = ++seq;
       doc["t"]   = currentTime;
 
+      // ML-COACH HOOK: Include wrist orientation in regular frame for dashboard gauges
+      if (mpuFound) {
+        float adjP = compPitch - pitchOffset;
+        float adjR = compRoll - rollOffset;
+        doc["wrist_pitch"] = round(adjP * 10.0f) / 10.0f;
+        doc["wrist_roll"]  = round(adjR * 10.0f) / 10.0f;
+        doc["pitch"]       = round(adjP * 10.0f) / 10.0f;
+        doc["roll"]        = round(adjR * 10.0f) / 10.0f;
+        doc["mpu_working"] = true;
+      } else {
+        doc["mpu_working"] = false;
+      }
+      // END ML-COACH HOOK
+
       JsonArray rawArr  = doc.createNestedArray("raw");
       JsonArray curlArr = doc.createNestedArray("curl");
       JsonArray okArr   = doc.createNestedArray("ok");
@@ -419,6 +436,9 @@ void loop() {
       } else {
         offset += snprintf(buf + offset, sizeof(buf) - offset, "%s:%4d %2d%% ", letters[i], rawValues[i], pct);
       }
+    }
+    if (mpuFound) {
+      offset += snprintf(buf + offset, sizeof(buf) - offset, "P:%.1f R:%.1f", compPitch - pitchOffset, compRoll - rollOffset);
     }
     Serial.println(buf);
   }

@@ -830,6 +830,10 @@ function LiveExercisePage() {
     ring: 0,
     little: 0
   });
+  const sensorsRef = useRef(sensors);
+  useEffect(() => {
+    sensorsRef.current = sensors;
+  }, [sensors]);
 
   // State machine variables
   // States: 'rest' | 'moving' | 'target_hold' | 'returning'
@@ -1183,40 +1187,36 @@ function LiveExercisePage() {
           return val;
         };
 
-        // Merge telemetry without zeroing out channels not present in this frame
-        setSensors(prev => {
-          const next = { ...prev };
-          const p = data.wrist_pitch ?? data.pitch;
-          if (p !== undefined && p !== null) next.wrist_pitch = Number(p);
-          const r = data.wrist_roll ?? data.roll;
-          if (r !== undefined && r !== null) next.wrist_roll = Number(r);
-          if (data.pressure !== undefined && data.pressure !== null) next.pressure = Number(data.pressure);
-          if (data.raw_elbow !== undefined || data.elbow !== undefined) next.elbow = extractElbow();
-          if (data.raw || data.curl) {
-            next.thumb = extractFinger('thumb');
-            next.index = extractFinger('index');
-            next.middle = extractFinger('middle');
-            next.ring = extractFinger('ring');
-            next.little = extractFinger('little');
-          }
-          return next;
-        });
+        // Merge telemetry safely without zeroing out channels not present in this frame
+        const currentSensors = {
+          wrist_pitch: (data.wrist_pitch !== undefined && data.wrist_pitch !== null) ? Number(data.wrist_pitch) : ((data.pitch !== undefined && data.pitch !== null) ? Number(data.pitch) : sensorsRef.current.wrist_pitch),
+          wrist_roll: (data.wrist_roll !== undefined && data.wrist_roll !== null) ? Number(data.wrist_roll) : ((data.roll !== undefined && data.roll !== null) ? Number(data.roll) : sensorsRef.current.wrist_roll),
+          elbow: (data.raw_elbow !== undefined || data.elbow !== undefined) ? extractElbow() : sensorsRef.current.elbow,
+          pressure: (data.pressure !== undefined && data.pressure !== null) ? Number(data.pressure) : sensorsRef.current.pressure,
+          thumb: (data.raw || data.curl) ? extractFinger('thumb') : sensorsRef.current.thumb,
+          index: (data.raw || data.curl) ? extractFinger('index') : sensorsRef.current.index,
+          middle: (data.raw || data.curl) ? extractFinger('middle') : sensorsRef.current.middle,
+          ring: (data.raw || data.curl) ? extractFinger('ring') : sensorsRef.current.ring,
+          little: (data.raw || data.curl) ? extractFinger('little') : sensorsRef.current.little
+        };
+        sensorsRef.current = currentSensors;
+        setSensors(currentSensors);
 
         // Store history for averages & charting
-        telemetryHistoryRef.current.push(parsedSensors);
+        telemetryHistoryRef.current.push(currentSensors);
         
         setTelemetryStream(prev => {
           const updated = [...prev, {
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            elbow: parsedSensors.elbow,
-            pitch: parsedSensors.wrist_pitch,
-            pressure: parsedSensors.pressure
+            elbow: currentSensors.elbow,
+            pitch: currentSensors.wrist_pitch,
+            pressure: currentSensors.pressure
           }];
           return updated.slice(-50); // Keep last 50 ticks
         });
 
         // Process movement state machine
-        evaluateRepetitionStateRef.current?.(parsedSensors);
+        evaluateRepetitionStateRef.current?.(currentSensors);
       }
     };
 

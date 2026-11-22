@@ -119,6 +119,8 @@ async def telemetry_monitor_loop():
                     flex_cycle = (math.sin(device_state["mock_time"] * 1.05) + 1.0) / 2.0  # 0.0 to 1.0
                     mock_curl = round(flex_cycle, 3)
                     mock_raw = int(148 - (mock_curl * 107))
+                    mock_pitch = round(math.sin(device_state["mock_time"] * 0.8) * 25.0, 1)
+                    mock_roll = round(math.cos(device_state["mock_time"] * 0.8) * 15.0, 1)
                     mock_frame = {
                         "type": "sensor_data",
                         "src": "mock",
@@ -127,6 +129,11 @@ async def telemetry_monitor_loop():
                         "raw": [mock_raw, mock_raw, mock_raw, mock_raw, mock_raw],
                         "curl": [mock_curl, mock_curl, mock_curl, mock_curl, mock_curl],
                         "ok": [1, 1, 1, 1, 1],
+                        "pitch": mock_pitch,
+                        "roll": mock_roll,
+                        "wrist_pitch": mock_pitch,
+                        "wrist_roll": mock_roll,
+                        "mpu_working": True,
                         "battery": 92,
                         "is_mock": True
                     }
@@ -184,6 +191,9 @@ async def coach_simulation_loop():
                 "gz": 0.0,
                 "pitch": round(pitch, 1),
                 "roll": round(roll, 1),
+                "wrist_pitch": round(pitch, 1),
+                "wrist_roll": round(roll, 1),
+                "mpu_working": True,
                 "is_simulated": True,
             }
 
