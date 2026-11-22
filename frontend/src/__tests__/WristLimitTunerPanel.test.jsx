@@ -4,11 +4,11 @@ import React from 'react';
 import WristLimitTunerPanel, { ORIGINAL_LIMITS } from '../components/WristLimitTunerPanel';
 
 describe('WristLimitTunerPanel', () => {
-  it('has default limits matching main: X [-45, 45], Y [-60, 60], Z [-35, 35]', () => {
+  it('has locked calibrated limits: X [-36, 43], Y [-23, 33], Z [-25, 35]', () => {
     expect(ORIGINAL_LIMITS).toEqual({
-      X: [-45, 45],
-      Y: [-60, 60],
-      Z: [-35, 35]
+      X: [-36, 43],
+      Y: [-23, 33],
+      Z: [-25, 35]
     });
   });
 
@@ -54,9 +54,9 @@ describe('WristLimitTunerPanel', () => {
 
     // Last call to onAnglesChange should reflect clamped values
     const lastCall = onAnglesChange.mock.calls[onAnglesChange.mock.calls.length - 1][0];
-    expect(lastCall.x).toBe(45);  // Clamped to max 45
-    expect(lastCall.y).toBe(-60); // Clamped to min -60
-    expect(lastCall.z).toBe(20);  // Unclamped
+    expect(lastCall.x).toBe(43);  // Clamped to max 43
+    expect(lastCall.y).toBe(-23); // Clamped to min -23
+    expect(lastCall.z).toBe(20);  // Unclamped within [-25, 35]
   });
 
   it('copies limits JSON when Copy Limits button is clicked', async () => {

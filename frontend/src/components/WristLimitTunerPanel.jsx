@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Sliders, RotateCcw, Copy, Check, ShieldCheck, AlertCircle } from 'lucide-react';
 
-// Original default limits from main (calibrationConfig.js & wristSensorMapper.js)
+// Calibrated and locked limits
 export const ORIGINAL_LIMITS = {
-  X: [-45, 45],  // upDown.x (Flexion / Extension: Hand Up/Down)
-  Y: [-60, 60],  // twist.y  (Pronation / Supination: Forearm Twist)
-  Z: [-35, 35]   // hiMovement.z (Radial / Ulnar Deviation: Hand Left/Right)
+  X: [-36, 43],  // Hand Up/Down (Pitch)
+  Y: [-23, 33],  // Forearm Twist (Roll)
+  Z: [-25, 35]   // Hand Left/Right (Yaw)
 };
 
 export const AXIS_META = {
