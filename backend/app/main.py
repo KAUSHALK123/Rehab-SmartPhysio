@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config.config import settings
 from app.database.database import engine, Base, SessionLocal
-from app.api import auth, calibration, device, patient, exercise, session, analytics, injury
+from app.api import auth, calibration, device, patient, exercise, session, analytics, injury, coach
 from app.websocket import ws_device
 
 # Import models to ensure they are registered with declarative Base
@@ -488,6 +488,10 @@ app.include_router(injury.router, prefix=settings.API_V1_STR)
 
 from app.api import anatomy
 app.include_router(anatomy.router, prefix=settings.API_V1_STR)
+
+# Register AI Coach routes (both root and api_v1 prefixes)
+app.include_router(coach.router, prefix=settings.API_V1_STR)
+app.include_router(coach.router)
 
 @app.get("/")
 def read_root():
