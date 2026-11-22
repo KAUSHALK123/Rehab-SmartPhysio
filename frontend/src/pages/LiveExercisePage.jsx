@@ -35,6 +35,7 @@ import WristSensorTrialPanel from '../components/WristSensorTrialPanel';
 import ElbowSensorTrialPanel from '../components/ElbowSensorTrialPanel';
 import WristMotionDemoCard from '../components/WristMotionDemoCard';
 import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
+import WristAiCoachOverlay from '../components/WristAiCoachOverlay';
 import { processFingerTelemetry } from '../services/fingerSensorMapper';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
@@ -739,6 +740,36 @@ function LiveExercisePage() {
   const wristBilateralPhaseRef = useRef({ left: false, right: false });
   const [guidance, setGuidance] = useState('Ensure wearable sleeve is connected. Get ready to begin.');
   const [patientDetails, setPatientDetails] = useState(null);
+
+  // Wrist kinematics and AI Coach state
+  const [wristVelocity, setWristVelocity] = useState(0);
+  const lastAngleTimeRef = useRef({ time: Date.now(), angle: 0 });
+
+  // Calculate current wrist angle used by the screen and 3D rig
+  const currentWristAngle = isWristExercise
+    ? (wristBilateralPhase.left || wristBilateralPhase.right || (exerciseName || '').toLowerCase().includes('rotation')
+        ? (sensors.wrist_roll || sensorWristAngles.y || sensorWristAngles.x)
+        : (sensors.wrist_pitch || sensorWristAngles.x))
+    : 0;
+
+  // Active target direction for bilateral and unilateral wrist exercises
+  const activeWristTargetDir = isWristExercise
+    ? (wristBilateralPhase.left && !wristBilateralPhase.right
+        ? 'RIGHT'
+        : (wristBilateralPhase.right && !wristBilateralPhase.left
+            ? 'LEFT'
+            : ((exerciseName || '').toLowerCase().includes('extension') ? 'UP' : ((exerciseName || '').toLowerCase().includes('flexion') ? 'DOWN' : 'RIGHT'))))
+    : 'RIGHT';
+
+  useEffect(() => {
+    const now = Date.now();
+    const dt = (now - lastAngleTimeRef.current.time) / 1000.0;
+    if (dt >= 0.05) {
+      const dAngle = Math.abs(currentWristAngle - lastAngleTimeRef.current.angle);
+      setWristVelocity(Math.round(dAngle / dt));
+      lastAngleTimeRef.current = { time: now, angle: currentWristAngle };
+    }
+  }, [currentWristAngle]);
   const [aiFeedback, setAiFeedback] = useState({
     progress: 0,
     suggestion: 'Place your arm in the starting position to begin.',
@@ -2352,6 +2383,24 @@ function LiveExercisePage() {
                 )}
               </div>
 
+              {/* Floating AI Coach Overlay for Wrist (Upper-Middle 3D Canvas) */}
+              {isWristExercise && (
+                <WristAiCoachOverlay
+                  currentAngle={currentWristAngle}
+                  targetAngle={exerciseDetails?.target_angle || 45}
+                  targetDir={activeWristTargetDir}
+                  repState={repState}
+                  holdCountdown={holdCountdown}
+                  restCountdown={0}
+                  velocity={wristVelocity}
+                  repsCompleted={repsCompleted}
+                  targetReps={exerciseDetails?.repetitions || 5}
+                  exerciseName={exerciseName}
+                  isSimulated={simulatedActive || !deviceConnected}
+                  inlineBottom={false}
+                />
+              )}
+
               {/* Pause Overlay */}
               {isPaused && (
                 <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm z-20 flex flex-col items-center justify-center space-y-2 animate-in fade-in duration-200">
@@ -2374,10 +2423,27 @@ function LiveExercisePage() {
                     {repsCompleted}
                   </div>
 
-                  {/* AI Suggestion Instruction Text (High-contrast bold white text) */}
-                  <div className="text-xs sm:text-sm font-bold text-white leading-snug flex-1 truncate sm:whitespace-normal">
-                    {renderFormattedOverlayText(aiFeedback?.suggestion || guidance)}
-                  </div>
+                  {/* AI Suggestion Instruction Text - Real-time Yellow AI Coaching for Wrist */}
+                  {isWristExercise ? (
+                    <WristAiCoachOverlay
+                      currentAngle={currentWristAngle}
+                      targetAngle={exerciseDetails?.target_angle || 45}
+                      targetDir={activeWristTargetDir}
+                      repState={repState}
+                      holdCountdown={holdCountdown}
+                      restCountdown={0}
+                      velocity={wristVelocity}
+                      repsCompleted={repsCompleted}
+                      targetReps={exerciseDetails?.repetitions || 5}
+                      exerciseName={exerciseName}
+                      isSimulated={simulatedActive || !deviceConnected}
+                      inlineBottom={true}
+                    />
+                  ) : (
+                    <div className="text-xs sm:text-sm font-bold text-white leading-snug flex-1 truncate sm:whitespace-normal">
+                      {renderFormattedOverlayText(aiFeedback?.suggestion || guidance)}
+                    </div>
+                  )}
 
                   {/* Bilateral Left/Right Status Badges for Wrist Exercises */}
                   {isWristExercise && (
