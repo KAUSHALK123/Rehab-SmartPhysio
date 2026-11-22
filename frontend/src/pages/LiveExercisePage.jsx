@@ -36,6 +36,7 @@ import ElbowSensorTrialPanel from '../components/ElbowSensorTrialPanel';
 import WristMotionDemoCard from '../components/WristMotionDemoCard';
 import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
 import WristAiCoachOverlay from '../components/WristAiCoachOverlay';
+import FlexAiCoachOverlay from '../components/FlexAiCoachOverlay';
 import { processFingerTelemetry } from '../services/fingerSensorMapper';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
@@ -2401,6 +2402,20 @@ function LiveExercisePage() {
                 />
               )}
 
+              {/* Floating AI Coach Overlay for Flex / Fingers (Upper-Middle 3D Canvas) */}
+              {!isWristExercise && (isFingerExercise || isFingerClosing) && (
+                <FlexAiCoachOverlay
+                  sensors={sensors}
+                  repState={repState}
+                  holdCountdown={holdCountdown}
+                  repsCompleted={repsCompleted}
+                  targetReps={exerciseDetails?.repetitions || 12}
+                  exerciseName={exerciseName}
+                  isSimulated={simulatedFingersActive || !deviceConnected}
+                  inlineBottom={false}
+                />
+              )}
+
               {/* Pause Overlay */}
               {isPaused && (
                 <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm z-20 flex flex-col items-center justify-center space-y-2 animate-in fade-in duration-200">
@@ -2423,7 +2438,7 @@ function LiveExercisePage() {
                     {repsCompleted}
                   </div>
 
-                  {/* AI Suggestion Instruction Text - Real-time Yellow AI Coaching for Wrist */}
+                  {/* AI Suggestion Instruction Text - Real-time Yellow AI Coaching for Wrist & Flex */}
                   {isWristExercise ? (
                     <WristAiCoachOverlay
                       currentAngle={currentWristAngle}
@@ -2437,6 +2452,17 @@ function LiveExercisePage() {
                       targetReps={exerciseDetails?.repetitions || 5}
                       exerciseName={exerciseName}
                       isSimulated={!deviceConnected}
+                      inlineBottom={true}
+                    />
+                  ) : (isFingerExercise || isFingerClosing) ? (
+                    <FlexAiCoachOverlay
+                      sensors={sensors}
+                      repState={repState}
+                      holdCountdown={holdCountdown}
+                      repsCompleted={repsCompleted}
+                      targetReps={exerciseDetails?.repetitions || 12}
+                      exerciseName={exerciseName}
+                      isSimulated={simulatedFingersActive || !deviceConnected}
                       inlineBottom={true}
                     />
                   ) : (
