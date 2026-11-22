@@ -50,3 +50,19 @@ This document records the locked 3D bone rotation constraints for the SmartPhysi
    - In `MPU Live` mode, values are clamped against these boundaries.
    - Re-zero (`Z`) offsets IMU yaw/pitch drift while preserving the clamped boundary.
    - "Copy Limits JSON" outputs the JSON formatted string for verification.
+
+
+---
+
+## MPU Physical Axis Mapping & Swapping
+
+Due to the physical mounting orientation of the MPU6050 chip on the glove fabric/PCB:
+- **MPU X axis (`mpu.getAngleX()` / incoming `wrist_pitch`)**: Corresponds to forearm twist (Roll / Pronation & Supination -> GLB Y).
+- **MPU Y axis (`mpu.getAngleY()` / incoming `wrist_roll`)**: Corresponds to hand bend (Pitch / Flexion & Extension -> GLB X).
+
+In `LiveExercisePage.jsx`, incoming telemetry is mapped so:
+```javascript
+const rawPitch = data.wrist_roll ?? data.roll ?? 0.0;
+const rawRoll = data.wrist_pitch ?? data.pitch ?? 0.0;
+```
+This ensures hand pitch movements physically move the GLB hand up and down, while forearm twist movements rotate the GLB forearm.

@@ -1023,11 +1023,20 @@ function LiveExercisePage() {
           setFingerTelemetryDetails(computedFingers);
         }
 
+        // Swap MPU X and Y axes so the physical MPU pitch movement maps directly to GLB pitch (flexion/extension)
+        const rawPitch = data.wrist_roll ?? data.roll ?? 0.0;
+        const rawRoll = data.wrist_pitch ?? data.pitch ?? 0.0;
+        const swappedWristData = {
+          ...data,
+          wrist_pitch: rawPitch,
+          wrist_roll: rawRoll
+        };
+
         // 2. Process wrist telemetry ONLY if the active exercise is a wrist exercise!
         // For finger or elbow exercises, strictly lock wrist to neutral rest pose (0°)
         if (isWristExercise) {
           const currentWristEx = activeExerciseRef.current || exerciseDetails || { exercise_name: exerciseName, primary_sensor: 'wrist_pitch', target_angle: 60 };
-          const wristComputed = processWristTelemetry(data, currentWristEx);
+          const wristComputed = processWristTelemetry(swappedWristData, currentWristEx);
           if (wristComputed && wristComputed.angles) {
             setSensorWristAngles(wristComputed.angles);
             setWristTelemetryDetails(wristComputed);
@@ -1069,8 +1078,8 @@ function LiveExercisePage() {
         };
 
         const parsedSensors = {
-          wrist_pitch: data.wrist_pitch ?? data.pitch ?? 0.0,
-          wrist_roll: data.wrist_roll ?? data.roll ?? 0.0,
+          wrist_pitch: rawPitch,
+          wrist_roll: rawRoll,
           wrist_yaw: data.wrist_yaw ?? data.yaw ?? 0.0,
           elbow: extractElbow(),
           pressure: data.pressure ?? 0,
