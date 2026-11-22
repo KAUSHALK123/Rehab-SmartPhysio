@@ -35,8 +35,6 @@ import WristSensorTrialPanel from '../components/WristSensorTrialPanel';
 import ElbowSensorTrialPanel from '../components/ElbowSensorTrialPanel';
 import WristMotionDemoCard from '../components/WristMotionDemoCard';
 import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
-import WristLimitTunerPanel from '../components/WristLimitTunerPanel';
-const TARGET_EXERCISE = "Wrist Motion Test";
 import { processFingerTelemetry } from '../services/fingerSensorMapper';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
@@ -734,15 +732,6 @@ function LiveExercisePage() {
     little: 0
   });
 
-  // TARGET_EXERCISE HOOK: Custom angles from manual sliders or clamped MPU live panel
-  const [customWristAngles, setCustomWristAngles] = useState(null);
-
-  useEffect(() => {
-    if ((exerciseName === TARGET_EXERCISE || exerciseDetails?.exercise_name === TARGET_EXERCISE) && customWristAngles) {
-      setSensorWristAngles(customWristAngles);
-    }
-  }, [exerciseName, exerciseDetails, customWristAngles]);
-
   // State machine variables
   // States: 'rest' | 'moving' | 'target_hold' | 'returning'
   const [repState, setRepState] = useState('rest');
@@ -1037,18 +1026,11 @@ function LiveExercisePage() {
         // 2. Process wrist telemetry ONLY if the active exercise is a wrist exercise!
         // For finger or elbow exercises, strictly lock wrist to neutral rest pose (0°)
         if (isWristExercise) {
-          if (exerciseName === TARGET_EXERCISE || exerciseDetails?.exercise_name === TARGET_EXERCISE) {
-            // TARGET_EXERCISE: Clamped live MPU or manual slider angles from panel
-            if (customWristAngles) {
-              setSensorWristAngles(customWristAngles);
-            }
-          } else {
-            const currentWristEx = activeExerciseRef.current || exerciseDetails || { exercise_name: exerciseName, primary_sensor: 'wrist_pitch', target_angle: 60 };
-            const wristComputed = processWristTelemetry(data, currentWristEx);
-            if (wristComputed && wristComputed.angles) {
-              setSensorWristAngles(wristComputed.angles);
-              setWristTelemetryDetails(wristComputed);
-            }
+          const currentWristEx = activeExerciseRef.current || exerciseDetails || { exercise_name: exerciseName, primary_sensor: 'wrist_pitch', target_angle: 60 };
+          const wristComputed = processWristTelemetry(data, currentWristEx);
+          if (wristComputed && wristComputed.angles) {
+            setSensorWristAngles(wristComputed.angles);
+            setWristTelemetryDetails(wristComputed);
           }
         } else {
           setSensorWristAngles({ x: 0, y: 0, z: 0 });
@@ -2240,19 +2222,12 @@ function LiveExercisePage() {
 
               {/* Animated Exercise Demonstration Card for Wrist Exercises (Top Right Overlay) */}
               {isWristExercise && (
-                <div className="absolute top-4 right-4 z-20 animate-in fade-in slide-in-from-top-2 duration-200">
-                  {exerciseName === TARGET_EXERCISE || exerciseDetails?.exercise_name === TARGET_EXERCISE ? (
-                    <WristLimitTunerPanel
-                      rawTelemetry={sensors}
-                      onAnglesChange={(newAngles) => setCustomWristAngles(newAngles)}
-                    />
-                  ) : (
-                    <WristMotionDemoCard 
-                      exerciseName={exerciseName}
-                      movementId={resolveWristMovementId(activeExerciseRef.current || exerciseDetails || exerciseName)}
-                      targetAngle={exerciseDetails?.target_angle || 50}
-                    />
-                  )}
+                <div className="absolute top-4 right-4 z-10 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <WristMotionDemoCard 
+                    exerciseName={exerciseName}
+                    movementId={resolveWristMovementId(activeExerciseRef.current || exerciseDetails || exerciseName)}
+                    targetAngle={exerciseDetails?.target_angle || 50}
+                  />
                 </div>
               )}
 

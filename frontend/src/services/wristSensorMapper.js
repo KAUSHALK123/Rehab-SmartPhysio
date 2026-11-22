@@ -65,7 +65,13 @@ export const resolveWristMovementId = (exercise) => {
     : (exercise.exercise_name || exercise.name || '');
   const nameLower = name.toLowerCase();
 
-  if (nameLower.includes('all axis') || nameLower.includes('all-axis') || nameLower.includes('freeform') || nameLower.includes('full freedom')) {
+  if (
+    nameLower.includes('all axis') || 
+    nameLower.includes('all-axis') || 
+    nameLower.includes('freeform') || 
+    nameLower.includes('full freedom') ||
+    nameLower.includes('motion test')
+  ) {
     return 'allAxis';
   }
 
