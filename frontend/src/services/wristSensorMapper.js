@@ -65,7 +65,13 @@ export const resolveWristMovementId = (exercise) => {
     : (exercise.exercise_name || exercise.name || '');
   const nameLower = name.toLowerCase();
 
-  if (nameLower.includes('all axis') || nameLower.includes('all-axis') || nameLower.includes('freeform') || nameLower.includes('full freedom')) {
+  if (
+    nameLower.includes('all axis') || 
+    nameLower.includes('all-axis') || 
+    nameLower.includes('freeform') || 
+    nameLower.includes('full freedom') ||
+    nameLower.includes('motion test')
+  ) {
     return 'allAxis';
   }
 
@@ -307,12 +313,27 @@ export const processWristTelemetry = (telemetry = null, exercise = null, glbConf
  * @param {Object} angles - Degree offsets { x, y, z }
  * @param {number} [lerpFactor=0.25] - Smoothing factor (default 0.25 matches Trial visualizer)
  */
+export const GLB_WRIST_LIMITS = {
+  x: { min: -36, max: 43 },
+  y: { min: -23, max: 33 },
+  z: { min: -25, max: 35 }
+};
+
 export const applyCalibratedWristRotation = (circleNode, base, angles, lerpFactor = 0.25) => {
   if (!circleNode || !base || !angles) return;
 
-  const radX = degToRad(angles?.x || 0);
-  const radY = degToRad(angles?.y || 0);
-  const radZ = degToRad(angles?.z || 0);
+  const rawX = Number(angles?.x ?? 0);
+  const rawY = Number(angles?.y ?? 0);
+  const rawZ = Number(angles?.z ?? 0);
+
+  // Strictly lock rotation within calibrated GLB limits to prevent mesh twisting
+  const clampedX = Math.max(GLB_WRIST_LIMITS.x.min, Math.min(GLB_WRIST_LIMITS.x.max, rawX));
+  const clampedY = Math.max(GLB_WRIST_LIMITS.y.min, Math.min(GLB_WRIST_LIMITS.y.max, rawY));
+  const clampedZ = Math.max(GLB_WRIST_LIMITS.z.min, Math.min(GLB_WRIST_LIMITS.z.max, rawZ));
+
+  const radX = degToRad(clampedX);
+  const radY = degToRad(clampedY);
+  const radZ = degToRad(clampedZ);
 
   const targetX = base.x + radX;
   const targetY = base.y + radY;

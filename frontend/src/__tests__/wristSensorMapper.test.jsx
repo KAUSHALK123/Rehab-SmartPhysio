@@ -187,6 +187,20 @@ describe('wristSensorMapper Service', () => {
       expect(circleNode.rotation.z).toBeCloseTo(0 + (targetZ - 0) * 0.5, 4);
     });
 
+    it('clamps angles to locked limits X:[-36,43], Y:[-23,33], Z:[-25,35] even if input exceeds range', () => {
+      const circleNode = { rotation: { x: 0, y: 0, z: 0 } };
+      const base = { x: 0, y: 0, z: 0 };
+      // Input exceeds limits: x=80 (>43), y=-60 (<-23), z=50 (>35)
+      const extremeAngles = { x: 80, y: -60, z: 50 };
+
+      // Apply with lerpFactor = 1.0 (immediate target)
+      applyCalibratedWristRotation(circleNode, base, extremeAngles, 1.0);
+
+      expect(circleNode.rotation.x).toBeCloseTo(degToRad(43), 4);
+      expect(circleNode.rotation.y).toBeCloseTo(degToRad(-23), 4);
+      expect(circleNode.rotation.z).toBeCloseTo(degToRad(35), 4);
+    });
+
     it('handles null angles or missing node safely without mutating rotation', () => {
       const circleNode = { rotation: { x: 1, y: 2, z: 3 } };
       applyCalibratedWristRotation(circleNode, { x: 0, y: 0, z: 0 }, null);

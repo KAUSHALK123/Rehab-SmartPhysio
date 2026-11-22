@@ -35,6 +35,7 @@ import WristSensorTrialPanel from '../components/WristSensorTrialPanel';
 import ElbowSensorTrialPanel from '../components/ElbowSensorTrialPanel';
 import WristMotionDemoCard from '../components/WristMotionDemoCard';
 import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
+import WristAiCoachOverlay from '../components/WristAiCoachOverlay';
 import { processFingerTelemetry } from '../services/fingerSensorMapper';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
@@ -722,6 +723,7 @@ function LiveExercisePage() {
   const [sensors, setSensors] = useState({
     wrist_pitch: 0.0,
     wrist_roll: 0.0,
+    wrist_yaw: 0.0,
     elbow: 180.0,
     pressure: 0,
     thumb: 0,
@@ -738,6 +740,10 @@ function LiveExercisePage() {
   const wristBilateralPhaseRef = useRef({ left: false, right: false });
   const [guidance, setGuidance] = useState('Ensure wearable sleeve is connected. Get ready to begin.');
   const [patientDetails, setPatientDetails] = useState(null);
+
+  // Wrist kinematics and AI Coach state
+  const [wristVelocity, setWristVelocity] = useState(0);
+  const lastAngleTimeRef = useRef({ time: Date.now(), angle: 0 });
   const [aiFeedback, setAiFeedback] = useState({
     progress: 0,
     suggestion: 'Place your arm in the starting position to begin.',
@@ -938,6 +944,32 @@ function LiveExercisePage() {
     activeExerciseRef.current?.exercise_name?.toLowerCase().includes('finger closing')
   );
 
+  // Calculate current wrist angle used by the screen and 3D rig (safe optional chaining)
+  const currentWristAngle = isWristExercise
+    ? (wristBilateralPhase.left || wristBilateralPhase.right || (exerciseName || '').toLowerCase().includes('rotation')
+        ? (sensors.wrist_roll || sensorWristAngles?.y || sensorWristAngles?.x || 0)
+        : (sensors.wrist_pitch || sensorWristAngles?.x || 0))
+    : 0;
+
+  // Active target direction for bilateral and unilateral wrist exercises
+  const activeWristTargetDir = isWristExercise
+    ? (wristBilateralPhase.left && !wristBilateralPhase.right
+        ? 'RIGHT'
+        : (wristBilateralPhase.right && !wristBilateralPhase.left
+            ? 'LEFT'
+            : ((exerciseName || '').toLowerCase().includes('extension') ? 'UP' : ((exerciseName || '').toLowerCase().includes('flexion') ? 'DOWN' : 'RIGHT'))))
+    : 'RIGHT';
+
+  useEffect(() => {
+    const now = Date.now();
+    const dt = (now - lastAngleTimeRef.current.time) / 1000.0;
+    if (dt >= 0.05) {
+      const dAngle = Math.abs(currentWristAngle - lastAngleTimeRef.current.angle);
+      setWristVelocity(Math.round(dAngle / dt));
+      lastAngleTimeRef.current = { time: now, angle: currentWristAngle };
+    }
+  }, [currentWristAngle]);
+
   // Reset all joint angles, states, and counters when starting or switching any exercise
   useEffect(() => {
     setSensors({
@@ -1022,13 +1054,27 @@ function LiveExercisePage() {
           setFingerTelemetryDetails(computedFingers);
         }
 
+        const rawPitch = data.wrist_pitch ?? data.pitch ?? 0.0;
+        const rawRoll = data.wrist_roll ?? data.roll ?? 0.0;
+
+        const activeWristData = {
+          ...data,
+          wrist_pitch: rawPitch,
+          wrist_roll: rawRoll
+        };
+
         // 2. Process wrist telemetry ONLY if the active exercise is a wrist exercise!
         // For finger or elbow exercises, strictly lock wrist to neutral rest pose (0°)
         if (isWristExercise) {
           const currentWristEx = activeExerciseRef.current || exerciseDetails || { exercise_name: exerciseName, primary_sensor: 'wrist_pitch', target_angle: 60 };
-          const wristComputed = processWristTelemetry(data, currentWristEx);
+          const wristComputed = processWristTelemetry(activeWristData, currentWristEx);
           if (wristComputed && wristComputed.angles) {
-            setSensorWristAngles(wristComputed.angles);
+            // Validated mapping applied across all wrist exercises: X <-> Z with locked joint limits
+            setSensorWristAngles({
+              x: wristComputed.angles.z,
+              y: wristComputed.angles.y,
+              z: wristComputed.angles.x
+            });
             setWristTelemetryDetails(wristComputed);
           }
         } else {
@@ -1068,8 +1114,9 @@ function LiveExercisePage() {
         };
 
         const parsedSensors = {
-          wrist_pitch: data.wrist_pitch ?? data.pitch ?? 0.0,
-          wrist_roll: data.wrist_roll ?? data.roll ?? 0.0,
+          wrist_pitch: rawPitch,
+          wrist_roll: rawRoll,
+          wrist_yaw: data.wrist_yaw ?? data.yaw ?? 0.0,
           elbow: extractElbow(),
           pressure: data.pressure ?? 0,
           thumb: extractFinger('thumb'),
@@ -1241,6 +1288,19 @@ function LiveExercisePage() {
       const { left: leftDone, right: rightDone } = wristBilateralPhaseRef.current;
       const currentState = repStateRef.current;
       const now = Date.now();
+      const prescribedGoal = activeExerciseRef.current?.repetitions || 10;
+
+      // Cap at target reps: stop counting and set complete
+      if (repsCompletedRef.current >= prescribedGoal) {
+        setGuidance('Great job! Set complete.');
+        setAiFeedback({
+          progress: 100,
+          suggestion: 'Great job! Set complete.',
+          warning: null,
+          status: 'success'
+        });
+        return;
+      }
 
       if (currentState === 'rest') {
         if (now - lastRepTimeRef.current >= 800) {
@@ -1297,16 +1357,19 @@ function LiveExercisePage() {
             repStateRef.current = 'rest';
             setRepState('rest');
 
-            repsCompletedRef.current += 1;
-            const updated = repsCompletedRef.current;
+            const updated = Math.min(prescribedGoal, repsCompletedRef.current + 1);
+            repsCompletedRef.current = updated;
             setRepsCompleted(updated);
             updateAccuracyScore(updated, repsFailedRef.current);
-            setGuidance('Repetition complete! (1 Full Left + 1 Full Right). Relax and prepare for next.');
 
-            const prescribedGoal = activeExerciseRef.current?.repetitions || 10;
-            if (updated >= prescribedGoal && !milestoneShownRef.current) {
-              milestoneShownRef.current = true;
-              setShowMilestonePopup(true);
+            if (updated >= prescribedGoal) {
+              setGuidance('Great job! Set complete.');
+              if (!milestoneShownRef.current) {
+                milestoneShownRef.current = true;
+                setShowMilestonePopup(true);
+              }
+            } else {
+              setGuidance('Repetition complete! (1 Full Left + 1 Full Right). Relax and prepare for next.');
             }
           }
         } else {
@@ -1386,6 +1449,12 @@ function LiveExercisePage() {
       const now = Date.now();
       const holdSecs = Math.min(2, Math.max(1, ex.hold_seconds || 1));
 
+      // Cap at target reps: stop counting and set complete
+      if (repsCompletedRef.current >= targetReps) {
+        setGuidance('Great job! Set complete.');
+        return;
+      }
+
       if (currentState === 'rest') {
         // Debounce: must be at least 800ms after previous rep completion
         if (now - lastRepTimeRef.current >= 800) {
@@ -1431,16 +1500,19 @@ function LiveExercisePage() {
             repStateRef.current = 'rest';
             setRepState('rest');
 
-            repsCompletedRef.current += 1;
-            const updated = repsCompletedRef.current;
+            const updated = Math.min(targetReps, repsCompletedRef.current + 1);
+            repsCompletedRef.current = updated;
             setRepsCompleted(updated);
             updateAccuracyScore(updated, repsFailedRef.current);
-            setGuidance(`Repetition ${updated} of ${targetReps} completed! Relax and prepare for next rep.`);
 
-            // Milestone popup when reaching target reps (12 reps)
-            if (updated >= targetReps && !milestoneShownRef.current) {
-              milestoneShownRef.current = true;
-              setShowMilestonePopup(true);
+            if (updated >= targetReps) {
+              setGuidance('Great job! Set complete.');
+              if (!milestoneShownRef.current) {
+                milestoneShownRef.current = true;
+                setShowMilestonePopup(true);
+              }
+            } else {
+              setGuidance(`Repetition ${updated} of ${targetReps} completed! Relax and prepare for next rep.`);
             }
           }
         } else {
@@ -1512,6 +1584,13 @@ function LiveExercisePage() {
     // STATE MACHINE TRANSITIONS (Synchronous ref-based to eliminate packet race conditions)
     const currentState = repStateRef.current;
     let nextState = currentState;
+    const prescribedGoal = activeExerciseRef.current?.repetitions || 10;
+
+    // Cap at target reps: stop counting and set complete
+    if (repsCompletedRef.current >= prescribedGoal) {
+      setGuidance('Great job! Set complete.');
+      return;
+    }
 
     if (currentState === 'rest') {
       const now = Date.now();
@@ -1587,17 +1666,19 @@ function LiveExercisePage() {
           setRepState('rest');
           nextState = 'rest';
 
-          repsCompletedRef.current += 1;
-          const updated = repsCompletedRef.current;
+          const updated = Math.min(prescribedGoal, repsCompletedRef.current + 1);
+          repsCompletedRef.current = updated;
           setRepsCompleted(updated);
           updateAccuracyScore(updated, repsFailedRef.current);
-          setGuidance('Repetition complete! Relax and prepare for next.');
 
-          // Milestone target popup (when prescribed goal e.g. 10 reps is reached)
-          const prescribedGoal = activeExerciseRef.current?.repetitions || 10;
-          if (updated >= prescribedGoal && !milestoneShownRef.current) {
-            milestoneShownRef.current = true;
-            setShowMilestonePopup(true);
+          if (updated >= prescribedGoal) {
+            setGuidance('Great job! Set complete.');
+            if (!milestoneShownRef.current) {
+              milestoneShownRef.current = true;
+              setShowMilestonePopup(true);
+            }
+          } else {
+            setGuidance('Repetition complete! Relax and prepare for next.');
           }
         }
       }
@@ -2302,6 +2383,24 @@ function LiveExercisePage() {
                 )}
               </div>
 
+              {/* Floating AI Coach Overlay for Wrist (Upper-Middle 3D Canvas) */}
+              {isWristExercise && (
+                <WristAiCoachOverlay
+                  currentAngle={currentWristAngle}
+                  targetAngle={exerciseDetails?.target_angle || 45}
+                  targetDir={activeWristTargetDir}
+                  repState={repState}
+                  holdCountdown={holdCountdown}
+                  restCountdown={0}
+                  velocity={wristVelocity}
+                  repsCompleted={repsCompleted}
+                  targetReps={exerciseDetails?.repetitions || 5}
+                  exerciseName={exerciseName}
+                  isSimulated={!deviceConnected}
+                  inlineBottom={false}
+                />
+              )}
+
               {/* Pause Overlay */}
               {isPaused && (
                 <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm z-20 flex flex-col items-center justify-center space-y-2 animate-in fade-in duration-200">
@@ -2324,10 +2423,27 @@ function LiveExercisePage() {
                     {repsCompleted}
                   </div>
 
-                  {/* AI Suggestion Instruction Text (High-contrast bold white text) */}
-                  <div className="text-xs sm:text-sm font-bold text-white leading-snug flex-1 truncate sm:whitespace-normal">
-                    {renderFormattedOverlayText(aiFeedback?.suggestion || guidance)}
-                  </div>
+                  {/* AI Suggestion Instruction Text - Real-time Yellow AI Coaching for Wrist */}
+                  {isWristExercise ? (
+                    <WristAiCoachOverlay
+                      currentAngle={currentWristAngle}
+                      targetAngle={exerciseDetails?.target_angle || 45}
+                      targetDir={activeWristTargetDir}
+                      repState={repState}
+                      holdCountdown={holdCountdown}
+                      restCountdown={0}
+                      velocity={wristVelocity}
+                      repsCompleted={repsCompleted}
+                      targetReps={exerciseDetails?.repetitions || 5}
+                      exerciseName={exerciseName}
+                      isSimulated={!deviceConnected}
+                      inlineBottom={true}
+                    />
+                  ) : (
+                    <div className="text-xs sm:text-sm font-bold text-white leading-snug flex-1 truncate sm:whitespace-normal">
+                      {renderFormattedOverlayText(aiFeedback?.suggestion || guidance)}
+                    </div>
+                  )}
 
                   {/* Bilateral Left/Right Status Badges for Wrist Exercises */}
                   {isWristExercise && (

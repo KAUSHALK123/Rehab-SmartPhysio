@@ -173,4 +173,36 @@ describe('LiveExercisePage Component', () => {
     expect(screen.queryByText('Session Paused')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Pause/i })).toBeInTheDocument();
   });
+
+  it('renders Wrist Motion Test without errors or black screen', async () => {
+    localStorage.setItem('activeExerciseName', 'Wrist Motion Test');
+    apiClient.get.mockResolvedValue({
+      data: {
+        id: 'ex-wrist-1',
+        exercise_name: 'Wrist Motion Test',
+        description: 'Bilateral wrist rotation test.',
+        body_part: 'Wrist',
+        target_joint: 'Wrist',
+        target_angle: 45.0,
+        target_pressure: 0,
+        repetitions: 5,
+        hold_seconds: 2,
+        rest_seconds: 2,
+        difficulty: 'Easy',
+      },
+    });
+    startSession.mockResolvedValue({ session_id: 'sess-wrist-123' });
+
+    render(
+      <MemoryRouter>
+        <LiveExercisePage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(startSession).toHaveBeenCalled();
+    });
+
+    expect(screen.getAllByText(/Wrist/i).length).toBeGreaterThan(0);
+  });
 });
