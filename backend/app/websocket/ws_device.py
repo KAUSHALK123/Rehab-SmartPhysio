@@ -14,6 +14,23 @@ router = APIRouter(
 # Environment configuration: Allow mock fallback only when explicitly enabled (default "0")
 ALLOW_MOCK = os.getenv("ALLOW_MOCK", "0") == "1"
 
+# ML-COACH HOOK: Feature Flags & Coach Initialization
+ENABLE_ML_COACH = os.getenv("ENABLE_ML_COACH", "0") == "1"
+COACH_SIMULATE = os.getenv("COACH_SIMULATE", "0") == "1"
+
+coach_instance = None
+last_coach_broadcast_time = 0.0
+
+if ENABLE_ML_COACH:
+    try:
+        from ml_training_extra.src.coach import WristCoach
+        coach_instance = WristCoach()
+        print("[ML-COACH] WristCoach initialized successfully (ENABLE_ML_COACH=1).")
+    except Exception as e:
+        print(f"[ML-COACH WARNING] Failed to initialize WristCoach: {e}. Coach disabled.")
+        coach_instance = None
+# END ML-COACH HOOK
+
 # Helper to manage connected websocket clients
 class ConnectionManager:
     def __init__(self):
@@ -127,17 +144,82 @@ async def telemetry_monitor_loop():
         except Exception as e:
             print(f"[WS MONITOR ERROR] {e}")
 
+# ML-COACH HOOK: Simulation background loop when COACH_SIMULATE=1
+coach_sim_task = None
+
+async def coach_simulation_loop():
+    """Generates synthetic 50 Hz IMU frames and ~10 Hz coach feedback frames when COACH_SIMULATE=1."""
+    if not (ENABLE_ML_COACH and COACH_SIMULATE and coach_instance):
+        return
+    print("[ML-COACH] Starting simulation stream loop (COACH_SIMULATE=1)...")
+    sim_t = 0.0
+    rep_period = 2.4
+    target_pitch = 40.0
+    seq = 0
+    last_broadcast = 0.0
+
+    while True:
+        try:
+            await asyncio.sleep(0.02)  # 50 Hz sample rate
+            now = time.time()
+            sim_t += 0.02
+            seq += 1
+
+            omega = 2.0 * math.pi / rep_period
+            pitch = max(0.0, math.sin(omega * sim_t)) * target_pitch + random.gauss(0, 0.3)
+            roll = pitch * 0.15 + random.gauss(0, 0.2)
+            gy = math.cos(omega * sim_t) * target_pitch * omega + random.gauss(0, 0.4)
+            gx = gy * 0.15
+
+            sim_frame = {
+                "type": "imu",
+                "src": "simulated",
+                "seq": seq,
+                "t": int(now * 1000),
+                "ax": 0.0,
+                "ay": 0.0,
+                "az": 1.0,
+                "gx": round(gx, 2),
+                "gy": round(gy, 2),
+                "gz": 0.0,
+                "pitch": round(pitch, 1),
+                "roll": round(roll, 1),
+                "is_simulated": True,
+            }
+
+            coach_frame = coach_instance.update(sim_frame)
+
+            if now - last_broadcast >= 0.10:  # ~10 Hz
+                last_broadcast = now
+                await manager.broadcast_to_viewers(sim_frame)
+                await manager.broadcast_to_viewers(coach_frame)
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[ML-COACH SIM ERROR] {e}")
+            await asyncio.sleep(0.5)
+# END ML-COACH HOOK
+
 @router.on_event("startup")
 async def start_monitor():
-    global monitor_task
+    global monitor_task, coach_sim_task
     if monitor_task is None or monitor_task.done():
         monitor_task = asyncio.create_task(telemetry_monitor_loop())
+    # ML-COACH HOOK: Launch simulation task if enabled
+    if ENABLE_ML_COACH and COACH_SIMULATE and (coach_sim_task is None or coach_sim_task.done()):
+        coach_sim_task = asyncio.create_task(coach_simulation_loop())
+    # END ML-COACH HOOK
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
-    global monitor_task
+    global monitor_task, coach_sim_task
     if monitor_task is None or monitor_task.done():
         monitor_task = asyncio.create_task(telemetry_monitor_loop())
+    # ML-COACH HOOK: Launch simulation task if enabled
+    if ENABLE_ML_COACH and COACH_SIMULATE and (coach_sim_task is None or coach_sim_task.done()):
+        coach_sim_task = asyncio.create_task(coach_simulation_loop())
+    # END ML-COACH HOOK
 
     if client_type == "device":
         print("[WS] Device connecting...")
@@ -171,6 +253,18 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                 # Broadcast real hardware frame unchanged to all viewers
                 await manager.broadcast_to_viewers(packet)
 
+                # ML-COACH HOOK: Process IMU frame with WristCoach
+                if ENABLE_ML_COACH and coach_instance and packet.get("type") == "imu":
+                    try:
+                        coach_frame = coach_instance.update(packet)
+                        now_ts = time.time()
+                        if now_ts - last_coach_broadcast_time >= 0.10:  # ~10 Hz rate limit
+                            last_coach_broadcast_time = now_ts
+                            await manager.broadcast_to_viewers(coach_frame)
+                    except Exception as e:
+                        print(f"[ML-COACH ERROR] Error updating coach frame: {e}")
+                # END ML-COACH HOOK
+
         except WebSocketDisconnect:
             print("[WS] Device disconnected (WebSocketDisconnect)")
         except Exception as e:
@@ -185,6 +279,19 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                 data = await websocket.receive_text()
                 message = json.loads(data)
                 command = message.get("command")
+
+                # ML-COACH HOOK: Handle coach configuration from frontend
+                msg_type = message.get("type")
+                if msg_type == "coach_config" or command == "coach_config":
+                    if coach_instance:
+                        ex = message.get("exercise")
+                        target = message.get("target")
+                        coach_instance.set_config(exercise=ex, target=target)
+                        await websocket.send_text(json.dumps({
+                            "type": "coach_config_ack",
+                            "exercise": coach_instance.exercise,
+                            "target": coach_instance.rep_detector.target_angle
+                        }))
 
                 if command == "set_step":
                     step = message.get("step")
