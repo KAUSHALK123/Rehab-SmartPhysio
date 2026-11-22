@@ -1,0 +1,78 @@
+{
+  "accuracy": 0.9398,
+  "data_source": "SIMULATED SYNTHETIC DATA",
+  "is_synthetic": true,
+  "classes": [
+    "correct",
+    "jerky",
+    "too_fast",
+    "too_shallow"
+  ],
+  "report": {
+    "correct": {
+      "precision": 0.9787234042553191,
+      "recall": 0.8625,
+      "f1-score": 0.9169435215946844,
+      "support": 160.0
+    },
+    "jerky": {
+      "precision": 0.9822485207100592,
+      "recall": 0.9940119760479041,
+      "f1-score": 0.9880952380952381,
+      "support": 167.0
+    },
+    "too_fast": {
+      "precision": 0.9183673469387755,
+      "recall": 0.9375,
+      "f1-score": 0.9278350515463918,
+      "support": 48.0
+    },
+    "too_shallow": {
+      "precision": 0.8728323699421965,
+      "recall": 0.9617834394904459,
+      "f1-score": 0.9151515151515152,
+      "support": 157.0
+    },
+    "accuracy": 0.9398496240601504,
+    "macro avg": {
+      "precision": 0.9380429104615875,
+      "recall": 0.9389488538845875,
+      "f1-score": 0.9370063315969573,
+      "support": 532.0
+    },
+    "weighted avg": {
+      "precision": 0.9431345157395057,
+      "recall": 0.9398496240601504,
+      "f1-score": 0.9397325912971222,
+      "support": 532.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      138,
+      0,
+      0,
+      22
+    ],
+    [
+      1,
+      166,
+      0,
+      0
+    ],
+    [
+      0,
+      3,
+      45,
+      0
+    ],
+    [
+      2,
+      0,
+      4,
+      151
+    ]
+  ],
+  "train_window_count": 1038,
+  "test_window_count": 532
+}

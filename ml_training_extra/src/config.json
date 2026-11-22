@@ -1,0 +1,34 @@
+{
+  "exercises": {
+    "flexion_extension": {
+      "name": "Wrist Flexion / Extension",
+      "primary_axis": "pitch",
+      "target_angle": 40.0,
+      "tolerance": 8.0,
+      "min_rep_rom": 15.0,
+      "prominence": 12.0,
+      "min_duration": 0.8,
+      "max_duration": 5.0
+    },
+    "radial_ulnar": {
+      "name": "Radial / Ulnar Deviation",
+      "primary_axis": "roll",
+      "target_angle": 25.0,
+      "tolerance": 6.0,
+      "min_rep_rom": 10.0,
+      "prominence": 8.0,
+      "min_duration": 0.8,
+      "max_duration": 5.0
+    },
+    "forearm_rotation": {
+      "name": "Forearm Pronation / Supination",
+      "primary_axis": "roll",
+      "target_angle": 60.0,
+      "tolerance": 12.0,
+      "min_rep_rom": 20.0,
+      "prominence": 15.0,
+      "min_duration": 0.8,
+      "max_duration": 5.0
+    }
+  }
+}
