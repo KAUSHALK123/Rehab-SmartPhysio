@@ -40,7 +40,7 @@ export function evaluateWristCoachRules({
   restCountdown = 0,
   velocity = 0,
   secondsIdle = 0,
-  isJerky = FalseOrBool(false),
+  isJerky = false,
   tolerance = 5,
   velocityThreshold = 120,
   repsCompleted = 0,

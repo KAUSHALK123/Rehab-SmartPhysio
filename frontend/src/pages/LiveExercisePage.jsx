@@ -2396,7 +2396,7 @@ function LiveExercisePage() {
                   repsCompleted={repsCompleted}
                   targetReps={exerciseDetails?.repetitions || 5}
                   exerciseName={exerciseName}
-                  isSimulated={simulatedActive || !deviceConnected}
+                  isSimulated={!deviceConnected}
                   inlineBottom={false}
                 />
               )}
@@ -2436,7 +2436,7 @@ function LiveExercisePage() {
                       repsCompleted={repsCompleted}
                       targetReps={exerciseDetails?.repetitions || 5}
                       exerciseName={exerciseName}
-                      isSimulated={simulatedActive || !deviceConnected}
+                      isSimulated={!deviceConnected}
                       inlineBottom={true}
                     />
                   ) : (

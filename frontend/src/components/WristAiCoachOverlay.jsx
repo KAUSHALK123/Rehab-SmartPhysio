@@ -70,6 +70,9 @@ export default function WristAiCoachOverlay({
       const samples = angleHistoryRef.current;
       if (samples.length < 8) return;
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 400);
+
       try {
         const response = await fetch(apiEndpoint, {
           method: 'POST',
@@ -79,8 +82,9 @@ export default function WristAiCoachOverlay({
             exercise_name: exerciseName,
             is_simulated: isSimulated
           }),
-          signal: AbortSignal.timeout(400) // Fast 400ms timeout
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
 
         if (response.ok) {
           const data = await response.json();
@@ -97,6 +101,8 @@ export default function WristAiCoachOverlay({
       } catch (err) {
         // Silent graceful fallback
         setBadgeSource(isSimulated ? "AI: SIMULATED" : "AI: RULES ONLY");
+      } finally {
+        clearTimeout(timeoutId);
       }
     }, 500);
 
