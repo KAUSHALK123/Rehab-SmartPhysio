@@ -1023,10 +1023,20 @@ function LiveExercisePage() {
           setFingerTelemetryDetails(computedFingers);
         }
 
-        // Swap MPU X and Y axes so the physical MPU pitch movement maps directly to GLB pitch (flexion/extension)
-        const rawPitch = data.wrist_roll ?? data.roll ?? 0.0;
-        const rawRoll = data.wrist_pitch ?? data.pitch ?? 0.0;
-        const swappedWristData = {
+        const exName = (exerciseName || exerciseDetails?.exercise_name || '').toLowerCase();
+        // Check for Wrist Motion Test or Wrist Rotation test
+        const isTestExercise = exName.includes('motion test') || exName.includes('wrist rotation') || exName.includes('rotation test');
+
+        // Test exercise: MPU X (getAngleX) -> GLB X and MPU Y (getAngleY) -> GLB Y
+        // Other wrist exercises retain previous mapping until user confirms
+        const rawPitch = isTestExercise
+          ? (data.wrist_pitch ?? data.pitch ?? 0.0)
+          : (data.wrist_roll ?? data.roll ?? 0.0);
+        const rawRoll = isTestExercise
+          ? (data.wrist_roll ?? data.roll ?? 0.0)
+          : (data.wrist_pitch ?? data.pitch ?? 0.0);
+
+        const activeWristData = {
           ...data,
           wrist_pitch: rawPitch,
           wrist_roll: rawRoll
@@ -1036,7 +1046,7 @@ function LiveExercisePage() {
         // For finger or elbow exercises, strictly lock wrist to neutral rest pose (0°)
         if (isWristExercise) {
           const currentWristEx = activeExerciseRef.current || exerciseDetails || { exercise_name: exerciseName, primary_sensor: 'wrist_pitch', target_angle: 60 };
-          const wristComputed = processWristTelemetry(swappedWristData, currentWristEx);
+          const wristComputed = processWristTelemetry(activeWristData, currentWristEx);
           if (wristComputed && wristComputed.angles) {
             setSensorWristAngles(wristComputed.angles);
             setWristTelemetryDetails(wristComputed);
