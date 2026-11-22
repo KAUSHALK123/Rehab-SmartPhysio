@@ -39,6 +39,9 @@ import ElbowSensorTrialPanel from '../components/ElbowSensorTrialPanel';
 import WristMotionDemoCard from '../components/WristMotionDemoCard';
 import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
 import LiveGloveCalibrationPanel from '../components/LiveGloveCalibrationPanel';
+// ML-COACH HOOK: Import Wrist Movement Coach Overlay
+import CoachOverlay from '../components/CoachOverlay';
+// END ML-COACH HOOK
 import { processFingerTelemetry, resetDynamicRanges, rezeroDynamicBaseline } from '../services/fingerSensorMapper';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
@@ -722,6 +725,35 @@ function LiveExercisePage() {
     isFlexSyncedRef.current = isFlexSynced;
   }, [isFlexSynced]);
 
+  // ML-COACH HOOK: Wrist ML Coach state, feature flag and configuration handler
+  const isCoachEnabled = searchParams.get('coach') === '1' || import.meta.env.VITE_ENABLE_ML_COACH === 'true';
+  const [coachData, setCoachData] = useState(null);
+  const [isCoachOffline, setIsCoachOffline] = useState(false);
+  const lastCoachTimeRef = useRef(0);
+
+  useEffect(() => {
+    if (!isCoachEnabled) return;
+    const interval = setInterval(() => {
+      if (lastCoachTimeRef.current > 0 && Date.now() - lastCoachTimeRef.current > 1000) {
+        setIsCoachOffline(true);
+      } else if (lastCoachTimeRef.current > 0) {
+        setIsCoachOffline(false);
+      }
+    }, 300);
+    return () => clearInterval(interval);
+  }, [isCoachEnabled]);
+
+  const handleCoachConfigChange = (cfg) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'coach_config',
+        exercise: cfg.exercise,
+        target: cfg.target,
+      }));
+    }
+  };
+  // END ML-COACH HOOK
+
   const handleCalibrationJointChange = ({ boneName }) => {
     if (boneName) setCalibTargetBone(boneName);
   };
@@ -1077,6 +1109,14 @@ function LiveExercisePage() {
       if (data.type === 'status_update' && data.status === 'hardware_status_changed') {
         setDeviceConnected(data.hardware_connected);
       }
+
+      // ML-COACH HOOK: Ingest coach WebSocket frame
+      if (data.type === 'coach') {
+        setCoachData(data);
+        lastCoachTimeRef.current = Date.now();
+        setIsCoachOffline(false);
+      }
+      // END ML-COACH HOOK
 
       if (data.type === 'sensor_data' || data.src === 'esp32' || data.src === 'mock' || data.curl) {
         const isHardware = data.src === 'esp32' && !data.is_mock;
@@ -2649,6 +2689,16 @@ function LiveExercisePage() {
                   </div>
                 </div>
               )}
+
+              {/* ML-COACH HOOK: Real-time Wrist ML Coach Overlay */}
+              {isCoachEnabled && (
+                <CoachOverlay
+                  coachData={coachData}
+                  isOffline={isCoachOffline}
+                  onConfigChange={handleCoachConfigChange}
+                />
+              )}
+              {/* END ML-COACH HOOK */}
             </div>
 
             {/* Right Panel: Guidance, Recommendations, & Counters */}
