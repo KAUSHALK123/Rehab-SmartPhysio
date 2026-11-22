@@ -744,32 +744,6 @@ function LiveExercisePage() {
   // Wrist kinematics and AI Coach state
   const [wristVelocity, setWristVelocity] = useState(0);
   const lastAngleTimeRef = useRef({ time: Date.now(), angle: 0 });
-
-  // Calculate current wrist angle used by the screen and 3D rig
-  const currentWristAngle = isWristExercise
-    ? (wristBilateralPhase.left || wristBilateralPhase.right || (exerciseName || '').toLowerCase().includes('rotation')
-        ? (sensors.wrist_roll || sensorWristAngles.y || sensorWristAngles.x)
-        : (sensors.wrist_pitch || sensorWristAngles.x))
-    : 0;
-
-  // Active target direction for bilateral and unilateral wrist exercises
-  const activeWristTargetDir = isWristExercise
-    ? (wristBilateralPhase.left && !wristBilateralPhase.right
-        ? 'RIGHT'
-        : (wristBilateralPhase.right && !wristBilateralPhase.left
-            ? 'LEFT'
-            : ((exerciseName || '').toLowerCase().includes('extension') ? 'UP' : ((exerciseName || '').toLowerCase().includes('flexion') ? 'DOWN' : 'RIGHT'))))
-    : 'RIGHT';
-
-  useEffect(() => {
-    const now = Date.now();
-    const dt = (now - lastAngleTimeRef.current.time) / 1000.0;
-    if (dt >= 0.05) {
-      const dAngle = Math.abs(currentWristAngle - lastAngleTimeRef.current.angle);
-      setWristVelocity(Math.round(dAngle / dt));
-      lastAngleTimeRef.current = { time: now, angle: currentWristAngle };
-    }
-  }, [currentWristAngle]);
   const [aiFeedback, setAiFeedback] = useState({
     progress: 0,
     suggestion: 'Place your arm in the starting position to begin.',
@@ -969,6 +943,32 @@ function LiveExercisePage() {
     exerciseDetails?.name?.toLowerCase().includes('finger closing') ||
     activeExerciseRef.current?.exercise_name?.toLowerCase().includes('finger closing')
   );
+
+  // Calculate current wrist angle used by the screen and 3D rig (safe optional chaining)
+  const currentWristAngle = isWristExercise
+    ? (wristBilateralPhase.left || wristBilateralPhase.right || (exerciseName || '').toLowerCase().includes('rotation')
+        ? (sensors.wrist_roll || sensorWristAngles?.y || sensorWristAngles?.x || 0)
+        : (sensors.wrist_pitch || sensorWristAngles?.x || 0))
+    : 0;
+
+  // Active target direction for bilateral and unilateral wrist exercises
+  const activeWristTargetDir = isWristExercise
+    ? (wristBilateralPhase.left && !wristBilateralPhase.right
+        ? 'RIGHT'
+        : (wristBilateralPhase.right && !wristBilateralPhase.left
+            ? 'LEFT'
+            : ((exerciseName || '').toLowerCase().includes('extension') ? 'UP' : ((exerciseName || '').toLowerCase().includes('flexion') ? 'DOWN' : 'RIGHT'))))
+    : 'RIGHT';
+
+  useEffect(() => {
+    const now = Date.now();
+    const dt = (now - lastAngleTimeRef.current.time) / 1000.0;
+    if (dt >= 0.05) {
+      const dAngle = Math.abs(currentWristAngle - lastAngleTimeRef.current.angle);
+      setWristVelocity(Math.round(dAngle / dt));
+      lastAngleTimeRef.current = { time: now, angle: currentWristAngle };
+    }
+  }, [currentWristAngle]);
 
   // Reset all joint angles, states, and counters when starting or switching any exercise
   useEffect(() => {
