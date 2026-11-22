@@ -1048,7 +1048,16 @@ function LiveExercisePage() {
           const currentWristEx = activeExerciseRef.current || exerciseDetails || { exercise_name: exerciseName, primary_sensor: 'wrist_pitch', target_angle: 60 };
           const wristComputed = processWristTelemetry(activeWristData, currentWristEx);
           if (wristComputed && wristComputed.angles) {
-            setSensorWristAngles(wristComputed.angles);
+            if (isTestExercise) {
+              // User test swap: X <-> Z (GLB X swapped with GLB Z)
+              setSensorWristAngles({
+                x: wristComputed.angles.z,
+                y: wristComputed.angles.y,
+                z: wristComputed.angles.x
+              });
+            } else {
+              setSensorWristAngles(wristComputed.angles);
+            }
             setWristTelemetryDetails(wristComputed);
           }
         } else {
