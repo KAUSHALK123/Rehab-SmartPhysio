@@ -726,13 +726,15 @@ function LiveExercisePage() {
   }, [isFlexSynced]);
 
   // ML-COACH HOOK: Wrist ML Coach state, feature flag and configuration handler
-  const isCoachEnabled = searchParams.get('coach') === '1' || import.meta.env.VITE_ENABLE_ML_COACH === 'true';
+  const [showCoachOverlay, setShowCoachOverlay] = useState(() => {
+    return searchParams.get('coach') === '1' || import.meta.env.VITE_ENABLE_ML_COACH === 'true';
+  });
   const [coachData, setCoachData] = useState(null);
   const [isCoachOffline, setIsCoachOffline] = useState(false);
   const lastCoachTimeRef = useRef(0);
 
   useEffect(() => {
-    if (!isCoachEnabled) return;
+    if (!showCoachOverlay) return;
     const interval = setInterval(() => {
       if (lastCoachTimeRef.current > 0 && Date.now() - lastCoachTimeRef.current > 1000) {
         setIsCoachOffline(true);
@@ -741,7 +743,7 @@ function LiveExercisePage() {
       }
     }, 300);
     return () => clearInterval(interval);
-  }, [isCoachEnabled]);
+  }, [showCoachOverlay]);
 
   const handleCoachConfigChange = (cfg) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -2496,6 +2498,22 @@ function LiveExercisePage() {
                   <Sliders className="w-4 h-4 text-blue-400" />
                   <span>Glove Calibration</span>
                 </button>
+
+                {/* ML-COACH HOOK: Wrist ML Coach Toggle Button */}
+                <button
+                  type="button"
+                  onClick={() => setShowCoachOverlay(prev => !prev)}
+                  className={`backdrop-blur border rounded-xl p-2 px-3 flex items-center gap-1.5 text-xs font-bold transition shadow-sm cursor-pointer ${
+                    showCoachOverlay
+                      ? 'bg-purple-600/90 border-purple-400 text-white shadow-purple-500/20'
+                      : 'bg-slate-950/85 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900'
+                  }`}
+                  title="Toggle Wrist Movement ML Coach HUD"
+                >
+                  <Zap className="w-4 h-4 text-purple-400" />
+                  <span>ML Coach</span>
+                </button>
+                {/* END ML-COACH HOOK */}
               </div>
 
               {/* Animated Exercise Demonstration Card for Wrist Exercises (Top Right Overlay) */}
@@ -2691,11 +2709,12 @@ function LiveExercisePage() {
               )}
 
               {/* ML-COACH HOOK: Real-time Wrist ML Coach Overlay */}
-              {isCoachEnabled && (
+              {showCoachOverlay && (
                 <CoachOverlay
                   coachData={coachData}
                   isOffline={isCoachOffline}
                   onConfigChange={handleCoachConfigChange}
+                  onClose={() => setShowCoachOverlay(false)}
                 />
               )}
               {/* END ML-COACH HOOK */}

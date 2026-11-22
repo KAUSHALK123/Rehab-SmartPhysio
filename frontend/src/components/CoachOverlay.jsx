@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, AlertCircle, CheckCircle2, ChevronRight, Gauge, HelpCircle, RefreshCw, Zap } from 'lucide-react';
+import { Activity, AlertCircle, CheckCircle2, ChevronRight, Gauge, HelpCircle, RefreshCw, X, Zap } from 'lucide-react';
 
 const EXERCISES = [
   { id: 'flexion_extension', name: 'Flexion / Extension', defaultTarget: 40, axis: 'Pitch' },
@@ -11,6 +11,7 @@ export default function CoachOverlay({
   coachData,
   isOffline,
   onConfigChange,
+  onClose,
 }) {
   const [selectedExercise, setSelectedExercise] = useState('flexion_extension');
   const [targetAngle, setTargetAngle] = useState(40);
@@ -70,7 +71,7 @@ export default function CoachOverlay({
   };
 
   return (
-    <div className="absolute bottom-4 right-4 z-20 w-84 sm:w-96 max-w-[calc(100vw-2rem)] select-none">
+    <div className="absolute bottom-28 right-4 sm:bottom-4 sm:right-44 z-20 w-80 sm:w-92 max-w-[calc(100vw-2rem)] select-none animate-in fade-in slide-in-from-bottom-3 duration-200">
       <div className="bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-2xl p-4 shadow-2xl text-white transition-all duration-300">
         
         {/* Header Bar */}
@@ -113,6 +114,16 @@ export default function CoachOverlay({
                 className={`w-4 h-4 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
               />
             </button>
+
+            {onClose && (
+              <button
+                onClick={onClose}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800/60 transition"
+                title="Close ML Coach HUD"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
 
