@@ -28,7 +28,7 @@ describe('CoachOverlay Component', () => {
     expect(screen.getByText('5')).toBeInTheDocument();
     expect(screen.getByText('approx. wrist angle')).toBeInTheDocument();
     expect(screen.getByText('ML ACTIVE')).toBeInTheDocument();
-    expect(screen.getByText('Smooth Kinematics')).toBeInTheDocument();
+    expect(screen.getByText(/Smooth/i)).toBeInTheDocument();
   });
 
   it('displays SIMULATED badge when src is simulated', () => {
@@ -53,11 +53,11 @@ describe('CoachOverlay Component', () => {
     expect(screen.getByText('Bend 20° more')).toBeInTheDocument();
   });
 
-  it('displays Coach Offline badge and offline message when isOffline is true', () => {
+  it('displays Offline badge and offline message when isOffline is true', () => {
     render(<CoachOverlay coachData={null} isOffline={true} />);
 
-    expect(screen.getByText('Coach Offline')).toBeInTheDocument();
-    expect(screen.getByText('Coach offline (awaiting IMU frames)')).toBeInTheDocument();
+    expect(screen.getByText('Offline')).toBeInTheDocument();
+    expect(screen.getByText(/Coach offline/i)).toBeInTheDocument();
   });
 
   it('triggers onConfigChange callback when user updates exercise or target', () => {

@@ -272,9 +272,9 @@ export const processWristTelemetry = (telemetry = null, exercise = null, glbConf
     rawSensorVal = telemetry.wrist_roll ?? telemetry.roll ?? 0.0;
   } else if (movementId === 'hiMovement') {
     // Left / Right waving: primarily reflected in wrist_roll (or wrist_pitch depending on arm pose)
-    rawSensorVal = telemetry.wrist_roll ?? telemetry.wrist_pitch ?? 0.0;
+    rawSensorVal = telemetry.wrist_roll ?? telemetry.roll ?? telemetry.wrist_pitch ?? telemetry.pitch ?? 0.0;
   } else {
-    rawSensorVal = telemetry.wrist_pitch ?? 0.0;
+    rawSensorVal = telemetry.wrist_pitch ?? telemetry.pitch ?? 0.0;
   }
 
   const normalized = normalizeWristSensor(rawSensorVal, sensorMin, sensorMax);

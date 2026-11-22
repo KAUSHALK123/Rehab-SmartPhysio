@@ -1120,19 +1120,22 @@ function LiveExercisePage() {
       }
       // END ML-COACH HOOK
 
-      if (data.type === 'sensor_data' || data.src === 'esp32' || data.src === 'mock' || data.curl) {
-        const isHardware = data.src === 'esp32' && !data.is_mock;
+      if (data.type === 'sensor_data' || data.type === 'imu' || data.src === 'esp32' || data.src === 'mock' || data.src === 'simulated' || data.curl) {
+        const isHardware = data.src === 'esp32' && !data.is_mock && !data.is_simulated;
         setIsHardwareDevice(isHardware);
-        setDeviceConnected(isHardware || data.src === 'mock');
+        setDeviceConnected(true);
         if (data.battery !== undefined) setBattery(data.battery);
         setRawSensorPacket(data);
         setLastPacketTime(Date.now());
 
-        // 1. Process finger telemetry continuously with dynamic auto-range
-        const computedFingers = processFingerTelemetry(data);
-        if (computedFingers && computedFingers.angles) {
-          setSensorFingerAngles(computedFingers.angles);
-          setFingerTelemetryDetails(computedFingers);
+        // 1. Process finger telemetry continuously with dynamic auto-range (when finger data present)
+        let computedFingers = null;
+        if (data.raw || data.curl || data.type === 'sensor_data') {
+          computedFingers = processFingerTelemetry(data);
+          if (computedFingers && computedFingers.angles) {
+            setSensorFingerAngles(computedFingers.angles);
+            setFingerTelemetryDetails(computedFingers);
+          }
         }
 
         // 2. Process wrist telemetry ONLY if the active exercise is a wrist exercise!
@@ -1150,12 +1153,12 @@ function LiveExercisePage() {
         }
 
         // 3. Process elbow telemetry if applicable
-        if (isElbowExercise) {
+        if (isElbowExercise && (data.elbow !== undefined || data.raw_elbow !== undefined)) {
           const elbowComputed = processElbowTelemetry(data, activeExerciseRef.current || exerciseDetails);
           if (elbowComputed && elbowComputed.angles) {
             setSensorElbowAngles(elbowComputed);
           }
-        } else {
+        } else if (!isElbowExercise) {
           setSensorElbowAngles(null);
         }
 
@@ -1180,19 +1183,24 @@ function LiveExercisePage() {
           return val;
         };
 
-        const parsedSensors = {
-          wrist_pitch: data.wrist_pitch ?? data.pitch ?? 0.0,
-          wrist_roll: data.wrist_roll ?? data.roll ?? 0.0,
-          elbow: extractElbow(),
-          pressure: data.pressure ?? 0,
-          thumb: extractFinger('thumb'),
-          index: extractFinger('index'),
-          middle: extractFinger('middle'),
-          ring: extractFinger('ring'),
-          little: extractFinger('little')
-        };
-
-        setSensors(parsedSensors);
+        // Merge telemetry without zeroing out channels not present in this frame
+        setSensors(prev => {
+          const next = { ...prev };
+          const p = data.wrist_pitch ?? data.pitch;
+          if (p !== undefined && p !== null) next.wrist_pitch = Number(p);
+          const r = data.wrist_roll ?? data.roll;
+          if (r !== undefined && r !== null) next.wrist_roll = Number(r);
+          if (data.pressure !== undefined && data.pressure !== null) next.pressure = Number(data.pressure);
+          if (data.raw_elbow !== undefined || data.elbow !== undefined) next.elbow = extractElbow();
+          if (data.raw || data.curl) {
+            next.thumb = extractFinger('thumb');
+            next.index = extractFinger('index');
+            next.middle = extractFinger('middle');
+            next.ring = extractFinger('ring');
+            next.little = extractFinger('little');
+          }
+          return next;
+        });
 
         // Store history for averages & charting
         telemetryHistoryRef.current.push(parsedSensors);
@@ -2416,8 +2424,8 @@ function LiveExercisePage() {
             {/* Left Panel: 3D Visualization */}
             <div className="lg:col-span-2 bg-slate-900 rounded-2xl border border-slate-800 flex flex-col items-center justify-center text-white relative shadow-inner overflow-hidden min-h-[300px]">
               
-              {/* Header inside canvas overlay */}
-              <div className="absolute top-4 left-4 z-10 flex flex-wrap gap-2 items-center">
+              {/* Header inside canvas overlay (bounded to avoid DEMO card at top-right) */}
+              <div className="absolute top-4 left-4 right-64 z-10 flex flex-wrap gap-2 items-center pointer-events-auto">
                 {/* Live Stream Status Pill */}
                 <div className="flex items-center gap-2.5 bg-slate-950/80 backdrop-blur border border-slate-850 rounded-xl p-2 px-3">
                   <span className="flex h-2.5 w-2.5 relative">
@@ -2646,10 +2654,20 @@ function LiveExercisePage() {
                     <div className="text-xs sm:text-sm font-bold text-white leading-snug truncate sm:whitespace-normal">
                       {renderFormattedOverlayText(aiFeedback?.suggestion || guidance)}
                     </div>
-                    {isWristExercise && yellowWristSuggestion && (
-                      <p className="text-xs sm:text-sm md:text-base font-extrabold text-[#FFD43B] tracking-wide leading-tight truncate sm:whitespace-normal drop-shadow">
-                        "{yellowWristSuggestion}"
-                      </p>
+                    {isWristExercise && (
+                      <div className="flex flex-col gap-0.5 mt-0.5">
+                        {yellowWristSuggestion && (
+                          <p className="text-xs sm:text-sm md:text-base font-extrabold text-[#FFD43B] tracking-wide leading-tight truncate sm:whitespace-normal drop-shadow">
+                            "{yellowWristSuggestion}"
+                          </p>
+                        )}
+                        {coachData?.message && (
+                          <p className="text-xs sm:text-sm font-bold text-sky-300 flex items-center gap-1.5 leading-tight drop-shadow">
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-purple-600/60 text-purple-200 border border-purple-400/50 shadow-xs">AI Coach</span>
+                            <span>"{coachData.message}"</span>
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
 
@@ -2912,12 +2930,20 @@ function LiveExercisePage() {
                     {renderFormattedAiText(aiFeedback.suggestion)}
                   </div>
 
-                  {/* Yellow AI Suggestion (Wrist Exercises Only) */}
-                  {isWristExercise && yellowWristSuggestion && (
-                    <div className="p-2.5 bg-slate-950/90 rounded-xl border border-yellow-500/40 shadow-sm">
-                      <p className="text-sm sm:text-base font-extrabold text-[#FFD43B] tracking-wide leading-snug">
-                        "{yellowWristSuggestion}"
-                      </p>
+                  {/* Yellow AI Suggestion (Wrist Exercises Only) & AI Coach Comments */}
+                  {isWristExercise && (yellowWristSuggestion || coachData?.message) && (
+                    <div className="p-2.5 bg-slate-950/90 rounded-xl border border-yellow-500/40 shadow-sm space-y-1.5">
+                      {yellowWristSuggestion && (
+                        <p className="text-sm sm:text-base font-extrabold text-[#FFD43B] tracking-wide leading-snug">
+                          "{yellowWristSuggestion}"
+                        </p>
+                      )}
+                      {coachData?.message && (
+                        <p className="text-xs sm:text-sm font-bold text-sky-300 flex items-center gap-1.5 pt-1.5 border-t border-slate-800">
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-purple-600/60 text-purple-200 border border-purple-400/50 shadow-xs">AI Coach</span>
+                          <span>"{coachData.message}"</span>
+                        </p>
+                      )}
                     </div>
                   )}
                   
