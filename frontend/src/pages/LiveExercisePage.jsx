@@ -1023,18 +1023,8 @@ function LiveExercisePage() {
           setFingerTelemetryDetails(computedFingers);
         }
 
-        const exName = (exerciseName || exerciseDetails?.exercise_name || '').toLowerCase();
-        // Check for Wrist Motion Test or Wrist Rotation test
-        const isTestExercise = exName.includes('motion test') || exName.includes('wrist rotation') || exName.includes('rotation test');
-
-        // Test exercise: MPU X (getAngleX) -> GLB X and MPU Y (getAngleY) -> GLB Y
-        // Other wrist exercises retain previous mapping until user confirms
-        const rawPitch = isTestExercise
-          ? (data.wrist_pitch ?? data.pitch ?? 0.0)
-          : (data.wrist_roll ?? data.roll ?? 0.0);
-        const rawRoll = isTestExercise
-          ? (data.wrist_roll ?? data.roll ?? 0.0)
-          : (data.wrist_pitch ?? data.pitch ?? 0.0);
+        const rawPitch = data.wrist_pitch ?? data.pitch ?? 0.0;
+        const rawRoll = data.wrist_roll ?? data.roll ?? 0.0;
 
         const activeWristData = {
           ...data,
@@ -1048,16 +1038,12 @@ function LiveExercisePage() {
           const currentWristEx = activeExerciseRef.current || exerciseDetails || { exercise_name: exerciseName, primary_sensor: 'wrist_pitch', target_angle: 60 };
           const wristComputed = processWristTelemetry(activeWristData, currentWristEx);
           if (wristComputed && wristComputed.angles) {
-            if (isTestExercise) {
-              // User test swap: X <-> Z (GLB X swapped with GLB Z)
-              setSensorWristAngles({
-                x: wristComputed.angles.z,
-                y: wristComputed.angles.y,
-                z: wristComputed.angles.x
-              });
-            } else {
-              setSensorWristAngles(wristComputed.angles);
-            }
+            // Validated mapping applied across all wrist exercises: X <-> Z with locked joint limits
+            setSensorWristAngles({
+              x: wristComputed.angles.z,
+              y: wristComputed.angles.y,
+              z: wristComputed.angles.x
+            });
             setWristTelemetryDetails(wristComputed);
           }
         } else {
