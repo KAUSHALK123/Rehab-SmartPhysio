@@ -40,31 +40,34 @@ const int PIN_ELBOW    = 39; // VN (GPIO 39)
 const int PIN_PRESSURE = 25; // D25 (GPIO 25)
 
 // ============================================================================
-// CALIBRATION & HIGH SENSITIVITY FLEX ENGINE
+// SPARKFUN RESISTANCE-BASED FLEX SENSOR ENGINE
 // ============================================================================
-// Initial defaults (auto-calibrated on boot and via 'c' / 'r' Serial command)
-int calibFlat[NUM_FINGERS] = {
-  250,  // Thumb  (Sensor #5, GPIO 36)
-  1205, // Index  (Sensor #1, GPIO 33)
-  625,  // Middle (Sensor #2, GPIO 34)
-  900,  // Ring   (Sensor #3, GPIO 35)
-  940   // Little (Sensor #4, GPIO 32)
-};
+// Circuit: 3.3V -> Flex Sensor -> Node (GPIO Pin) -> 10k Resistor -> GND
+// Formula: R_flex = R_div * (ADC_MAX / adcVal - 1.0)
+const float R_DIV   = 10000.0f; // 10k fixed pull-down resistor to GND
+const float ADC_MAX = 4095.0f; // ESP32 12-bit ADC
 
-// Dynamic adaptive bend spans (sensitive defaults: micro-bends of 25-40 counts yield high curl)
-int calibSpan[NUM_FINGERS] = {
-  50,   // Thumb
-  40,   // Index
-  70,   // Middle
-  80,   // Ring
-  35    // Little
-};
+// Compute real-time flex resistance in Ohms from ADC
+float computeResistance(int adcVal) {
+  if (adcVal <= 10) return 999999.0f; // Disconnected / open circuit
+  if (adcVal >= 4085) return 0.0f;    // Shorted to 3.3V rail
+  return R_DIV * (ADC_MAX / (float)adcVal - 1.0f);
+}
+
+// Measured straight baseline resistance (Ohms) - measured at boot
+float rStraight[NUM_FINGERS] = {25000.0f, 24000.0f, 25000.0f, 27000.0f, 29000.0f};
+
+// Dynamic bend resistance span (Ohms) - typical finger bend is +10k to +20k Ohms above straight
+float rBendSpan[NUM_FINGERS] = {12000.0f, 10000.0f, 15000.0f, 15000.0f, 10000.0f};
+
+// Initial ADC defaults for fallback diagnostics
+int calibFlat[NUM_FINGERS] = {250, 1205, 625, 900, 940};
 
 // Fault detection thresholds (Named Constants)
 const int RAW_MIN_FAULT    = 10;   // Pulled to GND / short / unplugged with pulldown
 const int RAW_MAX_FAULT    = 4085; // Pulled to 3.3V rail / open circuit
 const int SPREAD_MAX_FAULT = 150;  // High ADC sample spread -> floating pin / extreme noise
-const int DEADZONE_COUNTS  = 5;    // Noise deadzone in ADC counts (suppresses rest jitter)
+const float DEADZONE_OHMS  = 350.0f; // Resistance deadzone: 350 Ohms (suppresses resting noise)
 const float EMA_ALPHA[NUM_FINGERS] = {0.50f, 0.40f, 0.40f, 0.50f, 0.40f};
 
 // ============================================================================
@@ -217,7 +220,7 @@ void initMPU() {
 // SETUP
 // ============================================================================
 void calibrateFlexBaselines() {
-  Serial.println("\n[CALIB] Auto-calibrating resting baseline (keep hand relaxed/flat)...");
+  Serial.println("\n[CALIB] Auto-calibrating resting resistance (SparkFun logic - keep hand flat)...");
   long sum[NUM_FINGERS] = {0, 0, 0, 0, 0};
   const int SAMPLES = 25;
   for (int s = 0; s < SAMPLES; s++) {
@@ -228,12 +231,20 @@ void calibrateFlexBaselines() {
     delay(10);
   }
   for (int i = 0; i < NUM_FINGERS; i++) {
-    calibFlat[i] = (int)(sum[i] / SAMPLES);
+    int avgAdc = (int)(sum[i] / SAMPLES);
+    calibFlat[i] = avgAdc;
+    rStraight[i] = computeResistance(avgAdc);
   }
-  calibSpan[0] = 50; calibSpan[1] = 40; calibSpan[2] = 70; calibSpan[3] = 80; calibSpan[4] = 35;
+  // Adaptive bend spans in Ohms: default to +10k..+15k above straight
+  rBendSpan[0] = 12000.0f;
+  rBendSpan[1] = 10000.0f;
+  rBendSpan[2] = 15000.0f;
+  rBendSpan[3] = 15000.0f;
+  rBendSpan[4] = 10000.0f;
+
   Serial.println("=========================================================================");
-  Serial.printf("[CALIB DONE] Baselines: T=%d, I=%d, M=%d, R=%d, L=%d\n",
-                calibFlat[0], calibFlat[1], calibFlat[2], calibFlat[3], calibFlat[4]);
+  Serial.printf("[CALIB DONE] Straight R: T=%.1fkΩ, I=%.1fkΩ, M=%.1fkΩ, R=%.1fkΩ, L=%.1fkΩ\n",
+                rStraight[0]/1000.0f, rStraight[1]/1000.0f, rStraight[2]/1000.0f, rStraight[3]/1000.0f, rStraight[4]/1000.0f);
   Serial.println("[CALIB] Ready! Type 'c' or 'r' in Serial Monitor to re-zero baseline anytime.");
   Serial.println("=========================================================================\n");
 }
@@ -411,8 +422,10 @@ void loop() {
     for (int i = 0; i < NUM_FINGERS; i++) {
       SampleResult s = readOversampled(FINGER_PINS[i]);
       rawValues[i] = s.raw;
-      int flat = calibFlat[i];
-      int delta = abs(s.raw - flat);
+
+      // SparkFun resistance calculation in Ohms: R_flex = R_div * (4095.0 / adc - 1.0)
+      float flexR = computeResistance(s.raw);
+      float deltaR = flexR - rStraight[i];
 
       // Fault detection: raw out-of-bounds, high sample spread (floating)
       bool fault = (s.raw < RAW_MIN_FAULT) ||
@@ -424,17 +437,18 @@ void loop() {
       if (fault) {
         curlValues[i] = lastGoodCurl[i];
       } else {
-        if (delta <= DEADZONE_COUNTS) {
+        if (deltaR <= DEADZONE_OHMS) {
           // Zero deadzone at rest: eliminates noise completely
           curlValues[i] = 0.0f;
           lastGoodCurl[i] = 0.0f;
         } else {
-          // Auto-expand dynamic span if physical bend is larger
-          if (delta > calibSpan[i]) {
-            calibSpan[i] = delta;
+          // Dynamic span expansion: expands if user bends further than current span
+          if (deltaR > rBendSpan[i]) {
+            rBendSpan[i] = deltaR;
           }
 
-          float ratio = (float)(delta - DEADZONE_COUNTS) / (float)(calibSpan[i] - DEADZONE_COUNTS);
+          // SparkFun map: linear ratio from straight to bend span
+          float ratio = (deltaR - DEADZONE_OHMS) / (rBendSpan[i] - DEADZONE_OHMS);
           ratio = constrain(ratio, 0.0f, 1.0f);
 
           // Gamma curve 0.65 for instant, visible response to slight curls
@@ -500,16 +514,16 @@ void loop() {
   }
 
   // ==========================================================================
-  // SINGLE-LINE SERIAL LOGGING (ONCE EVERY 250 ms)
+  // SINGLE-LINE SERIAL LOGGING (ONCE EVERY 250 ms) - WITH REAL OHMS RESISTANCE
   // ==========================================================================
   if (currentTime - lastSerialLogTime >= 250) {
     lastSerialLogTime = currentTime;
-    Serial.printf("[FLEX] T:%4d(d:%2d %2d%%) | I:%4d(d:%2d %2d%%) | M:%4d(d:%2d %2d%%) | R:%4d(d:%2d %2d%%) | L:%4d(d:%2d %2d%%)%s\n",
-                  rawValues[0], abs(rawValues[0] - calibFlat[0]), (int)(curlValues[0] * 100.0f + 0.5f),
-                  rawValues[1], abs(rawValues[1] - calibFlat[1]), (int)(curlValues[1] * 100.0f + 0.5f),
-                  rawValues[2], abs(rawValues[2] - calibFlat[2]), (int)(curlValues[2] * 100.0f + 0.5f),
-                  rawValues[3], abs(rawValues[3] - calibFlat[3]), (int)(curlValues[3] * 100.0f + 0.5f),
-                  rawValues[4], abs(rawValues[4] - calibFlat[4]), (int)(curlValues[4] * 100.0f + 0.5f),
+    Serial.printf("[FLEX-R] T:%.1fkΩ(%2d%%) | I:%.1fkΩ(d:+%.1fk %2d%%) | M:%.1fkΩ(d:+%.1fk %2d%%) | R:%.1fkΩ(d:+%.1fk %2d%%) | L:%.1fkΩ(d:+%.1fk %2d%%)%s\n",
+                  computeResistance(rawValues[0])/1000.0f, (int)(curlValues[0] * 100.0f + 0.5f),
+                  computeResistance(rawValues[1])/1000.0f, max(0.0f, computeResistance(rawValues[1]) - rStraight[1])/1000.0f, (int)(curlValues[1] * 100.0f + 0.5f),
+                  computeResistance(rawValues[2])/1000.0f, max(0.0f, computeResistance(rawValues[2]) - rStraight[2])/1000.0f, (int)(curlValues[2] * 100.0f + 0.5f),
+                  computeResistance(rawValues[3])/1000.0f, max(0.0f, computeResistance(rawValues[3]) - rStraight[3])/1000.0f, (int)(curlValues[3] * 100.0f + 0.5f),
+                  computeResistance(rawValues[4])/1000.0f, max(0.0f, computeResistance(rawValues[4]) - rStraight[4])/1000.0f, (int)(curlValues[4] * 100.0f + 0.5f),
                   mpuFound ? " | MPU:OK" : "");
   }
 }

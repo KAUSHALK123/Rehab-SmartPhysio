@@ -90,9 +90,37 @@ int readOversampled(int pin) {
 }
 
 // ============================================================================
-// RESTING BASELINE & DYNAMIC HIGH-SENSITIVITY CALIBRATION
+// SPARKFUN RESISTANCE-BASED FLEX SENSOR ENGINE
 // ============================================================================
-// Measured hardware baselines (auto-recalibrated on boot and via Serial command 'c'/'r')
+// Circuit: 3.3V -> Flex Sensor -> Node (GPIO Pin) -> 10k Resistor -> GND
+// Formula: R_flex = R_div * (ADC_MAX / adcVal - 1.0)
+const float R_DIV   = 10000.0f; // 10k fixed pull-down resistor to GND
+const float ADC_MAX = 4095.0f; // ESP32 12-bit ADC
+
+// Compute real-time flex resistance in Ohms from ADC
+float computeResistance(int adcVal) {
+  if (adcVal <= 10) return 999999.0f; // Disconnected / open circuit
+  if (adcVal >= 4085) return 0.0f;    // Shorted to 3.3V rail
+  return R_DIV * (ADC_MAX / (float)adcVal - 1.0f);
+}
+
+// Measured straight baseline resistance (Ohms) - measured at boot
+float rStraightThumb  = 25000.0f;
+float rStraightIndex  = 24000.0f;
+float rStraightMiddle = 25000.0f;
+float rStraightRing   = 27000.0f;
+float rStraightLittle = 29000.0f;
+float rStraightElbow  = 25000.0f;
+
+// Dynamic bend resistance span (Ohms) - typical finger bend is +10k to +20k Ohms above straight
+float rBendSpanThumb  = 12000.0f;
+float rBendSpanIndex  = 10000.0f;
+float rBendSpanMiddle = 15000.0f;
+float rBendSpanRing   = 15000.0f;
+float rBendSpanLittle = 10000.0f;
+float rBendSpanElbow  = 20000.0f;
+
+// Initial ADC defaults for fallback diagnostics
 int baseFlatThumb  = 1400;
 int baseFlatIndex  = 1205;
 int baseFlatMiddle = 625;
@@ -100,16 +128,8 @@ int baseFlatRing   = 900;
 int baseFlatLittle = 940;
 int baseFlatElbow  = 1200;
 
-// Dynamic active bend spans (sensitive defaults: micro-bends of 25-40 counts yield high flexion)
-int spanThumb  = 50;
-int spanIndex  = 40;
-int spanMiddle = 70;
-int spanRing   = 80;
-int spanLittle = 35;
-int spanElbow  = 80;
-
 void calibrateFlexBaselines() {
-  Serial.println("\n[CALIB] Auto-calibrating resting baseline (keep hand relaxed/flat)...");
+  Serial.println("\n[CALIB] Auto-calibrating resting resistance (SparkFun logic - keep hand flat)...");
   long sThumb = 0, sIndex = 0, sMiddle = 0, sRing = 0, sLittle = 0, sElbow = 0;
   const int SAMPLES = 25;
   for (int i = 0; i < SAMPLES; i++) {
@@ -128,33 +148,46 @@ void calibrateFlexBaselines() {
   baseFlatLittle = (int)(sLittle / SAMPLES);
   baseFlatElbow  = (int)(sElbow / SAMPLES);
 
+  rStraightThumb  = computeResistance(baseFlatThumb);
+  rStraightIndex  = computeResistance(baseFlatIndex);
+  rStraightMiddle = computeResistance(baseFlatMiddle);
+  rStraightRing   = computeResistance(baseFlatRing);
+  rStraightLittle = computeResistance(baseFlatLittle);
+  rStraightElbow  = computeResistance(baseFlatElbow);
+
   // Reset dynamic spans to responsive defaults
-  spanThumb = 50; spanIndex = 40; spanMiddle = 70; spanRing = 80; spanLittle = 35; spanElbow = 80;
+  rBendSpanThumb  = 12000.0f;
+  rBendSpanIndex  = 10000.0f;
+  rBendSpanMiddle = 15000.0f;
+  rBendSpanRing   = 15000.0f;
+  rBendSpanLittle = 10000.0f;
+  rBendSpanElbow  = 20000.0f;
 
   Serial.println("=========================================================================");
-  Serial.printf("[CALIB DONE] Baselines: Thumb=%d, Index=%d, Middle=%d, Ring=%d, Little=%d, Elbow=%d\n",
-                baseFlatThumb, baseFlatIndex, baseFlatMiddle, baseFlatRing, baseFlatLittle, baseFlatElbow);
+  Serial.printf("[CALIB DONE] Straight R: T=%.1fkΩ, I=%.1fkΩ, M=%.1fkΩ, R=%.1fkΩ, L=%.1fkΩ, El=%.1fkΩ\n",
+                rStraightThumb/1000.0f, rStraightIndex/1000.0f, rStraightMiddle/1000.0f, rStraightRing/1000.0f, rStraightLittle/1000.0f, rStraightElbow/1000.0f);
   Serial.println("[CALIB] Ready! Type 'c' or 'r' in Serial Monitor to re-zero baseline anytime.");
   Serial.println("=========================================================================\n");
 }
 
-// High-sensitivity bend calculation with noise deadband and gamma curve
-float computeSensitiveAngle(int rawVal, int baseFlat, int &activeSpan) {
-  int delta = abs(rawVal - baseFlat);
+// High-sensitivity bend calculation with SparkFun resistance linearization
+float computeAngleFromResistance(int rawVal, float rStraight, float &rSpan) {
+  float currentR = computeResistance(rawVal);
+  float deltaR = currentR - rStraight;
 
-  // Noise deadband: suppress resting ADC noise (<= 5 counts)
-  const int DEADZONE = 5;
-  if (delta <= DEADZONE) {
+  // Noise deadband: suppress resting resistance fluctuations (<= 350 Ohms)
+  const float DEADZONE_OHMS = 350.0f;
+  if (deltaR <= DEADZONE_OHMS) {
     return 0.0f;
   }
 
   // Dynamic span auto-expansion: expand span if physical bend is larger
-  if (delta > activeSpan) {
-    activeSpan = delta;
+  if (deltaR > rSpan) {
+    rSpan = deltaR;
   }
 
   // Normalized bend ratio clamped [0.0, 1.0]
-  float ratio = (float)(delta - DEADZONE) / (float)(activeSpan - DEADZONE);
+  float ratio = (deltaR - DEADZONE_OHMS) / (rSpan - DEADZONE_OHMS);
   ratio = constrain(ratio, 0.0f, 1.0f);
 
   // Gamma power curve (0.65) gives instant, satisfying visual response to slight finger curls
@@ -522,23 +555,23 @@ void loop() {
                        (abs(rawLittle - f_little) < 8) && (abs(rawElbow - f_elbow) < 8);
     sensorsStable = isStableNow;
 
-    // B. Calculate mapped angles with high-sensitivity dynamic delta tracking
-    float t_angle = computeSensitiveAngle(f_thumb > 0 ? (int)f_thumb : rawThumb, baseFlatThumb, spanThumb);
+    // B. Calculate mapped angles with SparkFun resistance linearization
+    float t_angle = computeAngleFromResistance(f_thumb > 0 ? (int)f_thumb : rawThumb, rStraightThumb, rBendSpanThumb);
     if (abs(t_angle - a_thumb) > angleDeadband) a_thumb = t_angle;
     
-    float i_angle = computeSensitiveAngle(f_index > 0 ? (int)f_index : rawIndex, baseFlatIndex, spanIndex);
+    float i_angle = computeAngleFromResistance(f_index > 0 ? (int)f_index : rawIndex, rStraightIndex, rBendSpanIndex);
     if (abs(i_angle - a_index) > angleDeadband) a_index = i_angle;
     
-    float m_angle = computeSensitiveAngle(f_middle > 0 ? (int)f_middle : rawMiddle, baseFlatMiddle, spanMiddle);
+    float m_angle = computeAngleFromResistance(f_middle > 0 ? (int)f_middle : rawMiddle, rStraightMiddle, rBendSpanMiddle);
     if (abs(m_angle - a_middle) > angleDeadband) a_middle = m_angle;
     
-    float r_angle = computeSensitiveAngle(f_ring > 0 ? (int)f_ring : rawRing, baseFlatRing, spanRing);
+    float r_angle = computeAngleFromResistance(f_ring > 0 ? (int)f_ring : rawRing, rStraightRing, rBendSpanRing);
     if (abs(r_angle - a_ring) > angleDeadband) a_ring = r_angle;
     
-    float l_angle = computeSensitiveAngle(f_little > 0 ? (int)f_little : rawLittle, baseFlatLittle, spanLittle);
+    float l_angle = computeAngleFromResistance(f_little > 0 ? (int)f_little : rawLittle, rStraightLittle, rBendSpanLittle);
     if (abs(l_angle - a_little) > angleDeadband) a_little = l_angle;
     
-    float el_angle = computeSensitiveAngle(f_elbow > 0 ? (int)f_elbow : rawElbow, baseFlatElbow, spanElbow);
+    float el_angle = computeAngleFromResistance(f_elbow > 0 ? (int)f_elbow : rawElbow, rStraightElbow, rBendSpanElbow);
     if (abs(el_angle - a_elbow) > angleDeadband) a_elbow = el_angle;
 
     // Grip pressure resistance force (arbitrary Newton approximation)
@@ -554,13 +587,13 @@ void loop() {
       wristRoll = mpu.getAngleY();
     }
 
-    // D. Print clean, highly sensitive telemetry to Serial Monitor (clearly shows raw, delta, and angle)
-    Serial.printf("[FLEX] T:%4d(d:%2d %4.1f°) | I:%4d(d:%2d %4.1f°) | M:%4d(d:%2d %4.1f°) | R:%4d(d:%2d %4.1f°) | L:%4d(d:%2d %4.1f°)\n",
-                  rawThumb, abs(rawThumb - baseFlatThumb), a_thumb,
-                  rawIndex, abs(rawIndex - baseFlatIndex), a_index,
-                  rawMiddle, abs(rawMiddle - baseFlatMiddle), a_middle,
-                  rawRing, abs(rawRing - baseFlatRing), a_ring,
-                  rawLittle, abs(rawLittle - baseFlatLittle), a_little);
+    // D. Print clean SparkFun resistance telemetry to Serial Monitor (shows Ohms and angle)
+    Serial.printf("[FLEX-R] T:%.1fkΩ(%4.1f°) | I:%.1fkΩ(d:+%.1fk %4.1f°) | M:%.1fkΩ(d:+%.1fk %4.1f°) | R:%.1fkΩ(d:+%.1fk %4.1f°) | L:%.1fkΩ(d:+%.1fk %4.1f°)\n",
+                  computeResistance(rawThumb)/1000.0f, a_thumb,
+                  computeResistance(rawIndex)/1000.0f, max(0.0f, computeResistance(rawIndex) - rStraightIndex)/1000.0f, a_index,
+                  computeResistance(rawMiddle)/1000.0f, max(0.0f, computeResistance(rawMiddle) - rStraightMiddle)/1000.0f, a_middle,
+                  computeResistance(rawRing)/1000.0f, max(0.0f, computeResistance(rawRing) - rStraightRing)/1000.0f, a_ring,
+                  computeResistance(rawLittle)/1000.0f, max(0.0f, computeResistance(rawLittle) - rStraightLittle)/1000.0f, a_little);
 
     // E. Serialize and send JSON string over WebSocket only if connected
     if (wsConnected) {
