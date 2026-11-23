@@ -745,6 +745,10 @@ function LiveExercisePage() {
     ring: 0,
     little: 0
   });
+  const sensorsRef = useRef(sensors);
+  useEffect(() => {
+    sensorsRef.current = sensors;
+  }, [sensors]);
 
   // State machine variables
   // States: 'rest' | 'moving' | 'target_hold' | 'returning'
@@ -1196,22 +1200,22 @@ function LiveExercisePage() {
           return val;
         };
 
-        setSensors(prevSensors => {
-          const parsedSensors = {
-            wrist_pitch: rawPitch,
-            wrist_roll: rawRoll,
-            wrist_yaw: data.wrist_yaw ?? data.yaw ?? 0.0,
-            elbow: extractElbow(),
-            pressure: data.pressure ?? (prevSensors?.pressure ?? 0),
-            thumb: hasFingerPayload ? extractFinger('thumb') : (prevSensors?.thumb ?? 0),
-            index: hasFingerPayload ? extractFinger('index') : (prevSensors?.index ?? 0),
-            middle: hasFingerPayload ? extractFinger('middle') : (prevSensors?.middle ?? 0),
-            ring: hasFingerPayload ? extractFinger('ring') : (prevSensors?.ring ?? 0),
-            little: hasFingerPayload ? extractFinger('little') : (prevSensors?.little ?? 0)
-          };
-          telemetryHistoryRef.current.push(parsedSensors);
-          return parsedSensors;
-        });
+        const prevSensors = sensorsRef.current;
+        const parsedSensors = {
+          wrist_pitch: rawPitch,
+          wrist_roll: rawRoll,
+          wrist_yaw: data.wrist_yaw ?? data.yaw ?? 0.0,
+          elbow: extractElbow(),
+          pressure: data.pressure ?? (prevSensors?.pressure ?? 0),
+          thumb: hasFingerPayload ? extractFinger('thumb') : (prevSensors?.thumb ?? 0),
+          index: hasFingerPayload ? extractFinger('index') : (prevSensors?.index ?? 0),
+          middle: hasFingerPayload ? extractFinger('middle') : (prevSensors?.middle ?? 0),
+          ring: hasFingerPayload ? extractFinger('ring') : (prevSensors?.ring ?? 0),
+          little: hasFingerPayload ? extractFinger('little') : (prevSensors?.little ?? 0)
+        };
+        sensorsRef.current = parsedSensors;
+        telemetryHistoryRef.current.push(parsedSensors);
+        setSensors(parsedSensors);
         
         setTelemetryStream(prev => {
           const updated = [...prev, {

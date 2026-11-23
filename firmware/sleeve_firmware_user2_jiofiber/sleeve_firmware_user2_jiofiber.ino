@@ -228,6 +228,12 @@ void calibrateFlexBaselines() {
   }
   for (int i = 0; i < NUM_FINGERS; i++) {
     int avgAdc = (int)(sum[i] / SAMPLES);
+    // If pin reads 0 at boot (unplugged or no 3.3V power), use safe default 1400 ADC (~19kΩ)
+    // so the sensor doesn't get bricked with 999,999Ω resistance
+    if (avgAdc < 100) {
+      avgAdc = 1400;
+      Serial.printf("[CALIB WARN] Pin %d read 0 ADC at boot. Check 3.3V rail. Using safe baseline 1400.\n", FINGER_PINS[i]);
+    }
     calibFlat[i] = avgAdc;
     rStraight[i] = computeResistance(avgAdc);
   }
@@ -419,6 +425,13 @@ void loop() {
       int spread = 0;
       int raw = readOversampled(FINGER_PINS[i], &spread);
       rawValues[i] = raw;
+
+      // Auto-recover straight baseline if ESP32 booted without 3.3V and user subsequently plugged it in
+      if (calibFlat[i] == 1400 && raw >= 150 && raw <= 3900 && lastGoodCurl[i] == 0.0f) {
+        calibFlat[i] = raw;
+        rStraight[i] = computeResistance(raw);
+        Serial.printf("[AUTO-CALIB] Finger %d connected (ADC=%d, R=%.1fkΩ). Baseline established.\n", i, raw, rStraight[i]/1000.0f);
+      }
 
       // SparkFun resistance calculation in Ohms: R_flex = R_div * (4095.0 / adc - 1.0)
       float flexR = computeResistance(raw);

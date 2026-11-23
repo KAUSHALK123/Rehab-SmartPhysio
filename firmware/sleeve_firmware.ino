@@ -148,6 +148,14 @@ void calibrateFlexBaselines() {
   baseFlatLittle = (int)(sLittle / SAMPLES);
   baseFlatElbow  = (int)(sElbow / SAMPLES);
 
+  // If pin read 0 at boot (unplugged or no 3.3V rail), use safe 1400 baseline (~19kΩ)
+  if (baseFlatThumb < 100) baseFlatThumb = 1400;
+  if (baseFlatIndex < 100) baseFlatIndex = 1400;
+  if (baseFlatMiddle < 100) baseFlatMiddle = 1400;
+  if (baseFlatRing < 100) baseFlatRing = 1400;
+  if (baseFlatLittle < 100) baseFlatLittle = 1400;
+  if (baseFlatElbow < 100) baseFlatElbow = 1400;
+
   rStraightThumb  = computeResistance(baseFlatThumb);
   rStraightIndex  = computeResistance(baseFlatIndex);
   rStraightMiddle = computeResistance(baseFlatMiddle);
