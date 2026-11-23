@@ -24,7 +24,8 @@ import {
   ChevronLeft,
   ChevronDown,
   RefreshCw,
-  Sliders
+  Sliders,
+  ShieldCheck
 } from 'lucide-react';
 import { startSession, endSession } from '../services/session';
 import apiClient from '../services/auth';
@@ -39,6 +40,7 @@ import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
 import WristAiCoachOverlay from '../components/WristAiCoachOverlay';
 import FlexAiCoachOverlay from '../components/FlexAiCoachOverlay';
 import RandomForestModelCard from '../components/RandomForestModelCard';
+import GloveCalibrationModal from '../components/GloveCalibrationModal';
 import { processFingerTelemetry, mapNormalizedToGlb } from '../services/fingerSensorMapper';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
@@ -243,7 +245,9 @@ const FingerSyncPanel = ({
   isFlexSynced, 
   onToggleSync,
   simulatedActive = false,
-  onToggleSimulation = () => {}
+  onToggleSimulation = () => {},
+  onOpenCalibration = () => {},
+  isGloveCalibrated = false
 }) => {
   const fingerKeys = [
     { key: 'thumb', label: 'Thumb' },
@@ -444,6 +448,20 @@ const FingerSyncPanel = ({
         >
           <Zap className={`w-3.5 h-3.5 ${simulatedActive ? 'text-amber-300' : 'text-slate-500'}`} />
           <span className="truncate">{simulatedActive ? 'Stop Simulation' : 'Simulate Flex Test'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onOpenCalibration}
+          className={`py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
+            isGloveCalibrated
+              ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+              : 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 animate-pulse shadow-sm'
+          }`}
+          title="Open Live Glove Calibration Popup"
+        >
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span className="truncate">{isGloveCalibrated ? 'Recalibrate' : 'Calibrate Glove'}</span>
         </button>
       </div>
     </div>
@@ -742,6 +760,9 @@ function LiveExercisePage() {
   // Live Telemetry states
   const [deviceConnected, setDeviceConnected] = useState(false);
   const [isHardwareDevice, setIsHardwareDevice] = useState(false);
+  const [isGloveCalibratedForSession, setIsGloveCalibratedForSession] = useState(false);
+  const [showGloveCalibModal, setShowGloveCalibModal] = useState(false);
+  const hasTriggeredInitialCalibRef = useRef(false);
   const [simulatedFingersActive, setSimulatedFingersActive] = useState(false);
   const [battery, setBattery] = useState(100);
   const [telemetryStream, setTelemetryStream] = useState([]);
@@ -818,6 +839,10 @@ function LiveExercisePage() {
   }, [isPaused]);
 
   const togglePauseSession = () => {
+    if (isHardwareDevice && !isGloveCalibratedForSession) {
+      setShowGloveCalibModal(true);
+      return;
+    }
     setIsPaused(prev => {
       const nextPaused = !prev;
       if (nextPaused) {
@@ -1077,6 +1102,10 @@ function LiveExercisePage() {
       const data = JSON.parse(event.data);
       if (data.type === 'status_update' && data.status === 'hardware_status_changed') {
         setDeviceConnected(data.hardware_connected);
+        if (!data.hardware_connected) {
+          setIsGloveCalibratedForSession(false);
+          hasTriggeredInitialCalibRef.current = false;
+        }
       }
 
       if (data.type === 'calib_status') {
@@ -1088,6 +1117,12 @@ function LiveExercisePage() {
         setIsHardwareDevice(isHardware);
         setDeviceConnected(true);
         if (data.battery !== undefined) setBattery(data.battery);
+
+        // Auto-show pre-exercise calibration modal on first live glove connection of the session
+        if (isHardware && !isGloveCalibratedForSession && !hasTriggeredInitialCalibRef.current) {
+          hasTriggeredInitialCalibRef.current = true;
+          setShowGloveCalibModal(true);
+        }
 
         // Check if packet carries finger telemetry (either named fields or array fields)
         const hasFingerPayload = Array.isArray(data.curl) || Array.isArray(data.raw) ||
@@ -1252,6 +1287,8 @@ function LiveExercisePage() {
     ws.onclose = () => {
       setDeviceConnected(false);
       setIsHardwareDevice(false);
+      setIsGloveCalibratedForSession(false);
+      hasTriggeredInitialCalibRef.current = false;
       setGuidance('Wearable sleeve disconnected. Attempting to reconnect...');
     };
   };
@@ -1347,6 +1384,12 @@ function LiveExercisePage() {
   // State Machine Rep Count & Posture Guidance Logic
   const evaluateRepetitionState = (data) => {
     if (isPaused) return;
+
+    // Pre-exercise calibration gate: Do not run exercise reps until glove calibration is done
+    if (isHardwareDevice && !isGloveCalibratedForSession) {
+      setGuidance('Pre-exercise glove calibration required. Please complete calibration.');
+      return;
+    }
 
     if (isTrial) {
       // In trial mode, we just update static test guidance and avoid running the rep state machine
@@ -2413,9 +2456,25 @@ function LiveExercisePage() {
 
                 {/* Sleeve Connection / Battery status (relocated to top-left bar) */}
                 {deviceConnected ? (
-                  <div className="bg-slate-950/85 backdrop-blur border border-slate-800 rounded-xl p-2 px-3 flex items-center gap-2 text-xs font-semibold text-green-400 shadow-sm">
-                    <Activity className="w-4 h-4 text-green-400 animate-pulse" />
-                    <span>Battery: {battery}%</span>
+                  <div className="flex items-center gap-2">
+                    <div className="bg-slate-950/85 backdrop-blur border border-slate-800 rounded-xl p-2 px-3 flex items-center gap-2 text-xs font-semibold text-green-400 shadow-sm">
+                      <Activity className="w-4 h-4 text-green-400 animate-pulse" />
+                      <span>Battery: {battery}%</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowGloveCalibModal(true)}
+                      className={`backdrop-blur border rounded-xl p-2 px-3 flex items-center gap-1.5 text-xs font-semibold shadow-sm transition cursor-pointer ${
+                        isGloveCalibratedForSession
+                          ? 'bg-slate-950/85 border-slate-800 text-emerald-400 hover:border-emerald-600'
+                          : 'bg-amber-950/85 border-amber-800 text-amber-300 animate-pulse hover:border-amber-600'
+                      }`}
+                      title="Click to calibrate or recalibrate glove"
+                    >
+                      <ShieldCheck className={`w-3.5 h-3.5 ${isGloveCalibratedForSession ? 'text-emerald-400' : 'text-amber-400'}`} />
+                      <span>{isGloveCalibratedForSession ? 'Glove Calibrated' : 'Calibrate Glove'}</span>
+                    </button>
                   </div>
                 ) : (
                   <div className="bg-slate-950/85 backdrop-blur border border-red-900/80 rounded-xl p-2 px-3 flex items-center gap-2 text-xs font-semibold text-red-400 animate-pulse shadow-sm">
@@ -2424,6 +2483,33 @@ function LiveExercisePage() {
                   </div>
                 )}
               </div>
+
+              {/* Pre-Exercise Calibration Required Banner (Over 3D Hand) */}
+              {deviceConnected && isHardwareDevice && !isGloveCalibratedForSession && (
+                <div className="absolute top-16 left-4 right-4 z-20 bg-amber-950/90 border border-amber-500/50 backdrop-blur-md p-3 px-4 rounded-2xl flex items-center justify-between text-amber-200 shadow-xl animate-in slide-in-from-top-2 duration-200">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 flex items-center justify-center font-bold">
+                      <AlertTriangle className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-black uppercase tracking-wider block text-amber-100">
+                        Glove Calibration Required
+                      </span>
+                      <span className="text-[11px] text-amber-300/80">
+                        Please complete the quick 6-second calibration before starting repetitions.
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowGloveCalibModal(true)}
+                    className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs transition cursor-pointer shadow-md flex items-center gap-1.5"
+                  >
+                    <Activity className="w-3.5 h-3.5" />
+                    Calibrate Now
+                  </button>
+                </div>
+              )}
 
               {/* Animated Exercise Demonstration Card for Wrist Exercises (Top Right Overlay) */}
               {isWristExercise && (
@@ -2941,6 +3027,8 @@ function LiveExercisePage() {
                       onToggleSync={() => setIsFlexSynced(prev => !prev)}
                       simulatedActive={simulatedFingersActive}
                       onToggleSimulation={() => setSimulatedFingersActive(prev => !prev)}
+                      onOpenCalibration={() => setShowGloveCalibModal(true)}
+                      isGloveCalibrated={isGloveCalibratedForSession}
                     />
                     <div className="grid grid-cols-2 gap-3">
                       <SVGGauge {...primary} />
@@ -2995,13 +3083,29 @@ function LiveExercisePage() {
                 <button 
                   onClick={togglePauseSession}
                   className={`flex-1 py-3.5 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-sm ${
-                    isPaused 
-                      ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-250' 
-                      : 'bg-amber-500 hover:bg-amber-600 shadow-amber-250'
+                    isHardwareDevice && !isGloveCalibratedForSession
+                      ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-250 animate-pulse'
+                      : isPaused 
+                        ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-250' 
+                        : 'bg-amber-500 hover:bg-amber-600 shadow-amber-250'
                   }`}
                 >
-                  {isPaused ? <Play className="w-4 h-4 fill-current" /> : <Pause className="w-4 h-4" />}
-                  {isPaused ? 'Resume' : 'Pause'}
+                  {isHardwareDevice && !isGloveCalibratedForSession ? (
+                    <>
+                      <ShieldCheck className="w-4 h-4" />
+                      Calibrate Glove First
+                    </>
+                  ) : isPaused ? (
+                    <>
+                      <Play className="w-4 h-4 fill-current" />
+                      Resume
+                    </>
+                  ) : (
+                    <>
+                      <Pause className="w-4 h-4" />
+                      Pause
+                    </>
+                  )}
                 </button>
                 <button 
                   onClick={handleStopSession}
@@ -3162,6 +3266,37 @@ function LiveExercisePage() {
           </div>
         </div>
       )}
+
+      {/* Live Pre-Exercise Glove Calibration Modal */}
+      <GloveCalibrationModal 
+        isOpen={showGloveCalibModal}
+        onClose={() => setShowGloveCalibModal(false)}
+        onComplete={(newBounds) => {
+          setIsGloveCalibratedForSession(true);
+          setShowGloveCalibModal(false);
+          // Re-compute finger angles immediately with the newly calibrated bounds
+          if (rawSensorPacket && Object.keys(rawSensorPacket).length > 0) {
+            const comp = processFingerTelemetry(rawSensorPacket, null, newBounds);
+            if (comp?.angles) {
+              setSensorFingerAngles(comp.angles);
+              setFingerTelemetryDetails(comp);
+            }
+          }
+        }}
+        rawSensorPacket={rawSensorPacket}
+        liveFingerAngles={sensorFingerAngles}
+        deviceConnected={deviceConnected}
+        isHardwareDevice={isHardwareDevice}
+        onSendFirmwareCalib={() => {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            try {
+              wsRef.current.send(JSON.stringify({ type: 'flex_calib' }));
+            } catch (err) {
+              console.error('Failed to send flex_calib message to websocket', err);
+            }
+          }
+        }}
+      />
     </div>
   );
 }
