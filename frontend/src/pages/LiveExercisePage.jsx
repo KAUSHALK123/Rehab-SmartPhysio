@@ -315,27 +315,6 @@ const FingerSyncPanel = ({
         </div>
       </div>
 
-      {/* 0 ADC Diagnostic Warning Banner */}
-      {sensorsReadingZero && (
-        <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1.5">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-amber-800 dark:text-amber-300">
-            <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
-            <span>ESP32 Connected • Flex Pins Reading 0 ADC</span>
-          </div>
-          <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
-            The ESP32 is online, but GPIO pins 32-36 are reading 0V. Check that 3.3V power &amp; GND to the flex voltage dividers are plugged in, or click below to simulate fist movement.
-          </p>
-          <button
-            type="button"
-            onClick={onToggleSimulation}
-            className="mt-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Zap className="w-3 h-3" />
-            Start Simulated Flex (Test Repetitions)
-          </button>
-        </div>
-      )}
-
       {/* Two Side-By-Side Cards */}
       <div className="grid grid-cols-2 gap-3">
         {/* LEFT CARD: GLB FINGER BEND */}
@@ -839,10 +818,6 @@ function LiveExercisePage() {
   }, [isPaused]);
 
   const togglePauseSession = () => {
-    if (isHardwareDevice && !isGloveCalibratedForSession) {
-      setShowGloveCalibModal(true);
-      return;
-    }
     setIsPaused(prev => {
       const nextPaused = !prev;
       if (nextPaused) {
@@ -1118,12 +1093,6 @@ function LiveExercisePage() {
         setDeviceConnected(true);
         if (data.battery !== undefined) setBattery(data.battery);
 
-        // Auto-show pre-exercise calibration modal on first live glove connection of the session
-        if (isHardware && !isGloveCalibratedForSession && !hasTriggeredInitialCalibRef.current) {
-          hasTriggeredInitialCalibRef.current = true;
-          setShowGloveCalibModal(true);
-        }
-
         // Check if packet carries finger telemetry (either named fields or array fields)
         const hasFingerPayload = Array.isArray(data.curl) || Array.isArray(data.raw) ||
           data.thumb !== undefined || data.index !== undefined ||
@@ -1384,12 +1353,6 @@ function LiveExercisePage() {
   // State Machine Rep Count & Posture Guidance Logic
   const evaluateRepetitionState = (data) => {
     if (isPaused) return;
-
-    // Pre-exercise calibration gate: Do not run exercise reps until glove calibration is done
-    if (isHardwareDevice && !isGloveCalibratedForSession) {
-      setGuidance('Pre-exercise glove calibration required. Please complete calibration.');
-      return;
-    }
 
     if (isTrial) {
       // In trial mode, we just update static test guidance and avoid running the rep state machine
@@ -2484,33 +2447,6 @@ function LiveExercisePage() {
                 )}
               </div>
 
-              {/* Pre-Exercise Calibration Required Banner (Over 3D Hand) */}
-              {deviceConnected && isHardwareDevice && !isGloveCalibratedForSession && (
-                <div className="absolute top-16 left-4 right-4 z-20 bg-amber-950/90 border border-amber-500/50 backdrop-blur-md p-3 px-4 rounded-2xl flex items-center justify-between text-amber-200 shadow-xl animate-in slide-in-from-top-2 duration-200">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 flex items-center justify-center font-bold">
-                      <AlertTriangle className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <span className="text-xs font-black uppercase tracking-wider block text-amber-100">
-                        Glove Calibration Required
-                      </span>
-                      <span className="text-[11px] text-amber-300/80">
-                        Please complete the quick 6-second calibration before starting repetitions.
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowGloveCalibModal(true)}
-                    className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs transition cursor-pointer shadow-md flex items-center gap-1.5"
-                  >
-                    <Activity className="w-3.5 h-3.5" />
-                    Calibrate Now
-                  </button>
-                </div>
-              )}
-
               {/* Animated Exercise Demonstration Card for Wrist Exercises (Top Right Overlay) */}
               {isWristExercise && (
                 <div className="absolute top-4 right-4 z-10 animate-in fade-in slide-in-from-top-2 duration-200">
@@ -3083,29 +3019,13 @@ function LiveExercisePage() {
                 <button 
                   onClick={togglePauseSession}
                   className={`flex-1 py-3.5 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-sm ${
-                    isHardwareDevice && !isGloveCalibratedForSession
-                      ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-250 animate-pulse'
-                      : isPaused 
-                        ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-250' 
-                        : 'bg-amber-500 hover:bg-amber-600 shadow-amber-250'
+                    isPaused 
+                      ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-250' 
+                      : 'bg-amber-500 hover:bg-amber-600 shadow-amber-250'
                   }`}
                 >
-                  {isHardwareDevice && !isGloveCalibratedForSession ? (
-                    <>
-                      <ShieldCheck className="w-4 h-4" />
-                      Calibrate Glove First
-                    </>
-                  ) : isPaused ? (
-                    <>
-                      <Play className="w-4 h-4 fill-current" />
-                      Resume
-                    </>
-                  ) : (
-                    <>
-                      <Pause className="w-4 h-4" />
-                      Pause
-                    </>
-                  )}
+                  {isPaused ? <Play className="w-4 h-4 fill-current" /> : <Pause className="w-4 h-4" />}
+                  {isPaused ? 'Resume' : 'Pause'}
                 </button>
                 <button 
                   onClick={handleStopSession}
