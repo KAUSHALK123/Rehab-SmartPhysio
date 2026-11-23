@@ -120,14 +120,10 @@ float lastGoodCurl[NUM_FINGERS] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 // ============================================================================
 // OVERSAMPLED ADC ACQUISITION WITH SPREAD (NOISE) TRACKING
 // ============================================================================
-struct SampleResult {
-  int raw;
-  int spread;
-};
-
-SampleResult readOversampled(int pin) {
+int readOversampled(int pin, int* spread = nullptr) {
   volatile int dummy = analogRead(pin); // mux settle
   (void)dummy;
+  delayMicroseconds(20);
   int minVal = 4095;
   int maxVal = 0;
   long sum = 0;
@@ -136,12 +132,12 @@ SampleResult readOversampled(int pin) {
     if (val < minVal) minVal = val;
     if (val > maxVal) maxVal = val;
     sum += val;
-    delayMicroseconds(40);
+    delayMicroseconds(30);
   }
-  SampleResult res;
-  res.raw = (int)(sum >> 4);
-  res.spread = maxVal - minVal;
-  return res;
+  if (spread != nullptr) {
+    *spread = maxVal - minVal;
+  }
+  return (int)(sum >> 4);
 }
 
 // ============================================================================
@@ -225,8 +221,8 @@ void calibrateFlexBaselines() {
   const int SAMPLES = 25;
   for (int s = 0; s < SAMPLES; s++) {
     for (int i = 0; i < NUM_FINGERS; i++) {
-      SampleResult res = readOversampled(FINGER_PINS[i]);
-      sum[i] += res.raw;
+      int rawVal = readOversampled(FINGER_PINS[i]);
+      sum[i] += rawVal;
     }
     delay(10);
   }
@@ -420,17 +416,18 @@ void loop() {
     lastStreamTime = currentTime;
 
     for (int i = 0; i < NUM_FINGERS; i++) {
-      SampleResult s = readOversampled(FINGER_PINS[i]);
-      rawValues[i] = s.raw;
+      int spread = 0;
+      int raw = readOversampled(FINGER_PINS[i], &spread);
+      rawValues[i] = raw;
 
       // SparkFun resistance calculation in Ohms: R_flex = R_div * (4095.0 / adc - 1.0)
-      float flexR = computeResistance(s.raw);
+      float flexR = computeResistance(raw);
       float deltaR = flexR - rStraight[i];
 
       // Fault detection: raw out-of-bounds, high sample spread (floating)
-      bool fault = (s.raw < RAW_MIN_FAULT) ||
-                   (s.raw > RAW_MAX_FAULT) ||
-                   (s.spread > SPREAD_MAX_FAULT);
+      bool fault = (raw < RAW_MIN_FAULT) ||
+                   (raw > RAW_MAX_FAULT) ||
+                   (spread > SPREAD_MAX_FAULT);
 
       okFlags[i] = fault ? 0 : 1;
 
