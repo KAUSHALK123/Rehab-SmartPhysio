@@ -114,3 +114,30 @@ For deep-dives into specific aspects of the codebase or to provide detailed cont
     *   [09_AI_DEVELOPMENT_PLAN.md](./docs/09_AI_DEVELOPMENT_PLAN.md) - Roadmap for implementing ML features.
     *   [10_PROMPT_LIBRARY.md](./docs/10_PROMPT_LIBRARY.md) - Pre-made context prompts for instructing AI coding subagents.
 *   **Hardware / ESP32 Specifications**: [11_HARDWARE_SPEC.md](./docs/11_HARDWARE_SPEC.md) - Sleeve electronics details.
+
+---
+
+## Flex Sensor Calibration & Diagnostics Guide
+
+The SmartPhysio ESP32 sleeve firmware (v1.2.0) features a measured two-pose calibration engine, trimmed-mean noise suppression, and real-time range diagnostics.
+
+### Test Checklist & Verification Procedure
+
+1. **Upload & Range Test (`'t'`)**:
+   - Upload firmware to the ESP32 and open Serial Monitor at `115200` baud.
+   - Type `'t'` and press Enter to initiate the 6-second dynamic range test.
+   - Bend each finger repeatedly 3 times through its full range of motion.
+   - Review the generated verdict table (`GOOD` / `LOW RANGE` / `NO SIGNAL` / `FAULTY`).
+2. **Two-Pose Calibration (`'c'`)**:
+   - Type `'c'` (or click "Calibrate fingers" in UI with `?dev=1`).
+   - Phase 1: Hold hand completely **FLAT** for 3 seconds.
+   - Pause: Rest for 2 seconds.
+   - Phase 2: Make a tight **FIST** for 3 seconds.
+   - Confirm the measured resistance table is printed and persisted to Preferences (`"flexcal"`).
+3. **GLB Hand Tracking**:
+   - In the web application, bend each finger individually: Thumb, Index, Middle, Ring, and Little track smoothly 0–100% flexion in the 3D GLB model.
+4. **Fault & Disconnection Detection**:
+   - Disconnect a single flex sensor wire: that finger immediately reports `!F` / `NO SIGNAL` in the Serial Monitor, and its GLB bone does not jump or curl into a false fist.
+5. **Flash Persistence across Power Cycles**:
+   - Power cycle or reset the ESP32: `[FLEXCAL] Stored 2-pose calibration loaded from flash.` appears on boot; no re-calibration is required.
+

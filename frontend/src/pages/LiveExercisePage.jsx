@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   ResponsiveContainer, 
@@ -23,7 +23,8 @@ import {
   Cpu,
   ChevronLeft,
   ChevronDown,
-  RefreshCw
+  RefreshCw,
+  Sliders
 } from 'lucide-react';
 import { startSession, endSession } from '../services/session';
 import apiClient from '../services/auth';
@@ -38,7 +39,7 @@ import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
 import WristAiCoachOverlay from '../components/WristAiCoachOverlay';
 import FlexAiCoachOverlay from '../components/FlexAiCoachOverlay';
 import RandomForestModelCard from '../components/RandomForestModelCard';
-import { processFingerTelemetry } from '../services/fingerSensorMapper';
+import { processFingerTelemetry, mapNormalizedToGlb } from '../services/fingerSensorMapper';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
 
@@ -656,12 +657,24 @@ function LiveExercisePage() {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Check if we are in trial mode
+  // Check if we are in trial mode or dev diagnostics mode (?dev=1)
   const searchParams = new URLSearchParams(location.search);
   const mode = searchParams.get('mode');
   const trialType = searchParams.get('type') || '';
   const isTrial = mode === 'trial';
+  const isDev = searchParams.get('dev') === '1';
   const VisualizerComponent = isTrial ? Trial3DVisualizer : Arm3DVisualizer;
+
+  // Dev diagnostic sliders & hardware calibration states (?dev=1)
+  const [devSlidersActive, setDevSlidersActive] = useState(false);
+  const [devSliders, setDevSliders] = useState({
+    thumb: 0,
+    index: 0,
+    middle: 0,
+    ring: 0,
+    little: 0
+  });
+  const [calibStatusMsg, setCalibStatusMsg] = useState(null);
 
   // Calibration & Trial Sandbox states
   const [calibTargetBone, setCalibTargetBone] = useState(
@@ -1064,6 +1077,10 @@ function LiveExercisePage() {
       const data = JSON.parse(event.data);
       if (data.type === 'status_update' && data.status === 'hardware_status_changed') {
         setDeviceConnected(data.hardware_connected);
+      }
+
+      if (data.type === 'calib_status') {
+        setCalibStatusMsg(`[${data.phase?.toUpperCase()}]: ${data.msg || ''}`);
       }
 
       if (data.type === 'sensor_data') {
@@ -2062,10 +2079,33 @@ function LiveExercisePage() {
     little: (isFingerExercise || isFingerClosing) ? activeSensors.little : 0
   };
 
+  // Dev diagnostic direct finger angles from 0-90 sliders (?dev=1)
+  const devComputedFingerAngles = useMemo(() => {
+    if (!devSlidersActive) return null;
+    return {
+      thumb: mapNormalizedToGlb(devSliders.thumb / 90.0, 'thumb').angle,
+      index: mapNormalizedToGlb(devSliders.index / 90.0, 'index').angle,
+      middle: mapNormalizedToGlb(devSliders.middle / 90.0, 'middle').angle,
+      ring: mapNormalizedToGlb(devSliders.ring / 90.0, 'ring').angle,
+      little: mapNormalizedToGlb(devSliders.little / 90.0, 'little').angle
+    };
+  }, [devSlidersActive, devSliders]);
+
+  const handleTriggerFlexCalib = () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'flex_calib' }));
+      setCalibStatusMsg('Request sent to ESP32: Hold hand FLAT...');
+    } else {
+      setCalibStatusMsg('Device WebSocket not connected');
+    }
+  };
+
   // Resolve active calibrated finger angles for 3D visualizer (lock to 0 neutral if not finger exercise)
   const activeSensorFingerAngles = (isTrial && trialType === 'fingers' && fingerTrialView === 'calibration')
     ? null
-    : ((isFingerExercise || isFingerClosing) ? sensorFingerAngles : { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 });
+    : (devSlidersActive
+        ? devComputedFingerAngles
+        : ((isFingerExercise || isFingerClosing) ? sensorFingerAngles : { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 }));
 
   // Resolve active calibrated wrist angles for 3D visualizer (enabled for wrist and gently for finger exercises)
   const activeSensorWristAngles = (isTrial && trialType === 'wrist' && wristTrialView === 'calibration')
@@ -2820,6 +2860,63 @@ function LiveExercisePage() {
                   isFingerExercise={isFingerExerciseActive}
                 />
               </div>
+
+              {/* Hidden Dev Diagnostic Panel & Hardware Calibration Trigger (?dev=1) */}
+              {isDev && (
+                <div className="bg-slate-900 text-white rounded-2xl p-4 border border-amber-500/50 mt-4 space-y-3 shadow-lg animate-in fade-in">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div className="flex items-center gap-1.5">
+                      <Sliders className="w-4 h-4 text-amber-400" />
+                      <span className="text-[11px] font-black uppercase tracking-wider text-amber-300">
+                        Dev Diagnostic Controls (?dev=1)
+                      </span>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer text-[11px] font-bold text-slate-300">
+                      <input 
+                        type="checkbox" 
+                        checked={devSlidersActive} 
+                        onChange={(e) => setDevSlidersActive(e.target.checked)}
+                        className="rounded border-slate-700 text-amber-500 accent-amber-500"
+                      />
+                      <span>Bypass Device (Direct Sliders)</span>
+                    </label>
+                  </div>
+
+                  {/* 5 Finger direct 0-90° sliders */}
+                  <div className="grid grid-cols-5 gap-2 pt-1">
+                    {['thumb', 'index', 'middle', 'ring', 'little'].map((f) => (
+                      <div key={f} className="flex flex-col items-center bg-slate-950/60 p-2 rounded-xl border border-slate-800">
+                        <span className="text-[10px] font-bold uppercase text-slate-400">{f}</span>
+                        <span className="text-xs font-black text-amber-400 my-0.5">{devSliders[f]}°</span>
+                        <input 
+                          type="range"
+                          min="0"
+                          max="90"
+                          value={devSliders[f]}
+                          disabled={!devSlidersActive}
+                          onChange={(e) => setDevSliders(prev => ({ ...prev, [f]: Number(e.target.value) }))}
+                          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-400 disabled:opacity-30"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Calibration Trigger & Status */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between pt-2 border-t border-slate-800 gap-2">
+                    <button
+                      type="button"
+                      onClick={handleTriggerFlexCalib}
+                      className="w-full sm:w-auto px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-black uppercase tracking-wider transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-md"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      Calibrate fingers
+                    </button>
+                    <div className="text-[11px] text-slate-300 truncate font-semibold bg-slate-950 px-3 py-1 rounded-lg border border-slate-800 w-full sm:w-auto text-center">
+                      {calibStatusMsg || 'Ready for 2-pose calibration (Flat + Fist)'}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Real-time Exercise Recommendations Section */}
               <div className="border border-slate-100 rounded-2xl p-4 space-y-3 mt-4">
