@@ -36,6 +36,8 @@ import ElbowSensorTrialPanel from '../components/ElbowSensorTrialPanel';
 import WristMotionDemoCard from '../components/WristMotionDemoCard';
 import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
 import WristAiCoachOverlay from '../components/WristAiCoachOverlay';
+import FlexAiCoachOverlay from '../components/FlexAiCoachOverlay';
+import RandomForestModelCard from '../components/RandomForestModelCard';
 import { processFingerTelemetry } from '../services/fingerSensorMapper';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
@@ -744,6 +746,13 @@ function LiveExercisePage() {
   // Wrist kinematics and AI Coach state
   const [wristVelocity, setWristVelocity] = useState(0);
   const lastAngleTimeRef = useRef({ time: Date.now(), angle: 0 });
+  const dampenedWristRef = useRef({ x: 0, y: 0, z: 0 });
+  const [mlCoachData, setMlCoachData] = useState({
+    quality: 'correct',
+    confidence: 0.94,
+    anomaly: 0.0,
+    badge: 'AI: ML MODEL'
+  });
   const [aiFeedback, setAiFeedback] = useState({
     progress: 0,
     suggestion: 'Place your arm in the starting position to begin.',
@@ -944,6 +953,9 @@ function LiveExercisePage() {
     activeExerciseRef.current?.exercise_name?.toLowerCase().includes('finger closing')
   );
 
+  // Active finger opening or closing exercise flag
+  const isFingerExerciseActive = !isTrial && (isFingerExercise || isFingerClosing);
+
   // Calculate current wrist angle used by the screen and 3D rig (safe optional chaining)
   const currentWristAngle = isWristExercise
     ? (wristBilateralPhase.left || wristBilateralPhase.right || (exerciseName || '').toLowerCase().includes('rotation')
@@ -1063,8 +1075,10 @@ function LiveExercisePage() {
           wrist_roll: rawRoll
         };
 
-        // 2. Process wrist telemetry ONLY if the active exercise is a wrist exercise!
-        // For finger or elbow exercises, strictly lock wrist to neutral rest pose (0°)
+        // 2. Process wrist telemetry:
+        // - For wrist exercises: full calibrated range
+        // - For finger opening/closing exercises: enable MPU gently (dampened, smoothed, slow movement, not vigorous)
+        // - For elbow or other exercises: strictly locked to neutral (0°)
         if (isWristExercise) {
           const currentWristEx = activeExerciseRef.current || exerciseDetails || { exercise_name: exerciseName, primary_sensor: 'wrist_pitch', target_angle: 60 };
           const wristComputed = processWristTelemetry(activeWristData, currentWristEx);
@@ -1077,7 +1091,33 @@ function LiveExercisePage() {
             });
             setWristTelemetryDetails(wristComputed);
           }
+        } else if (isFingerExerciseActive) {
+          // Enable MPU only in finger opening and finger closing exercise, slow and dampened
+          const dummyWristEx = { exercise_name: 'Wrist Motion Test', primary_sensor: 'allAxis', target_angle: 45 };
+          const wristComputed = processWristTelemetry(activeWristData, dummyWristEx);
+          if (wristComputed && wristComputed.angles) {
+            // Scale amplitude down by 0.35x and clamp within gentle bounds [-15°, +15°]
+            const clampAngle = (v, maxDeg) => Math.max(-maxDeg, Math.min(maxDeg, v || 0));
+            const targetX = clampAngle((wristComputed.angles.z || 0) * 0.35, 15);
+            const targetY = clampAngle((wristComputed.angles.y || 0) * 0.35, 14);
+            const targetZ = clampAngle((wristComputed.angles.x || 0) * 0.35, 14);
+
+            // Exponential moving average (alpha = 0.12) to ensure slow, smooth, non-vigorous motion
+            const prev = dampenedWristRef.current || { x: 0, y: 0, z: 0 };
+            const smoothedX = prev.x + (targetX - prev.x) * 0.12;
+            const smoothedY = prev.y + (targetY - prev.y) * 0.12;
+            const smoothedZ = prev.z + (targetZ - prev.z) * 0.12;
+
+            dampenedWristRef.current = { x: smoothedX, y: smoothedY, z: smoothedZ };
+            setSensorWristAngles({
+              x: smoothedX,
+              y: smoothedY,
+              z: smoothedZ
+            });
+            setWristTelemetryDetails(wristComputed);
+          }
         } else {
+          dampenedWristRef.current = { x: 0, y: 0, z: 0 };
           setSensorWristAngles({ x: 0, y: 0, z: 0 });
           setWristTelemetryDetails(null);
         }
@@ -1981,10 +2021,10 @@ function LiveExercisePage() {
     ? null
     : (isFingerExercise ? sensorFingerAngles : { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 });
 
-  // Resolve active calibrated wrist angles for 3D visualizer (lock to 0 neutral if not wrist exercise)
+  // Resolve active calibrated wrist angles for 3D visualizer (enabled for wrist and gently for finger exercises)
   const activeSensorWristAngles = (isTrial && trialType === 'wrist' && wristTrialView === 'calibration')
     ? null
-    : (isWristExercise ? sensorWristAngles : { x: 0, y: 0, z: 0 });
+    : ((isWristExercise || isFingerExerciseActive) ? sensorWristAngles : { x: 0, y: 0, z: 0 });
 
   // Resolve active calibrated elbow angles for 3D visualizer (lock to null/straight if not elbow exercise)
   const activeSensorElbowAngles = (isTrial && trialType === 'elbow' && elbowTrialView === 'calibration')
@@ -2383,24 +2423,6 @@ function LiveExercisePage() {
                 )}
               </div>
 
-              {/* Floating AI Coach Overlay for Wrist (Upper-Middle 3D Canvas) */}
-              {isWristExercise && (
-                <WristAiCoachOverlay
-                  currentAngle={currentWristAngle}
-                  targetAngle={exerciseDetails?.target_angle || 45}
-                  targetDir={activeWristTargetDir}
-                  repState={repState}
-                  holdCountdown={holdCountdown}
-                  restCountdown={0}
-                  velocity={wristVelocity}
-                  repsCompleted={repsCompleted}
-                  targetReps={exerciseDetails?.repetitions || 5}
-                  exerciseName={exerciseName}
-                  isSimulated={!deviceConnected}
-                  inlineBottom={false}
-                />
-              )}
-
               {/* Pause Overlay */}
               {isPaused && (
                 <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm z-20 flex flex-col items-center justify-center space-y-2 animate-in fade-in duration-200">
@@ -2423,7 +2445,7 @@ function LiveExercisePage() {
                     {repsCompleted}
                   </div>
 
-                  {/* AI Suggestion Instruction Text - Real-time Yellow AI Coaching for Wrist */}
+                  {/* AI Suggestion Instruction Text - Real-time Yellow AI Coaching for Wrist & Flex */}
                   {isWristExercise ? (
                     <WristAiCoachOverlay
                       currentAngle={currentWristAngle}
@@ -2438,6 +2460,19 @@ function LiveExercisePage() {
                       exerciseName={exerciseName}
                       isSimulated={!deviceConnected}
                       inlineBottom={true}
+                      onPredictionUpdate={setMlCoachData}
+                    />
+                  ) : (isFingerExercise || isFingerClosing) ? (
+                    <FlexAiCoachOverlay
+                      sensors={sensors}
+                      repState={repState}
+                      holdCountdown={holdCountdown}
+                      repsCompleted={repsCompleted}
+                      targetReps={exerciseDetails?.repetitions || 12}
+                      exerciseName={exerciseName}
+                      isSimulated={simulatedFingersActive || !deviceConnected}
+                      inlineBottom={true}
+                      onPredictionUpdate={setMlCoachData}
                     />
                   ) : (
                     <div className="text-xs sm:text-sm font-bold text-white leading-snug flex-1 truncate sm:whitespace-normal">
@@ -2726,6 +2761,18 @@ function LiveExercisePage() {
                     {holdCountdown > 0 ? `${holdCountdown}s` : '0s'}
                   </p>
                 </div>
+              </div>
+
+              {/* Random Forest Classifier Model Representation Card */}
+              <div className="mt-4">
+                <RandomForestModelCard 
+                  quality={mlCoachData.quality}
+                  confidence={mlCoachData.confidence}
+                  anomalyScore={mlCoachData.anomaly}
+                  exerciseName={exerciseName}
+                  isWristExercise={isWristExercise}
+                  isFingerExercise={isFingerExerciseActive}
+                />
               </div>
 
               {/* Real-time Exercise Recommendations Section */}
