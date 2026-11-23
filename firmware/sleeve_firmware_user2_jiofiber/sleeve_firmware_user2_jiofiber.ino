@@ -71,12 +71,25 @@ const float DEADZONE_OHMS  = 150.0f;// Resistance deadzone: 150 Ohms (suppresses
 const float EMA_ALPHA[NUM_FINGERS] = {0.50f, 0.40f, 0.40f, 0.50f, 0.40f};
 
 // ============================================================================
-// WI-FI & SERVER CONFIGURATION
+// WI-FI & SERVER CONFIGURATION (Loaded from secrets.h or secrets.example.h)
 // ============================================================================
-String wifi_ssid   = "JioFiber-Ys2sx";
-String wifi_pass   = "MBMGREEN";
-String server_host = "192.168.29.176";
-const int server_port = 8000;
+#if __has_include("secrets.h")
+  #include "secrets.h"
+#else
+  #include "secrets.example.h"
+#endif
+
+#ifndef SECRET_WIFI_SSID
+  #define SECRET_WIFI_SSID    "YOUR_WIFI_SSID"
+  #define SECRET_WIFI_PASS    "YOUR_WIFI_PASSWORD"
+  #define SECRET_SERVER_HOST  "192.168.1.100"
+  #define SECRET_SERVER_PORT  8000
+#endif
+
+String wifi_ssid   = SECRET_WIFI_SSID;
+String wifi_pass   = SECRET_WIFI_PASS;
+String server_host = SECRET_SERVER_HOST;
+const int server_port = SECRET_SERVER_PORT;
 
 Preferences preferences;
 MPU6050 mpu(Wire);

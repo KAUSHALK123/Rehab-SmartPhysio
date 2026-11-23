@@ -47,3 +47,7 @@ pip-delete-this-directory.txt
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Firmware secrets
+secrets.h
+**/secrets.h
