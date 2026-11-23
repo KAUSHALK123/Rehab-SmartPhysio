@@ -54,21 +54,44 @@ float computeResistance(int adcVal) {
   return R_DIV * (ADC_MAX / (float)adcVal - 1.0f);
 }
 
-// Measured straight baseline resistance (Ohms) - measured at boot
-float rStraight[NUM_FINGERS] = {25000.0f, 24000.0f, 25000.0f, 27000.0f, 29000.0f};
+// Measured 2-pose calibration values (Ohms) - loaded from Preferences ("flexcal")
+float R_flat[NUM_FINGERS] = {25000.0f, 24000.0f, 25000.0f, 27000.0f, 29000.0f};
+float R_bent[NUM_FINGERS] = {33000.0f, 32000.0f, 33000.0f, 35000.0f, 37000.0f};
+bool isFlexCalibrated = false;
 
-// Dynamic bend resistance span (Ohms) - typical finger bend is +5k to +15k Ohms delta
-float rBendSpan[NUM_FINGERS] = {8000.0f, 8000.0f, 8000.0f, 8000.0f, 8000.0f};
+// Per-finger fault and diagnostic counters
+int consecutiveSpreadFaults[NUM_FINGERS] = {0, 0, 0, 0, 0};
+int totalFaultCount[NUM_FINGERS]         = {0, 0, 0, 0, 0};
+int lowRangeFlags[NUM_FINGERS]           = {0, 0, 0, 0, 0};
+unsigned long lastClampHintTime[NUM_FINGERS] = {0, 0, 0, 0, 0};
 
-// Initial ADC defaults for fallback diagnostics
-int calibFlat[NUM_FINGERS] = {250, 1205, 625, 900, 940};
-
-// Fault detection thresholds (Named Constants)
+// Fault detection thresholds
 const int RAW_MIN_FAULT    = 15;   // Pulled to GND / short / unplugged with pulldown
 const int RAW_MAX_FAULT    = 4085; // Pulled to 3.3V rail / open circuit
-const int SPREAD_MAX_FAULT = 1200; // Realistic ESP32 ADC noise ceiling (prevents false fault lockups)
-const float DEADZONE_OHMS  = 150.0f;// Resistance deadzone: 150 Ohms (suppresses resting noise without killing microbends)
+const int SPREAD_MAX_FAULT = 1200; // Realistic ESP32 ADC noise ceiling
 const float EMA_ALPHA[NUM_FINGERS] = {0.50f, 0.40f, 0.40f, 0.50f, 0.40f};
+
+// ============================================================================
+// NON-BLOCKING CALIBRATION STATE MACHINE
+// ============================================================================
+enum CalibState {
+  CALIB_IDLE,
+  CALIB_HOLD_FLAT,
+  CALIB_PAUSE,
+  CALIB_MAKE_FIST
+};
+CalibState calibState = CALIB_IDLE;
+unsigned long calibStateStartTime = 0;
+long calibAdcSum[NUM_FINGERS] = {0, 0, 0, 0, 0};
+int calibAdcCount = 0;
+
+// Range test state variables (Serial 't')
+bool rangeTestRunning = false;
+unsigned long rangeTestStartTime = 0;
+int testMinRaw[NUM_FINGERS];
+int testMaxRaw[NUM_FINGERS];
+float testMinR[NUM_FINGERS];
+float testMaxR[NUM_FINGERS];
 
 // ============================================================================
 // WI-FI & SERVER CONFIGURATION (Loaded from secrets.h or secrets.example.h)
@@ -125,13 +148,22 @@ unsigned long lastMpuRetryTime = 0;
 const int streamInterval = 50; // 50ms = 20 Hz frame rate
 
 // Working sensor arrays
-int rawValues[NUM_FINGERS]    = {0, 0, 0, 0, 0};
-float curlValues[NUM_FINGERS] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
-int okFlags[NUM_FINGERS]      = {1, 1, 1, 1, 1};
+int rawValues[NUM_FINGERS]      = {0, 0, 0, 0, 0};
+float curlValues[NUM_FINGERS]   = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+int okFlags[NUM_FINGERS]        = {1, 1, 1, 1, 1};
 float lastGoodCurl[NUM_FINGERS] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
+// Forward Declarations
+void startFlexCalibration();
+void reZeroFlatBaseline();
+void startRangeTest();
+void dumpDiagnostics();
+void saveCalibration();
+void printCalibrationTable();
+void sendCalibStatus(const char* phase, const char* msg);
+
 // ============================================================================
-// OVERSAMPLED ADC ACQUISITION WITH SPREAD (NOISE) TRACKING
+// OVERSAMPLED ADC ACQUISITION WITH TRIMMED MEAN & SPREAD TRACKING
 // ============================================================================
 int readOversampled(int pin, int* spread = nullptr) {
   volatile int dummy = analogRead(pin); // mux settle
@@ -150,7 +182,8 @@ int readOversampled(int pin, int* spread = nullptr) {
   if (spread != nullptr) {
     *spread = maxVal - minVal;
   }
-  return (int)(sum >> 4);
+  // Trimmed mean: drop the min and max samples, average the remaining 14
+  return (int)((sum - minVal - maxVal) / 14);
 }
 
 // ============================================================================
@@ -171,6 +204,17 @@ void sendHelloFrame() {
   String helloStr;
   serializeJson(hello, helloStr);
   webSocket.sendTXT(helloStr);
+}
+
+void sendCalibStatus(const char* phase, const char* msg) {
+  if (!wsConnected) return;
+  StaticJsonDocument<256> doc;
+  doc["type"]  = "calib_status";
+  doc["phase"] = phase;
+  doc["msg"]   = msg;
+  String out;
+  serializeJson(doc, out);
+  webSocket.sendTXT(out);
 }
 
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
@@ -195,6 +239,8 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           preferences.putFloat("yaw_off", yawOffset);
           preferences.end();
           Serial.println("[WS] Zero-pose calibration stored via WebSocket command.");
+        } else if (msg.indexOf("flex_calib") >= 0) {
+          startFlexCalibration();
         }
       }
       break;
@@ -226,48 +272,121 @@ void initMPU() {
 }
 
 // ============================================================================
-// SETUP
+// CALIBRATION PERSISTENCE & HELPERS
 // ============================================================================
-void calibrateFlexBaselines() {
-  Serial.println("\n[CALIB] Auto-calibrating resting resistance (SparkFun logic - keep hand flat)...");
-  long sum[NUM_FINGERS] = {0, 0, 0, 0, 0};
-  const int SAMPLES = 25;
-  for (int s = 0; s < SAMPLES; s++) {
+void saveCalibration() {
+  preferences.begin("flexcal", false);
+  preferences.putBool("calib_ok", true);
+  for (int i = 0; i < NUM_FINGERS; i++) {
+    preferences.putFloat(("f_" + String(i)).c_str(), R_flat[i]);
+    preferences.putFloat(("b_" + String(i)).c_str(), R_bent[i]);
+    float span = fabs(R_bent[i] - R_flat[i]);
+    lowRangeFlags[i] = (span < 6000.0f && span >= 1500.0f) ? 1 : 0;
+  }
+  preferences.end();
+  isFlexCalibrated = true;
+}
+
+void printCalibrationTable() {
+  Serial.println("\n====================== 2-POSE CALIBRATION RESULTS ======================");
+  Serial.println("Finger  | R_flat (Ω) | R_bent (Ω) | Span (Ω)  | Verdict");
+  Serial.println("------------------------------------------------------------------------");
+  bool hasNoSignal = false;
+  for (int i = 0; i < NUM_FINGERS; i++) {
+    float span = fabs(R_bent[i] - R_flat[i]);
+    const char* verdict = "GOOD";
+    if (span < 1500.0f) {
+      verdict = "NO SIGNAL";
+      hasNoSignal = true;
+    } else if (span < 6000.0f) {
+      verdict = "LOW RANGE";
+    }
+    Serial.printf("%-7s | %-10.0f | %-10.0f | %-9.0f | %s\n",
+                  FINGER_NAMES[i], R_flat[i], R_bent[i], span, verdict);
+  }
+  Serial.println("========================================================================");
+  if (hasNoSignal) {
+    Serial.println("[WARNING] One or more fingers have NO SIGNAL (<1500Ω). Check 3.3V/GND rail & wiring!");
+  } else {
+    Serial.println("[CALIB] 2-pose calibration successfully stored in Preferences.");
+  }
+  Serial.println();
+}
+
+void startFlexCalibration() {
+  if (calibState != CALIB_IDLE) return;
+  calibState = CALIB_HOLD_FLAT;
+  calibStateStartTime = millis();
+  calibAdcCount = 0;
+  for (int i = 0; i < NUM_FINGERS; i++) calibAdcSum[i] = 0;
+
+  Serial.println("\n[CALIB] Starting 2-pose calibration...");
+  Serial.println("[CALIB] Phase 1: Hold hand FLAT for 3 seconds...");
+  sendCalibStatus("flat", "Hold hand FLAT");
+}
+
+void reZeroFlatBaseline() {
+  Serial.println("\n[CALIB] Re-zeroing flat resting baselines (Serial 'r')...");
+  long s[NUM_FINGERS] = {0, 0, 0, 0, 0};
+  const int SAMPLES = 20;
+  for (int k = 0; k < SAMPLES; k++) {
     for (int i = 0; i < NUM_FINGERS; i++) {
-      int rawVal = readOversampled(FINGER_PINS[i]);
-      sum[i] += rawVal;
+      s[i] += readOversampled(FINGER_PINS[i]);
     }
     delay(10);
   }
   for (int i = 0; i < NUM_FINGERS; i++) {
-    int avgAdc = (int)(sum[i] / SAMPLES);
-    // If pin reads 0 at boot (unplugged or no 3.3V power), use safe default 1400 ADC (~19kΩ)
-    // so the sensor doesn't get bricked with 999,999Ω resistance
-    if (avgAdc < 100) {
-      avgAdc = 1400;
-      Serial.printf("[CALIB WARN] Pin %d read 0 ADC at boot. Check 3.3V rail. Using safe baseline 1400.\n", FINGER_PINS[i]);
-    }
-    calibFlat[i] = avgAdc;
-    rStraight[i] = computeResistance(avgAdc);
+    int avgAdc = (int)(s[i] / SAMPLES);
+    if (avgAdc < 15) avgAdc = 1400; // guard
+    R_flat[i] = computeResistance(avgAdc);
+    float span = fabs(R_bent[i] - R_flat[i]);
+    lowRangeFlags[i] = (span < 6000.0f && span >= 1500.0f) ? 1 : 0;
   }
-  // Responsive adaptive bend spans in Ohms: starts at 8k Ohms delta for immediate bend detection
-  rBendSpan[0] = 8000.0f;
-  rBendSpan[1] = 8000.0f;
-  rBendSpan[2] = 8000.0f;
-  rBendSpan[3] = 8000.0f;
-  rBendSpan[4] = 8000.0f;
-
-  Serial.println("=========================================================================");
-  Serial.printf("[CALIB DONE] Straight R: T=%.1fkΩ, I=%.1fkΩ, M=%.1fkΩ, R=%.1fkΩ, L=%.1fkΩ\n",
-                rStraight[0]/1000.0f, rStraight[1]/1000.0f, rStraight[2]/1000.0f, rStraight[3]/1000.0f, rStraight[4]/1000.0f);
-  Serial.println("[CALIB] Ready! Type 'c' or 'r' in Serial Monitor to re-zero baseline anytime.");
-  Serial.println("=========================================================================\n");
+  preferences.begin("flexcal", false);
+  for (int i = 0; i < NUM_FINGERS; i++) {
+    preferences.putFloat(("f_" + String(i)).c_str(), R_flat[i]);
+  }
+  preferences.end();
+  Serial.printf("[CALIB] Flat baselines updated & stored: T=%.1fkΩ, I=%.1fkΩ, M=%.1fkΩ, R=%.1fkΩ, L=%.1fkΩ\n\n",
+                R_flat[0]/1000.0f, R_flat[1]/1000.0f, R_flat[2]/1000.0f, R_flat[3]/1000.0f, R_flat[4]/1000.0f);
 }
 
+void startRangeTest() {
+  if (rangeTestRunning) return;
+  rangeTestRunning = true;
+  rangeTestStartTime = millis();
+  for (int i = 0; i < NUM_FINGERS; i++) {
+    int curRaw = readOversampled(FINGER_PINS[i]);
+    testMinRaw[i] = curRaw;
+    testMaxRaw[i] = curRaw;
+    float curR = computeResistance(curRaw);
+    testMinR[i] = curR;
+    testMaxR[i] = curR;
+  }
+  Serial.println("\n======================== 6-SECOND RANGE TEST STARTED ========================");
+  Serial.println("[TEST] Bend each finger repeatedly through full range of motion for 6 seconds...");
+}
+
+void dumpDiagnostics() {
+  Serial.println("\n======================== SENSOR DIAGNOSTICS DUMP ('d') ========================");
+  Serial.println("Finger  | Raw  | R (Ω)      | R_flat (Ω) | R_bent (Ω) | Span (Ω)  | Curl  | OK | Faults");
+  Serial.println("----------------------------------------------------------------------------------");
+  for (int i = 0; i < NUM_FINGERS; i++) {
+    float r = computeResistance(rawValues[i]);
+    float span = fabs(R_bent[i] - R_flat[i]);
+    Serial.printf("%-7s | %-4d | %-10.0f | %-10.0f | %-10.0f | %-9.0f | %-5.2f | %-2d | %d\n",
+                  FINGER_NAMES[i], rawValues[i], r, R_flat[i], R_bent[i], span, curlValues[i], okFlags[i], totalFaultCount[i]);
+  }
+  Serial.println("==================================================================================\n");
+}
+
+// ============================================================================
+// SETUP
+// ============================================================================
 void setup() {
   Serial.begin(115200);
 
-  // Load preferences if saved
+  // Load Wi-Fi / Server preferences if saved
   preferences.begin("physio", false);
   String stored_ssid = preferences.getString("wifi_ssid", "");
   String stored_pass = preferences.getString("wifi_pass", "");
@@ -297,6 +416,22 @@ void setup() {
   preferences.end();
   // END ML-COACH HOOK
 
+  // TASK 1: Load 2-pose flex calibration from Preferences namespace "flexcal"
+  preferences.begin("flexcal", true);
+  isFlexCalibrated = preferences.getBool("calib_ok", false);
+  if (isFlexCalibrated) {
+    for (int i = 0; i < NUM_FINGERS; i++) {
+      R_flat[i] = preferences.getFloat(("f_" + String(i)).c_str(), R_flat[i]);
+      R_bent[i] = preferences.getFloat(("b_" + String(i)).c_str(), R_bent[i]);
+      float span = fabs(R_bent[i] - R_flat[i]);
+      lowRangeFlags[i] = (span < 6000.0f && span >= 1500.0f) ? 1 : 0;
+    }
+    Serial.println("[FLEXCAL] Stored 2-pose calibration loaded from flash.");
+  } else {
+    Serial.println("NOT CALIBRATED - send c");
+  }
+  preferences.end();
+
   // Connect to Wi-Fi
   WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
 
@@ -305,11 +440,9 @@ void setup() {
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(2000);
 
-  // Auto-calibrate flex baselines to current resting hand position
-  calibrateFlexBaselines();
-
   Serial.println("[BOOT] SmartPhysio ESP32 Glove Firmware v1.2.0 ready.");
   Serial.println("[BOOT] Pinout: Thumb:36 Index:33 Middle:34 Ring:35 Little:32");
+  Serial.println("[BOOT] Commands: 'c'=Calibrate flat+fist, 'r'=Re-zero flat, 't'=Range test 6s, 'd'=Dump diagnostics, 'z'=Zero MPU");
 }
 
 // ============================================================================
@@ -336,7 +469,7 @@ void loop() {
     initMPU();
   }
 
-  // Serial commands: 'z' for MPU zero-pose, 'c' or 'r' for Flex baselines recalibration
+  // Serial commands handler
   if (Serial.available() > 0) {
     char ch = Serial.read();
     if (ch == 'z' || ch == 'Z') {
@@ -347,8 +480,111 @@ void loop() {
       preferences.putFloat("roll_off", rollOffset);
       preferences.end();
       Serial.printf("[COACH CALIB] Zero-pose stored: pitch_off=%.2f, roll_off=%.2f\n", pitchOffset, rollOffset);
-    } else if (ch == 'c' || ch == 'C' || ch == 'r' || ch == 'R') {
-      calibrateFlexBaselines();
+    } else if (ch == 'c' || ch == 'C') {
+      startFlexCalibration();
+    } else if (ch == 'r' || ch == 'R') {
+      reZeroFlatBaseline();
+    } else if (ch == 't' || ch == 'T') {
+      startRangeTest();
+    } else if (ch == 'd' || ch == 'D') {
+      dumpDiagnostics();
+    }
+  }
+
+  // ==========================================================================
+  // NON-BLOCKING CALIBRATION STATE MACHINE
+  // ==========================================================================
+  if (calibState != CALIB_IDLE) {
+    if (calibState == CALIB_HOLD_FLAT) {
+      for (int i = 0; i < NUM_FINGERS; i++) {
+        calibAdcSum[i] += readOversampled(FINGER_PINS[i]);
+      }
+      calibAdcCount++;
+      if (currentTime - calibStateStartTime >= 3000) {
+        for (int i = 0; i < NUM_FINGERS; i++) {
+          int avgAdc = (int)(calibAdcSum[i] / max(1, calibAdcCount));
+          if (avgAdc < 15) avgAdc = 1400; // guard
+          R_flat[i] = computeResistance(avgAdc);
+        }
+        calibState = CALIB_PAUSE;
+        calibStateStartTime = currentTime;
+        Serial.println("[CALIB] 2-second pause: Get ready to make a tight FIST...");
+        sendCalibStatus("pause", "Get ready to make a FIST");
+      }
+    } else if (calibState == CALIB_PAUSE) {
+      if (currentTime - calibStateStartTime >= 2000) {
+        calibState = CALIB_MAKE_FIST;
+        calibStateStartTime = currentTime;
+        calibAdcCount = 0;
+        for (int i = 0; i < NUM_FINGERS; i++) calibAdcSum[i] = 0;
+        Serial.println("[CALIB] Phase 2: Make a tight FIST for 3 seconds...");
+        sendCalibStatus("fist", "Make a tight FIST");
+      }
+    } else if (calibState == CALIB_MAKE_FIST) {
+      for (int i = 0; i < NUM_FINGERS; i++) {
+        calibAdcSum[i] += readOversampled(FINGER_PINS[i]);
+      }
+      calibAdcCount++;
+      if (currentTime - calibStateStartTime >= 3000) {
+        for (int i = 0; i < NUM_FINGERS; i++) {
+          int avgAdc = (int)(calibAdcSum[i] / max(1, calibAdcCount));
+          if (avgAdc < 15) avgAdc = 1400; // guard
+          R_bent[i] = computeResistance(avgAdc);
+        }
+        calibState = CALIB_IDLE;
+        saveCalibration();
+        printCalibrationTable();
+        sendCalibStatus("done", "Calibration complete");
+      }
+    }
+  }
+
+  // ==========================================================================
+  // NON-BLOCKING RANGE TEST (Serial 't')
+  // ==========================================================================
+  if (rangeTestRunning) {
+    for (int i = 0; i < NUM_FINGERS; i++) {
+      int curRaw = readOversampled(FINGER_PINS[i]);
+      float curR = computeResistance(curRaw);
+      if (curRaw < testMinRaw[i]) testMinRaw[i] = curRaw;
+      if (curRaw > testMaxRaw[i]) testMaxRaw[i] = curRaw;
+      if (curR < testMinR[i]) testMinR[i] = curR;
+      if (curR > testMaxR[i]) testMaxR[i] = curR;
+    }
+    if (currentTime - rangeTestStartTime >= 6000) {
+      rangeTestRunning = false;
+      Serial.println("\n====================== 6-SECOND RANGE TEST RESULTS ======================");
+      Serial.println("Finger  | MinRaw | MaxRaw | SpanADC | Span (Ω)  | Verdict");
+      Serial.println("------------------------------------------------------------------------");
+      for (int i = 0; i < NUM_FINGERS; i++) {
+        int spanCounts = testMaxRaw[i] - testMinRaw[i];
+        float spanOhms = fabs(testMaxR[i] - testMinR[i]);
+        const char* verdict = "GOOD";
+        if (testMinRaw[i] < RAW_MIN_FAULT || testMaxRaw[i] > RAW_MAX_FAULT) {
+          verdict = "FAULTY";
+        } else if (spanOhms < 1500.0f || spanCounts < 20) {
+          verdict = "NO SIGNAL";
+        } else if (spanOhms < 6000.0f) {
+          verdict = "LOW RANGE";
+        }
+        Serial.printf("%-7s | %-6d | %-6d | %-7d | %-9.0f | %s\n",
+                      FINGER_NAMES[i], testMinRaw[i], testMaxRaw[i], spanCounts, spanOhms, verdict);
+      }
+      Serial.println("========================================================================");
+      Serial.println("HARDWARE HINTS:");
+      for (int i = 0; i < NUM_FINGERS; i++) {
+        float spanOhms = fabs(testMaxR[i] - testMinR[i]);
+        if (testMinRaw[i] < RAW_MIN_FAULT) {
+          Serial.printf("  * %s: Reading 0 ADC. Check 3.3V power jumper wire & strip connection.\n", FINGER_NAMES[i]);
+        } else if (spanOhms < 1500.0f) {
+          Serial.printf("  * %s: Little to no bend swing. Check strip mounting over the knuckle & loose breadboard contact.\n", FINGER_NAMES[i]);
+        } else if (spanOhms < 6000.0f) {
+          Serial.printf("  * %s: Low resistance swing (~%.0fΩ). Calibration will scale this to full 0..100%% GLB movement.\n", FINGER_NAMES[i], spanOhms);
+        } else {
+          Serial.printf("  * %s: Optimal range (~%.0fΩ swing).\n", FINGER_NAMES[i], spanOhms);
+        }
+      }
+      Serial.println();
     }
   }
 
@@ -439,44 +675,54 @@ void loop() {
       int raw = readOversampled(FINGER_PINS[i], &spread);
       rawValues[i] = raw;
 
-      // Auto-recover straight baseline if ESP32 booted without 3.3V and user subsequently plugged it in
-      if (calibFlat[i] == 1400 && raw >= 150 && raw <= 3900 && lastGoodCurl[i] == 0.0f) {
-        calibFlat[i] = raw;
-        rStraight[i] = computeResistance(raw);
-        Serial.printf("[AUTO-CALIB] Finger %d connected (ADC=%d, R=%.1fkΩ). Baseline established.\n", i, raw, rStraight[i]/1000.0f);
-      }
-
-      // SparkFun resistance calculation in Ohms: R_flex = R_div * (4095.0 / adc - 1.0)
       float flexR = computeResistance(raw);
-      // Absolute resistance delta: supports both bend directions (stretch and compression) and any wiring polarity
-      float deltaR = fabs(flexR - rStraight[i]);
 
-      // Fault detection: raw out-of-bounds, high sample spread (floating)
-      bool fault = (raw < RAW_MIN_FAULT) ||
-                   (raw > RAW_MAX_FAULT) ||
-                   (spread > SPREAD_MAX_FAULT);
-
-      okFlags[i] = fault ? 0 : 1;
+      // TASK 3: 3-consecutive spread fault filter & hard faults
+      if (spread > SPREAD_MAX_FAULT) {
+        consecutiveSpreadFaults[i]++;
+      } else {
+        consecutiveSpreadFaults[i] = 0;
+      }
+      bool spreadFault = (consecutiveSpreadFaults[i] >= 3);
+      bool hardFault = (raw < RAW_MIN_FAULT) || (raw > RAW_MAX_FAULT);
+      bool fault = spreadFault || hardFault;
 
       if (fault) {
+        totalFaultCount[i]++;
+        okFlags[i] = 0;
         curlValues[i] = lastGoodCurl[i];
       } else {
-        if (deltaR <= DEADZONE_OHMS) {
-          // Zero deadzone at rest: eliminates noise completely
+        okFlags[i] = 1;
+
+        // TASK 2: Normalization using MEASURED two-pose calibration
+        float span = R_bent[i] - R_flat[i];
+        float absSpan = fabs(span);
+        if (absSpan < 100.0f) absSpan = 100.0f;
+
+        // Proportional deadzone: 4% of measured span (minimum 100Ω)
+        float deadzone = max(100.0f, 0.04f * absSpan);
+        float deadzoneRatio = deadzone / absSpan;
+
+        float ratio = (absSpan >= 100.0f) ? ((flexR - R_flat[i]) / span) : 0.0f;
+
+        // Rate-limited warning if user bends beyond calibrated R_bent
+        if (ratio > 1.0f) {
+          if (currentTime - lastClampHintTime[i] >= 5000) {
+            lastClampHintTime[i] = currentTime;
+            Serial.printf("[FLEX HINT] %s bent beyond R_bent (%.0fΩ vs %.0fΩ). Send 'c' to recalibrate.\n",
+                          FINGER_NAMES[i], flexR, R_bent[i]);
+          }
+        }
+
+        if (ratio <= deadzoneRatio) {
           curlValues[i] = 0.0f;
           lastGoodCurl[i] = 0.0f;
         } else {
-          // Dynamic span expansion: expands if user bends further than current span
-          if (deltaR > rBendSpan[i]) {
-            rBendSpan[i] = deltaR;
-          }
+          float norm = (ratio - deadzoneRatio) / (1.0f - deadzoneRatio);
+          norm = constrain(norm, 0.0f, 1.0f);
 
-          // SparkFun map: linear ratio from straight to bend span
-          float ratio = (deltaR - DEADZONE_OHMS) / (rBendSpan[i] - DEADZONE_OHMS);
-          ratio = constrain(ratio, 0.0f, 1.0f);
-
-          // Gamma curve 0.65 for instant, visible response to slight curls
-          float curled = pow(ratio, 0.65f);
+          // Gamma curve 0.65 for responsive, natural flexion
+          float curled = pow(norm, 0.65f);
 
           // Smooth EMA
           float smoothed = lastGoodCurl[i] + EMA_ALPHA[i] * (curled - lastGoodCurl[i]);
@@ -521,14 +767,16 @@ void loop() {
       }
       // END ML-COACH HOOK
 
-      JsonArray rawArr  = doc.createNestedArray("raw");
-      JsonArray curlArr = doc.createNestedArray("curl");
-      JsonArray okArr   = doc.createNestedArray("ok");
+      JsonArray rawArr      = doc.createNestedArray("raw");
+      JsonArray curlArr     = doc.createNestedArray("curl");
+      JsonArray okArr       = doc.createNestedArray("ok");
+      JsonArray lowRangeArr = doc.createNestedArray("lowrange");
 
       for (int i = 0; i < NUM_FINGERS; i++) {
         rawArr.add(rawValues[i]);
         curlArr.add(round(curlValues[i] * 1000.0f) / 1000.0f);
         okArr.add(okFlags[i]);
+        lowRangeArr.add(lowRangeFlags[i]);
       }
 
       String payload;
@@ -538,16 +786,17 @@ void loop() {
   }
 
   // ==========================================================================
-  // SINGLE-LINE SERIAL LOGGING (ONCE EVERY 250 ms) - WITH REAL OHMS RESISTANCE
+  // SINGLE-LINE SERIAL LOGGING (ONCE EVERY 250 ms)
+  // Shows real Ohms resistance, LOW flag for low-range fingers, and !F for faults
   // ==========================================================================
   if (currentTime - lastSerialLogTime >= 250) {
     lastSerialLogTime = currentTime;
-    Serial.printf("[FLEX-R] T:%.1fkΩ(%2d%%) | I:%.1fkΩ(d:+%.1fk %2d%%) | M:%.1fkΩ(d:+%.1fk %2d%%) | R:%.1fkΩ(d:+%.1fk %2d%%) | L:%.1fkΩ(d:+%.1fk %2d%%)%s\n",
-                  computeResistance(rawValues[0])/1000.0f, (int)(curlValues[0] * 100.0f + 0.5f),
-                  computeResistance(rawValues[1])/1000.0f, max(0.0f, computeResistance(rawValues[1]) - rStraight[1])/1000.0f, (int)(curlValues[1] * 100.0f + 0.5f),
-                  computeResistance(rawValues[2])/1000.0f, max(0.0f, computeResistance(rawValues[2]) - rStraight[2])/1000.0f, (int)(curlValues[2] * 100.0f + 0.5f),
-                  computeResistance(rawValues[3])/1000.0f, max(0.0f, computeResistance(rawValues[3]) - rStraight[3])/1000.0f, (int)(curlValues[3] * 100.0f + 0.5f),
-                  computeResistance(rawValues[4])/1000.0f, max(0.0f, computeResistance(rawValues[4]) - rStraight[4])/1000.0f, (int)(curlValues[4] * 100.0f + 0.5f),
+    Serial.printf("[FLEX] T:%.1fkΩ(%2d%%%s%s) | I:%.1fkΩ(%2d%%%s%s) | M:%.1fkΩ(%2d%%%s%s) | R:%.1fkΩ(%2d%%%s%s) | L:%.1fkΩ(%2d%%%s%s)%s\n",
+                  computeResistance(rawValues[0])/1000.0f, (int)(curlValues[0] * 100.0f + 0.5f), lowRangeFlags[0] ? " LOW" : "", okFlags[0] ? "" : " !F",
+                  computeResistance(rawValues[1])/1000.0f, (int)(curlValues[1] * 100.0f + 0.5f), lowRangeFlags[1] ? " LOW" : "", okFlags[1] ? "" : " !F",
+                  computeResistance(rawValues[2])/1000.0f, (int)(curlValues[2] * 100.0f + 0.5f), lowRangeFlags[2] ? " LOW" : "", okFlags[2] ? "" : " !F",
+                  computeResistance(rawValues[3])/1000.0f, (int)(curlValues[3] * 100.0f + 0.5f), lowRangeFlags[3] ? " LOW" : "", okFlags[3] ? "" : " !F",
+                  computeResistance(rawValues[4])/1000.0f, (int)(curlValues[4] * 100.0f + 0.5f), lowRangeFlags[4] ? " LOW" : "", okFlags[4] ? "" : " !F",
                   mpuFound ? " | MPU:OK" : "");
   }
 }
