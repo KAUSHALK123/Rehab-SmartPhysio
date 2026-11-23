@@ -199,8 +199,17 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       }
     }
 
-    if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
-      // Raw 12-bit ADC reading available
+    if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
+      // 1. Pre-filtered calibrated angle value from firmware or backend mock (0 - 90 deg)
+      filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
+      const linearRatio = Math.max(0, Math.min(1, filteredVal / 90.0));
+      // Apply ultra-sensitive boost for subtle angle inputs
+      normalized = linearRatio > 0 && linearRatio < 1 ? Math.pow(linearRatio, 0.60) : linearRatio;
+      if (rawReading === null) {
+        rawReading = rawVal !== undefined ? Number(rawVal) : Math.round(normalized * 4095);
+      }
+    } else if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
+      // 2. Raw 12-bit ADC reading available
       const bounds = resolveSensorBounds(finger);
       let effectiveStraight = bounds.straight;
       let effectiveBent = bounds.bent;
@@ -208,21 +217,17 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       // Ultra-sensitive dynamic auto-range adapts to micro-bends (span >= 25)
       const dynSpan = (dynamicRanges[finger].max || 0) - (dynamicRanges[finger].min || 0);
       if (dynSpan >= 25) {
-        effectiveStraight = dynamicRanges[finger].min;
-        effectiveBent = dynamicRanges[finger].max;
+        if (bounds.straight > bounds.bent) {
+          effectiveStraight = dynamicRanges[finger].max;
+          effectiveBent = dynamicRanges[finger].min;
+        } else {
+          effectiveStraight = dynamicRanges[finger].min;
+          effectiveBent = dynamicRanges[finger].max;
+        }
       }
 
       filteredVal = rawVal;
       normalized = normalizeFlexValue(rawVal, effectiveStraight, effectiveBent, true);
-    } else if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
-      // Pre-filtered angle value from firmware or backend mock (0 - 90 deg)
-      filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
-      const linearRatio = Math.max(0, Math.min(1, filteredVal / 90.0));
-      // Apply ultra-sensitive boost for subtle angle inputs
-      normalized = linearRatio > 0 && linearRatio < 1 ? Math.pow(linearRatio, 0.60) : linearRatio;
-      if (rawReading === null) {
-        rawReading = Math.round(normalized * 4095);
-      }
     } else {
       normalized = 0;
       filteredVal = 0;

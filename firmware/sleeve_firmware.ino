@@ -71,9 +71,99 @@ bool wsConnected = false;
 bool mpuFound = false;
 unsigned long lastStreamTime = 0;
 unsigned long lastMpuRetryTime = 0;
-const int streamInterval = 50; // 50ms = 20Hz sample rate (was 100ms/10Hz)
+const int streamInterval = 50; // 50ms = 20Hz sample rate
 
-// Finger and Elbow calibration storage variables (Defaults tuned for high sensitivity flex response)
+// ============================================================================
+// 16x OVERSAMPLED ADC ACQUISITION (ELIMINATES NOISE & MUX CROSS-TALK)
+// ============================================================================
+int readOversampled(int pin) {
+  volatile int dummy = analogRead(pin); // Discharge multiplexer S/H capacitor
+  (void)dummy;
+  delayMicroseconds(30);
+
+  long sum = 0;
+  for (int i = 0; i < 16; i++) {
+    sum += analogRead(pin);
+    delayMicroseconds(20);
+  }
+  return (int)(sum >> 4);
+}
+
+// ============================================================================
+// RESTING BASELINE & DYNAMIC HIGH-SENSITIVITY CALIBRATION
+// ============================================================================
+// Measured hardware baselines (auto-recalibrated on boot and via Serial command 'c'/'r')
+int baseFlatThumb  = 1400;
+int baseFlatIndex  = 1205;
+int baseFlatMiddle = 625;
+int baseFlatRing   = 900;
+int baseFlatLittle = 940;
+int baseFlatElbow  = 1200;
+
+// Dynamic active bend spans (sensitive defaults: micro-bends of 25-40 counts yield high flexion)
+int spanThumb  = 50;
+int spanIndex  = 40;
+int spanMiddle = 70;
+int spanRing   = 80;
+int spanLittle = 35;
+int spanElbow  = 80;
+
+void calibrateFlexBaselines() {
+  Serial.println("\n[CALIB] Auto-calibrating resting baseline (keep hand relaxed/flat)...");
+  long sThumb = 0, sIndex = 0, sMiddle = 0, sRing = 0, sLittle = 0, sElbow = 0;
+  const int SAMPLES = 25;
+  for (int i = 0; i < SAMPLES; i++) {
+    sThumb  += readOversampled(PIN_THUMB);
+    sIndex  += readOversampled(PIN_INDEX);
+    sMiddle += readOversampled(PIN_MIDDLE);
+    sRing   += readOversampled(PIN_RING);
+    sLittle += readOversampled(PIN_LITTLE);
+    sElbow  += readOversampled(PIN_ELBOW);
+    delay(10);
+  }
+  baseFlatThumb  = (int)(sThumb / SAMPLES);
+  baseFlatIndex  = (int)(sIndex / SAMPLES);
+  baseFlatMiddle = (int)(sMiddle / SAMPLES);
+  baseFlatRing   = (int)(sRing / SAMPLES);
+  baseFlatLittle = (int)(sLittle / SAMPLES);
+  baseFlatElbow  = (int)(sElbow / SAMPLES);
+
+  // Reset dynamic spans to responsive defaults
+  spanThumb = 50; spanIndex = 40; spanMiddle = 70; spanRing = 80; spanLittle = 35; spanElbow = 80;
+
+  Serial.println("=========================================================================");
+  Serial.printf("[CALIB DONE] Baselines: Thumb=%d, Index=%d, Middle=%d, Ring=%d, Little=%d, Elbow=%d\n",
+                baseFlatThumb, baseFlatIndex, baseFlatMiddle, baseFlatRing, baseFlatLittle, baseFlatElbow);
+  Serial.println("[CALIB] Ready! Type 'c' or 'r' in Serial Monitor to re-zero baseline anytime.");
+  Serial.println("=========================================================================\n");
+}
+
+// High-sensitivity bend calculation with noise deadband and gamma curve
+float computeSensitiveAngle(int rawVal, int baseFlat, int &activeSpan) {
+  int delta = abs(rawVal - baseFlat);
+
+  // Noise deadband: suppress resting ADC noise (<= 5 counts)
+  const int DEADZONE = 5;
+  if (delta <= DEADZONE) {
+    return 0.0f;
+  }
+
+  // Dynamic span auto-expansion: expand span if physical bend is larger
+  if (delta > activeSpan) {
+    activeSpan = delta;
+  }
+
+  // Normalized bend ratio clamped [0.0, 1.0]
+  float ratio = (float)(delta - DEADZONE) / (float)(activeSpan - DEADZONE);
+  ratio = constrain(ratio, 0.0f, 1.0f);
+
+  // Gamma power curve (0.65) gives instant, satisfying visual response to slight finger curls
+  float curled = pow(ratio, 0.65f);
+
+  return constrain(curled * 90.0f, 0.0f, 90.0f);
+}
+
+// Finger and Elbow calibration storage variables
 int thumbStraight = 1400, thumbBent = 2200;
 int indexStraight = 1350, indexBent = 2250;
 int middleStraight = 1380, middleBent = 2280;
@@ -81,8 +171,8 @@ int ringStraight = 1400, ringBent = 2250;
 int littleStraight = 1300, littleBent = 2150;
 int elbowStraight = 1200, elbowBent = 2400;
 
-// EMA Filter variables — alpha=0.7 gives instant response to micro-bends with clean filtering
-const float emaAlpha = 0.7;
+// EMA Filter variables — alpha=0.6 gives instant response to micro-bends with clean filtering
+const float emaAlpha = 0.6;
 float f_thumb = -1, f_index = -1, f_middle = -1, f_ring = -1, f_little = -1, f_elbow = -1;
 
 // Last sent angle (fine deadband 0.1 deg for maximum micro-bend sensitivity)
@@ -90,20 +180,13 @@ const float angleDeadband = 0.1;
 float a_thumb = 0, a_index = 0, a_middle = 0, a_ring = 0, a_little = 0, a_elbow = 0;
 bool sensorsStable = false;
 
-// Helper maps filtered ADC values to angles (0 to 90 degrees)
+// Legacy helper for backward compatibility
 float mapFlexAngle(float filteredVal, int straightVal, int bentVal) {
-  // Determine bounds
   float low = min(straightVal, bentVal);
   float high = max(straightVal, bentVal);
-  
-  // Constrain reading
   float val = constrain(filteredVal, low, high);
-  
-  // Map to 0-90 degrees
-  if (bentVal == straightVal) return 0.0; // safety
+  if (bentVal == straightVal) return 0.0;
   float angle = (val - straightVal) * 90.0 / (float)(bentVal - straightVal);
-  
-  // Safety constrain to expected anatomical bounds
   return constrain(angle, 0.0, 90.0);
 }
 
@@ -347,46 +430,55 @@ void setup() {
   pinMode(PIN_LITTLE, INPUT);
   pinMode(PIN_ELBOW, INPUT);
   pinMode(PIN_PRESSURE, INPUT);
+
+  // 5. Automatic resting baseline calibration for high flex sensitivity
+  calibrateFlexBaselines();
 }
 
 void loop() {
   webSocket.loop();
 
-  // Listen for serial configuration commands
+  // Listen for serial commands (SET_CONFIG, or 'c'/'r' to recalibrate resting baseline)
   if (Serial.available() > 0) {
-    String serialData = Serial.readStringUntil('\n');
-    serialData.trim();
-    if (serialData.startsWith("SET_CONFIG:")) {
-      // Command format: SET_CONFIG:SSID,PASSWORD,SERVER_IP
-      String configData = serialData.substring(11);
-      int firstComma = configData.indexOf(',');
-      int secondComma = configData.indexOf(',', firstComma + 1);
-      
-      if (firstComma != -1 && secondComma != -1) {
-        String newSsid = configData.substring(0, firstComma);
-        String newPass = configData.substring(firstComma + 1, secondComma);
-        String newHost = configData.substring(secondComma + 1);
+    int peekChar = Serial.peek();
+    if (peekChar == 'c' || peekChar == 'C' || peekChar == 'r' || peekChar == 'R') {
+      Serial.read(); // consume char
+      calibrateFlexBaselines();
+    } else {
+      String serialData = Serial.readStringUntil('\n');
+      serialData.trim();
+      if (serialData.startsWith("SET_CONFIG:")) {
+        // Command format: SET_CONFIG:SSID,PASSWORD,SERVER_IP
+        String configData = serialData.substring(11);
+        int firstComma = configData.indexOf(',');
+        int secondComma = configData.indexOf(',', firstComma + 1);
         
-        newSsid.trim();
-        newPass.trim();
-        newHost.trim();
-        
-        Serial.println("\n[CONFIG] Received new configuration over Serial:");
-        Serial.printf("SSID: %s\n", newSsid.c_str());
-        Serial.printf("Host: %s\n", newHost.c_str());
-        
-        // Write to NVS
-        preferences.begin("physio", false);
-        preferences.putString("wifi_ssid", newSsid);
-        preferences.putString("wifi_pass", newPass);
-        preferences.putString("server_host", newHost);
-        preferences.end();
-        
-        Serial.println("[CONFIG] Saved to NVS! Rebooting ESP32...");
-        delay(1000);
-        ESP.restart();
-      } else {
-        Serial.println("[CONFIG] Error: Invalid format. Expected: SET_CONFIG:SSID,PASSWORD,SERVER_IP");
+        if (firstComma != -1 && secondComma != -1) {
+          String newSsid = configData.substring(0, firstComma);
+          String newPass = configData.substring(firstComma + 1, secondComma);
+          String newHost = configData.substring(secondComma + 1);
+          
+          newSsid.trim();
+          newPass.trim();
+          newHost.trim();
+          
+          Serial.println("\n[CONFIG] Received new configuration over Serial:");
+          Serial.printf("SSID: %s\n", newSsid.c_str());
+          Serial.printf("Host: %s\n", newHost.c_str());
+          
+          // Write to NVS
+          preferences.begin("physio", false);
+          preferences.putString("wifi_ssid", newSsid);
+          preferences.putString("wifi_pass", newPass);
+          preferences.putString("server_host", newHost);
+          preferences.end();
+          
+          Serial.println("[CONFIG] Saved to NVS! Rebooting ESP32...");
+          delay(1000);
+          ESP.restart();
+        } else {
+          Serial.println("[CONFIG] Error: Invalid format. Expected: SET_CONFIG:SSID,PASSWORD,SERVER_IP");
+        }
       }
     }
   }
@@ -403,13 +495,13 @@ void loop() {
   if (currentTime - lastStreamTime >= streamInterval) {
     lastStreamTime = currentTime;
 
-    // A. Read raw ADC values from flex and pressure sensors (12-bit, range 0 - 4095)
-    int rawThumb = analogRead(PIN_THUMB);
-    int rawIndex = analogRead(PIN_INDEX);
-    int rawMiddle = analogRead(PIN_MIDDLE);
-    int rawRing = analogRead(PIN_RING);
-    int rawLittle = analogRead(PIN_LITTLE);
-    int rawElbow = analogRead(PIN_ELBOW);
+    // A. Read raw ADC values using 16x oversampling to eliminate noise and pin crosstalk
+    int rawThumb = readOversampled(PIN_THUMB);
+    int rawIndex = readOversampled(PIN_INDEX);
+    int rawMiddle = readOversampled(PIN_MIDDLE);
+    int rawRing = readOversampled(PIN_RING);
+    int rawLittle = readOversampled(PIN_LITTLE);
+    int rawElbow = readOversampled(PIN_ELBOW);
     int rawPressure = analogRead(PIN_PRESSURE);
 
     // Initialize EMA on first run
@@ -430,23 +522,23 @@ void loop() {
                        (abs(rawLittle - f_little) < 8) && (abs(rawElbow - f_elbow) < 8);
     sensorsStable = isStableNow;
 
-    // B. Calculate mapped angles
-    float t_angle = mapFlexAngle(f_thumb, thumbStraight, thumbBent);
+    // B. Calculate mapped angles with high-sensitivity dynamic delta tracking
+    float t_angle = computeSensitiveAngle(f_thumb > 0 ? (int)f_thumb : rawThumb, baseFlatThumb, spanThumb);
     if (abs(t_angle - a_thumb) > angleDeadband) a_thumb = t_angle;
     
-    float i_angle = mapFlexAngle(f_index, indexStraight, indexBent);
+    float i_angle = computeSensitiveAngle(f_index > 0 ? (int)f_index : rawIndex, baseFlatIndex, spanIndex);
     if (abs(i_angle - a_index) > angleDeadband) a_index = i_angle;
     
-    float m_angle = mapFlexAngle(f_middle, middleStraight, middleBent);
+    float m_angle = computeSensitiveAngle(f_middle > 0 ? (int)f_middle : rawMiddle, baseFlatMiddle, spanMiddle);
     if (abs(m_angle - a_middle) > angleDeadband) a_middle = m_angle;
     
-    float r_angle = mapFlexAngle(f_ring, ringStraight, ringBent);
+    float r_angle = computeSensitiveAngle(f_ring > 0 ? (int)f_ring : rawRing, baseFlatRing, spanRing);
     if (abs(r_angle - a_ring) > angleDeadband) a_ring = r_angle;
     
-    float l_angle = mapFlexAngle(f_little, littleStraight, littleBent);
+    float l_angle = computeSensitiveAngle(f_little > 0 ? (int)f_little : rawLittle, baseFlatLittle, spanLittle);
     if (abs(l_angle - a_little) > angleDeadband) a_little = l_angle;
     
-    float el_angle = mapFlexAngle(f_elbow, elbowStraight, elbowBent);
+    float el_angle = computeSensitiveAngle(f_elbow > 0 ? (int)f_elbow : rawElbow, baseFlatElbow, spanElbow);
     if (abs(el_angle - a_elbow) > angleDeadband) a_elbow = el_angle;
 
     // Grip pressure resistance force (arbitrary Newton approximation)
@@ -462,17 +554,13 @@ void loop() {
       wristRoll = mpu.getAngleY();
     }
 
-    // D. Always print readings to serial for user debugging/wiring tests
-    Serial.printf("[TELEMETRY] ServerWS=%s | MPU_I2C=%s | elbow=%.1f | wrist_pitch=%.1f wrist_roll=%.1f\n",
-                  wsConnected ? "CONNECTED" : "OFFLINE",
-                  mpuFound ? "CONNECTED (OK)" : "DISCONNECTED (No I2C Ack)",
-                  a_elbow, wristPitch, wristRoll);
-    Serial.printf("[FLEX]\nThumb raw=%d filtered=%.0f angle=%.1f\nIndex raw=%d filtered=%.0f angle=%.1f\nMiddle raw=%d filtered=%.0f angle=%.1f\nRing raw=%d filtered=%.0f angle=%.1f\nLittle raw=%d filtered=%.0f angle=%.1f\n",
-                  rawThumb, f_thumb, a_thumb,
-                  rawIndex, f_index, a_index,
-                  rawMiddle, f_middle, a_middle,
-                  rawRing, f_ring, a_ring,
-                  rawLittle, f_little, a_little);
+    // D. Print clean, highly sensitive telemetry to Serial Monitor (clearly shows raw, delta, and angle)
+    Serial.printf("[FLEX] T:%4d(d:%2d %4.1f°) | I:%4d(d:%2d %4.1f°) | M:%4d(d:%2d %4.1f°) | R:%4d(d:%2d %4.1f°) | L:%4d(d:%2d %4.1f°)\n",
+                  rawThumb, abs(rawThumb - baseFlatThumb), a_thumb,
+                  rawIndex, abs(rawIndex - baseFlatIndex), a_index,
+                  rawMiddle, abs(rawMiddle - baseFlatMiddle), a_middle,
+                  rawRing, abs(rawRing - baseFlatRing), a_ring,
+                  rawLittle, abs(rawLittle - baseFlatLittle), a_little);
 
     // E. Serialize and send JSON string over WebSocket only if connected
     if (wsConnected) {
