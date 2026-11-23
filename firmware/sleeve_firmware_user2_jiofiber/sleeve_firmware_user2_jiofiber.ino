@@ -94,18 +94,18 @@ float testMinR[NUM_FINGERS];
 float testMaxR[NUM_FINGERS];
 
 // ============================================================================
-// WI-FI & SERVER CONFIGURATION (Loaded from secrets.h or secrets.example.h)
+// WI-FI & SERVER CONFIGURATION (Loaded from secrets.h or secrets.example.h if present)
 // ============================================================================
 #if __has_include("secrets.h")
   #include "secrets.h"
-#else
+#elif __has_include("secrets.example.h")
   #include "secrets.example.h"
 #endif
 
 #ifndef SECRET_WIFI_SSID
-  #define SECRET_WIFI_SSID    "YOUR_WIFI_SSID"
-  #define SECRET_WIFI_PASS    "YOUR_WIFI_PASSWORD"
-  #define SECRET_SERVER_HOST  "192.168.1.100"
+  #define SECRET_WIFI_SSID    "JioFiber-Ys2sx"
+  #define SECRET_WIFI_PASS    "MBMGREEN"
+  #define SECRET_SERVER_HOST  "192.168.29.176"
   #define SECRET_SERVER_PORT  8000
 #endif
 
