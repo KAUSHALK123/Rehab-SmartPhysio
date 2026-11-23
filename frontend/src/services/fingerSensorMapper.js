@@ -159,8 +159,26 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
   const activeGlbConfig = glbConfig || loadCalibrationConfig();
   const sensorBounds = customBounds || loadSensorCalibration();
 
+  // Normalize incoming telemetry if it sends arrays: curl: [...] or raw: [...]
+  const normalizedTelemetry = { ...telemetry };
+  if (Array.isArray(telemetry?.curl)) {
+    FINGER_KEYS.forEach((finger, idx) => {
+      if (normalizedTelemetry[finger] === undefined && telemetry.curl[idx] !== undefined) {
+        normalizedTelemetry[finger] = telemetry.curl[idx] * 90.0;
+      }
+    });
+  }
+  if (Array.isArray(telemetry?.raw)) {
+    FINGER_KEYS.forEach((finger, idx) => {
+      const rawKey = 'raw_' + finger;
+      if (normalizedTelemetry[rawKey] === undefined && telemetry.raw[idx] !== undefined) {
+        normalizedTelemetry[rawKey] = telemetry.raw[idx];
+      }
+    });
+  }
+
   // Extract embedded hardware bounds if present in telemetry packet
-  const packetBounds = telemetry?.bounds || {};
+  const packetBounds = normalizedTelemetry?.bounds || {};
   const resolveSensorBounds = (finger) => {
     const strKey = finger + 'Str';
     const bntKey = finger + 'Bnt';
@@ -182,8 +200,8 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
 
   FINGER_KEYS.forEach((finger) => {
     const rawKey = 'raw_' + finger;
-    const rawVal = telemetry?.[rawKey];
-    const angleVal = telemetry?.[finger];
+    const rawVal = normalizedTelemetry?.[rawKey];
+    const angleVal = normalizedTelemetry?.[finger];
 
     let normalized = 0;
     let filteredVal = 0;

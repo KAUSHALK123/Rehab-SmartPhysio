@@ -259,12 +259,17 @@ const FingerSyncPanel = ({
   };
 
   const hasHardwarePacket = rawSensorPacket && Object.keys(rawSensorPacket).length > 0;
+  const getRawVal = (key, idx) => {
+    if (rawSensorPacket?.['raw_' + key] !== undefined) return Number(rawSensorPacket['raw_' + key]);
+    if (Array.isArray(rawSensorPacket?.raw) && rawSensorPacket.raw[idx] !== undefined) return Number(rawSensorPacket.raw[idx]);
+    return 0;
+  };
   const sensorsReadingZero = hasHardwarePacket && !simulatedActive && (
-    Number(rawSensorPacket.raw_thumb ?? 0) === 0 &&
-    Number(rawSensorPacket.raw_index ?? 0) === 0 &&
-    Number(rawSensorPacket.raw_middle ?? 0) === 0 &&
-    Number(rawSensorPacket.raw_ring ?? 0) === 0 &&
-    Number(rawSensorPacket.raw_little ?? 0) === 0
+    getRawVal('thumb', 0) === 0 &&
+    getRawVal('index', 1) === 0 &&
+    getRawVal('middle', 2) === 0 &&
+    getRawVal('ring', 3) === 0 &&
+    getRawVal('little', 4) === 0
   );
 
   return (
@@ -377,10 +382,16 @@ const FingerSyncPanel = ({
           </div>
 
           <div className="flex items-end justify-between gap-1.5 h-24 pt-1">
-            {fingerKeys.map(({ key, label }) => {
+            {fingerKeys.map(({ key, label }, idx) => {
               const debugInfo = computedFingerData?.debug?.[key];
-              const flexPct = debugInfo?.normalized !== undefined ? debugInfo.normalized : 0;
-              const rawVal = debugInfo?.raw !== null && debugInfo?.raw !== undefined ? debugInfo.raw : (rawSensorPacket?.['raw_' + key] !== undefined ? rawSensorPacket['raw_' + key] : null);
+              const flexPct = debugInfo?.normalized !== undefined 
+                ? debugInfo.normalized 
+                : (computedFingerData?.percentages?.[key] ?? (Array.isArray(rawSensorPacket?.curl) ? Math.round(rawSensorPacket.curl[idx] * 100) : 0));
+              const rawVal = debugInfo?.raw !== null && debugInfo?.raw !== undefined 
+                ? debugInfo.raw 
+                : (rawSensorPacket?.['raw_' + key] !== undefined 
+                    ? rawSensorPacket['raw_' + key] 
+                    : (Array.isArray(rawSensorPacket?.raw) ? rawSensorPacket.raw[idx] : null));
 
               return (
                 <div key={key} className="flex-1 flex flex-col items-center h-full justify-end min-w-0">
@@ -388,12 +399,12 @@ const FingerSyncPanel = ({
                     {rawVal !== null ? `r:${rawVal}` : 'r:--'}
                   </span>
                   <span className="text-[9px] font-black text-slate-800 mb-1">
-                    {debugInfo ? `${Math.round(flexPct)}%` : '0%'}
+                    {debugInfo || flexPct > 0 ? `${Math.round(flexPct)}%` : '0%'}
                   </span>
                   <div className="w-2.5 bg-slate-200 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
                     <div 
                       className={`w-full rounded-full transition-all duration-150 ease-out ${getBarColor(flexPct)}`}
-                      style={{ height: `${debugInfo ? flexPct : 0}%` }}
+                      style={{ height: `${debugInfo || flexPct > 0 ? flexPct : 0}%` }}
                     />
                   </div>
                   <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
@@ -1056,15 +1067,41 @@ function LiveExercisePage() {
         setIsHardwareDevice(isHardware);
         setDeviceConnected(true);
         if (data.battery !== undefined) setBattery(data.battery);
-        setRawSensorPacket(data);
-        setLastPacketTime(Date.now());
 
-        // 1. Process finger telemetry continuously with dynamic auto-range
-        const computedFingers = processFingerTelemetry(data);
-        if (computedFingers && computedFingers.angles) {
-          setSensorFingerAngles(computedFingers.angles);
-          setFingerTelemetryDetails(computedFingers);
+        // Check if packet carries finger telemetry (either named fields or array fields)
+        const hasFingerPayload = Array.isArray(data.curl) || Array.isArray(data.raw) ||
+          data.thumb !== undefined || data.index !== undefined ||
+          data.raw_thumb !== undefined || data.raw_index !== undefined;
+
+        // Normalize array formats from ESP32 if present
+        if (Array.isArray(data.curl)) {
+          ['thumb', 'index', 'middle', 'ring', 'little'].forEach((k, i) => {
+            if (data[k] === undefined && data.curl[i] !== undefined) {
+              data[k] = data.curl[i] * 90.0;
+            }
+          });
         }
+        if (Array.isArray(data.raw)) {
+          ['thumb', 'index', 'middle', 'ring', 'little'].forEach((k, i) => {
+            const rk = 'raw_' + k;
+            if (data[rk] === undefined && data.raw[i] !== undefined) {
+              data[rk] = data.raw[i];
+            }
+          });
+        }
+
+        // Only update rawSensorPacket and finger angles if packet contains finger data!
+        // This prevents 50Hz IMU-only packets from overwriting finger state with 0s.
+        let computedFingers = null;
+        if (hasFingerPayload) {
+          setRawSensorPacket(data);
+          computedFingers = processFingerTelemetry(data);
+          if (computedFingers && computedFingers.angles) {
+            setSensorFingerAngles(computedFingers.angles);
+            setFingerTelemetryDetails(computedFingers);
+          }
+        }
+        setLastPacketTime(Date.now());
 
         const rawPitch = data.wrist_pitch ?? data.pitch ?? 0.0;
         const rawRoll = data.wrist_roll ?? data.roll ?? 0.0;
@@ -1137,6 +1174,12 @@ function LiveExercisePage() {
           if (computedFingers?.percentages?.[name] !== undefined) {
             return computedFingers.percentages[name];
           }
+          if (Array.isArray(data.curl)) {
+            const idx = ['thumb', 'index', 'middle', 'ring', 'little'].indexOf(name);
+            if (idx >= 0 && data.curl[idx] !== undefined) {
+              return Math.round(data.curl[idx] * 100);
+            }
+          }
           const val = data[name];
           if (val === undefined || val === null) return 0;
           if (typeof val === 'object') return val.angle || 0;
@@ -1153,23 +1196,22 @@ function LiveExercisePage() {
           return val;
         };
 
-        const parsedSensors = {
-          wrist_pitch: rawPitch,
-          wrist_roll: rawRoll,
-          wrist_yaw: data.wrist_yaw ?? data.yaw ?? 0.0,
-          elbow: extractElbow(),
-          pressure: data.pressure ?? 0,
-          thumb: extractFinger('thumb'),
-          index: extractFinger('index'),
-          middle: extractFinger('middle'),
-          ring: extractFinger('ring'),
-          little: extractFinger('little')
-        };
-
-        setSensors(parsedSensors);
-
-        // Store history for averages & charting
-        telemetryHistoryRef.current.push(parsedSensors);
+        setSensors(prevSensors => {
+          const parsedSensors = {
+            wrist_pitch: rawPitch,
+            wrist_roll: rawRoll,
+            wrist_yaw: data.wrist_yaw ?? data.yaw ?? 0.0,
+            elbow: extractElbow(),
+            pressure: data.pressure ?? (prevSensors?.pressure ?? 0),
+            thumb: hasFingerPayload ? extractFinger('thumb') : (prevSensors?.thumb ?? 0),
+            index: hasFingerPayload ? extractFinger('index') : (prevSensors?.index ?? 0),
+            middle: hasFingerPayload ? extractFinger('middle') : (prevSensors?.middle ?? 0),
+            ring: hasFingerPayload ? extractFinger('ring') : (prevSensors?.ring ?? 0),
+            little: hasFingerPayload ? extractFinger('little') : (prevSensors?.little ?? 0)
+          };
+          telemetryHistoryRef.current.push(parsedSensors);
+          return parsedSensors;
+        });
         
         setTelemetryStream(prev => {
           const updated = [...prev, {
@@ -2009,17 +2051,17 @@ function LiveExercisePage() {
     shoulderAngleX: 0,
     elbowAngle: isElbowExercise ? (180 - activeSensors.elbow) : 180,
     wristAngle: isWristExercise ? activeSensors.wrist_pitch : 0,
-    thumb: isFingerExercise ? activeSensors.thumb : 0,
-    index: isFingerExercise ? activeSensors.index : 0,
-    middle: isFingerExercise ? activeSensors.middle : 0,
-    ring: isFingerExercise ? activeSensors.ring : 0,
-    little: isFingerExercise ? activeSensors.little : 0
+    thumb: (isFingerExercise || isFingerClosing) ? activeSensors.thumb : 0,
+    index: (isFingerExercise || isFingerClosing) ? activeSensors.index : 0,
+    middle: (isFingerExercise || isFingerClosing) ? activeSensors.middle : 0,
+    ring: (isFingerExercise || isFingerClosing) ? activeSensors.ring : 0,
+    little: (isFingerExercise || isFingerClosing) ? activeSensors.little : 0
   };
 
   // Resolve active calibrated finger angles for 3D visualizer (lock to 0 neutral if not finger exercise)
   const activeSensorFingerAngles = (isTrial && trialType === 'fingers' && fingerTrialView === 'calibration')
     ? null
-    : (isFingerExercise ? sensorFingerAngles : { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 });
+    : ((isFingerExercise || isFingerClosing) ? sensorFingerAngles : { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 });
 
   // Resolve active calibrated wrist angles for 3D visualizer (enabled for wrist and gently for finger exercises)
   const activeSensorWristAngles = (isTrial && trialType === 'wrist' && wristTrialView === 'calibration')
