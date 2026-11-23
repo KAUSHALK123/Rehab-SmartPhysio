@@ -163,13 +163,13 @@ void calibrateFlexBaselines() {
   rStraightLittle = computeResistance(baseFlatLittle);
   rStraightElbow  = computeResistance(baseFlatElbow);
 
-  // Reset dynamic spans to responsive defaults
-  rBendSpanThumb  = 12000.0f;
-  rBendSpanIndex  = 10000.0f;
-  rBendSpanMiddle = 15000.0f;
-  rBendSpanRing   = 15000.0f;
-  rBendSpanLittle = 10000.0f;
-  rBendSpanElbow  = 20000.0f;
+  // Reset dynamic spans to responsive defaults (8k Ohms for rapid bend recognition)
+  rBendSpanThumb  = 8000.0f;
+  rBendSpanIndex  = 8000.0f;
+  rBendSpanMiddle = 8000.0f;
+  rBendSpanRing   = 8000.0f;
+  rBendSpanLittle = 8000.0f;
+  rBendSpanElbow  = 12000.0f;
 
   Serial.println("=========================================================================");
   Serial.printf("[CALIB DONE] Straight R: T=%.1fkΩ, I=%.1fkΩ, M=%.1fkΩ, R=%.1fkΩ, L=%.1fkΩ, El=%.1fkΩ\n",
@@ -181,10 +181,11 @@ void calibrateFlexBaselines() {
 // High-sensitivity bend calculation with SparkFun resistance linearization
 float computeAngleFromResistance(int rawVal, float rStraight, float &rSpan) {
   float currentR = computeResistance(rawVal);
-  float deltaR = currentR - rStraight;
+  // Absolute resistance delta: supports both stretch and compression bend orientations & divider polarities
+  float deltaR = fabs(currentR - rStraight);
 
-  // Noise deadband: suppress resting resistance fluctuations (<= 350 Ohms)
-  const float DEADZONE_OHMS = 350.0f;
+  // Noise deadband: suppress resting resistance fluctuations (<= 150 Ohms)
+  const float DEADZONE_OHMS = 150.0f;
   if (deltaR <= DEADZONE_OHMS) {
     return 0.0f;
   }

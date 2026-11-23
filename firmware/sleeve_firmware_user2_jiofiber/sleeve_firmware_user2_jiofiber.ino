@@ -57,17 +57,17 @@ float computeResistance(int adcVal) {
 // Measured straight baseline resistance (Ohms) - measured at boot
 float rStraight[NUM_FINGERS] = {25000.0f, 24000.0f, 25000.0f, 27000.0f, 29000.0f};
 
-// Dynamic bend resistance span (Ohms) - typical finger bend is +10k to +20k Ohms above straight
-float rBendSpan[NUM_FINGERS] = {12000.0f, 10000.0f, 15000.0f, 15000.0f, 10000.0f};
+// Dynamic bend resistance span (Ohms) - typical finger bend is +5k to +15k Ohms delta
+float rBendSpan[NUM_FINGERS] = {8000.0f, 8000.0f, 8000.0f, 8000.0f, 8000.0f};
 
 // Initial ADC defaults for fallback diagnostics
 int calibFlat[NUM_FINGERS] = {250, 1205, 625, 900, 940};
 
 // Fault detection thresholds (Named Constants)
-const int RAW_MIN_FAULT    = 10;   // Pulled to GND / short / unplugged with pulldown
+const int RAW_MIN_FAULT    = 15;   // Pulled to GND / short / unplugged with pulldown
 const int RAW_MAX_FAULT    = 4085; // Pulled to 3.3V rail / open circuit
-const int SPREAD_MAX_FAULT = 150;  // High ADC sample spread -> floating pin / extreme noise
-const float DEADZONE_OHMS  = 350.0f; // Resistance deadzone: 350 Ohms (suppresses resting noise)
+const int SPREAD_MAX_FAULT = 1200; // Realistic ESP32 ADC noise ceiling (prevents false fault lockups)
+const float DEADZONE_OHMS  = 150.0f;// Resistance deadzone: 150 Ohms (suppresses resting noise without killing microbends)
 const float EMA_ALPHA[NUM_FINGERS] = {0.50f, 0.40f, 0.40f, 0.50f, 0.40f};
 
 // ============================================================================
@@ -237,12 +237,12 @@ void calibrateFlexBaselines() {
     calibFlat[i] = avgAdc;
     rStraight[i] = computeResistance(avgAdc);
   }
-  // Adaptive bend spans in Ohms: default to +10k..+15k above straight
-  rBendSpan[0] = 12000.0f;
-  rBendSpan[1] = 10000.0f;
-  rBendSpan[2] = 15000.0f;
-  rBendSpan[3] = 15000.0f;
-  rBendSpan[4] = 10000.0f;
+  // Responsive adaptive bend spans in Ohms: starts at 8k Ohms delta for immediate bend detection
+  rBendSpan[0] = 8000.0f;
+  rBendSpan[1] = 8000.0f;
+  rBendSpan[2] = 8000.0f;
+  rBendSpan[3] = 8000.0f;
+  rBendSpan[4] = 8000.0f;
 
   Serial.println("=========================================================================");
   Serial.printf("[CALIB DONE] Straight R: T=%.1fkΩ, I=%.1fkΩ, M=%.1fkΩ, R=%.1fkΩ, L=%.1fkΩ\n",
@@ -435,7 +435,8 @@ void loop() {
 
       // SparkFun resistance calculation in Ohms: R_flex = R_div * (4095.0 / adc - 1.0)
       float flexR = computeResistance(raw);
-      float deltaR = flexR - rStraight[i];
+      // Absolute resistance delta: supports both bend directions (stretch and compression) and any wiring polarity
+      float deltaR = fabs(flexR - rStraight[i]);
 
       // Fault detection: raw out-of-bounds, high sample spread (floating)
       bool fault = (raw < RAW_MIN_FAULT) ||
