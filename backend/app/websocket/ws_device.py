@@ -84,8 +84,9 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                     break
                 try:
                     packet = json.loads(data)
-                    # Enforce type and is_mock flag
-                    packet["type"] = "sensor_data"
+                    # Preserve special device message types (like calib_status) while defaulting telemetry to sensor_data
+                    if packet.get("type") not in ("calib_status", "status_update", "hello"):
+                        packet["type"] = "sensor_data"
                     packet["is_mock"] = False
                     packet["timestamp"] = int(time.time())
                     # Broadcast telemetry to all listening viewer sockets
@@ -213,6 +214,14 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str = "viewer"):
                             "battery": global_calibration_state["battery"]
                         }
                     }))
+
+                elif command == "flex_calib" or message.get("type") == "flex_calib":
+                    # Minimal passthrough: relay flex calibration trigger to physical ESP32
+                    for dev_conn in manager.device_connections:
+                        try:
+                            await dev_conn.send_text(json.dumps({"type": "flex_calib"}))
+                        except Exception:
+                            pass
                     
         except WebSocketDisconnect:
             manager.disconnect_viewer(websocket)
