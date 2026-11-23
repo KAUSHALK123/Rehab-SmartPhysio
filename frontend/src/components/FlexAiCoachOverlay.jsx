@@ -10,9 +10,12 @@ export default function FlexAiCoachOverlay({
   targetReps = 12,
   exerciseName = "Finger Closing",
   isSimulated = false,
-  inlineBottom = false
+  inlineBottom = false,
+  onPredictionUpdate = null
 }) {
   const [debouncedMessage, setDebouncedMessage] = useState("");
+  const [mlQuality, setMlQuality] = useState("correct");
+  const [mlConfidence, setMlConfidence] = useState(0.94);
   const badgeSource = isSimulated ? "AI: SIMULATED" : "AI: RULES ONLY";
 
   const debouncerRef = useRef(new FlexCoachDebouncer(700));
@@ -34,7 +37,7 @@ export default function FlexAiCoachOverlay({
     }
   }, [sensors]);
 
-  // Evaluate rule-based flex coaching message
+  // Evaluate rule-based flex coaching message & kinematic quality
   useEffect(() => {
     const idleSeconds = (Date.now() - lastMovementTimeRef.current) / 1000.0;
     const candidateMessage = evaluateFlexCoachRules({
@@ -49,7 +52,46 @@ export default function FlexAiCoachOverlay({
 
     const debounced = debouncerRef.current.update(candidateMessage);
     setDebouncedMessage(debounced);
-  }, [sensors, repState, holdCountdown, repsCompleted, targetReps]);
+
+    // Compute live kinematic quality for Random Forest representation
+    const bends = [
+      sensors?.thumb || 0,
+      sensors?.index || 0,
+      sensors?.middle || 0,
+      sensors?.ring || 0,
+      sensors?.little || 0
+    ];
+    const closedCount = bends.filter(v => v >= 40).length;
+    const avgBend = bends.reduce((a, b) => a + b, 0) / 5;
+
+    let quality = "correct";
+    let conf = 0.94;
+
+    if (repState === "target_hold") {
+      quality = "correct";
+      conf = 0.96;
+    } else if (repState === "moving") {
+      if (closedCount >= 3 || avgBend >= 48) {
+        quality = "correct";
+        conf = 0.94;
+      } else if (closedCount >= 1) {
+        quality = "too_shallow";
+        conf = 0.88;
+      }
+    }
+
+    setMlQuality(quality);
+    setMlConfidence(conf);
+
+    if (onPredictionUpdate) {
+      onPredictionUpdate({
+        quality,
+        confidence: conf,
+        anomaly: 0.0,
+        badge: badgeSource
+      });
+    }
+  }, [sensors, repState, holdCountdown, repsCompleted, targetReps, badgeSource, onPredictionUpdate]);
 
   // Badge Styling
   const badgeColors = {

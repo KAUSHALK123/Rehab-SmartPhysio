@@ -16,7 +16,8 @@ export default function WristAiCoachOverlay({
   exerciseName = "Wrist Motion Test",
   isSimulated = false,
   apiEndpoint = "http://localhost:8000/coach/predict",
-  inlineBottom = false // If true, renders inside the bottom card box
+  inlineBottom = false, // If true, renders inside the bottom card box
+  onPredictionUpdate = null
 }) {
   const [debouncedMessage, setDebouncedMessage] = useState("");
   const [mlQuality, setMlQuality] = useState("");
@@ -92,7 +93,16 @@ export default function WristAiCoachOverlay({
             setMlQuality(data.quality);
             setMlConfidence(data.confidence || 0);
             setAnomalyScore(data.anomaly || 0);
-            setBadgeSource(data.badge || (isSimulated ? "AI: SIMULATED" : "AI: ML MODEL"));
+            const badge = data.badge || (isSimulated ? "AI: SIMULATED" : "AI: ML MODEL");
+            setBadgeSource(badge);
+            if (onPredictionUpdate) {
+              onPredictionUpdate({
+                quality: data.quality,
+                confidence: data.confidence || 0,
+                anomaly: data.anomaly || 0,
+                badge
+              });
+            }
             return;
           }
         }
