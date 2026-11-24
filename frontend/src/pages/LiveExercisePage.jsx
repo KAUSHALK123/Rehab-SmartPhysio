@@ -2098,6 +2098,12 @@ function LiveExercisePage() {
     little: 0
   };
 
+  // Check if active telemetry stream has digital switch data
+  const hasSwitchTelemetry = useMemo(() => {
+    if (!fingerTelemetryDetails?.switchConnected) return false;
+    return Object.values(fingerTelemetryDetails.switchConnected).some(sw => sw !== null && sw !== undefined);
+  }, [fingerTelemetryDetails]);
+
   const activeSensors = isPaused && frozenSensors 
     ? frozenSensors 
     : ((deviceConnected || simulatedFingersActive) ? sensors : defaultSensors);
@@ -2107,11 +2113,11 @@ function LiveExercisePage() {
     shoulderAngleX: 0,
     elbowAngle: isElbowExercise ? (180 - activeSensors.elbow) : 180,
     wristAngle: isWristExercise ? activeSensors.wrist_pitch : 0,
-    thumb: (isFingerExercise || isFingerClosing) ? activeSensors.thumb : 0,
-    index: (isFingerExercise || isFingerClosing) ? activeSensors.index : 0,
-    middle: (isFingerExercise || isFingerClosing) ? activeSensors.middle : 0,
-    ring: (isFingerExercise || isFingerClosing) ? activeSensors.ring : 0,
-    little: (isFingerExercise || isFingerClosing) ? activeSensors.little : 0
+    thumb: (isFingerExercise || isFingerClosing || hasSwitchTelemetry || isFlexSynced) ? activeSensors.thumb : 0,
+    index: (isFingerExercise || isFingerClosing || hasSwitchTelemetry || isFlexSynced) ? activeSensors.index : 0,
+    middle: (isFingerExercise || isFingerClosing || hasSwitchTelemetry || isFlexSynced) ? activeSensors.middle : 0,
+    ring: (isFingerExercise || isFingerClosing || hasSwitchTelemetry || isFlexSynced) ? activeSensors.ring : 0,
+    little: (isFingerExercise || isFingerClosing || hasSwitchTelemetry || isFlexSynced) ? activeSensors.little : 0
   };
 
   // Dev diagnostic direct finger angles from 0-90 sliders (?dev=1)

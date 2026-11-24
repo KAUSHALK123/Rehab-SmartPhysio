@@ -772,6 +772,7 @@ void loop() {
     // Serialize and send JSON WebSocket frame
     if (wsConnected) {
       StaticJsonDocument<768> doc;
+      doc["type"] = "sensor_data";
       doc["src"] = "esp32";
       doc["seq"] = ++seq;
       doc["t"]   = currentTime;
