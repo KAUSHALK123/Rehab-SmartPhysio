@@ -1557,13 +1557,15 @@ function LiveExercisePage() {
     // Requirement:
     // - Configured target repetitions: 12 reps (or ex.repetitions)
     // - Closing at least 3 to 4 fingers into a fist (flex bend >= 40%) counts as a repetition
-    // - Progress through Open → Close (>=3 fingers) → Hold → Open
-    // - Saves reps completed, accuracy, duration, and telemetry to backend session
-    const isFingerClosingRoutine = isFingerClosing || 
-      nameLower.includes('finger closing') || 
-      (ex.exercise_name || '').toLowerCase().includes('finger closing');
+    // Main Exercise Repetition Detection: All Finger & Hand Exercises (Finger Closing, Finger Opening, Ball Squeeze, etc.)
+    const isFingerRoutine = isFingerClosing || 
+      isFingerExercise ||
+      nameLower.includes('finger') || 
+      nameLower.includes('hand') ||
+      nameLower.includes('squeeze') ||
+      nameLower.includes('grip');
 
-    if (isFingerClosingRoutine) {
+    if (isFingerRoutine) {
       const targetReps = ex.repetitions || 12;
       const fingerBends = [
         { name: 'Thumb', val: data.thumb ?? 0 },
@@ -2141,14 +2143,12 @@ function LiveExercisePage() {
     }
   };
 
-  // Resolve active calibrated finger angles for 3D visualizer
+  // Resolve active calibrated finger angles for 3D visualizer (enabled across all finger & hand exercises)
   const activeSensorFingerAngles = (isTrial && trialType === 'fingers' && fingerTrialView === 'calibration')
     ? null
     : (devSlidersActive
         ? devComputedFingerAngles
-        : ((isFingerExercise || isFingerClosing || hasSwitchTelemetry || isFlexSynced)
-            ? (sensorFingerAngles || { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 })
-            : { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 }));
+        : (sensorFingerAngles || { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 }));
 
   // Resolve active calibrated wrist angles for 3D visualizer (enabled for wrist and gently for finger exercises)
   const activeSensorWristAngles = (isTrial && trialType === 'wrist' && wristTrialView === 'calibration')
@@ -2990,10 +2990,13 @@ function LiveExercisePage() {
                   <WristIcon />
                 </div>
                 
-                {(exerciseDetails?.primary_sensor?.toLowerCase() === 'flex_avg' || 
+                {(isFingerExercise || 
+                  exerciseDetails?.primary_sensor?.toLowerCase() === 'flex_avg' || 
                   exerciseDetails?.target_joint?.toLowerCase()?.includes('finger') ||
                   exerciseName.toLowerCase().includes('finger') || 
-                  exerciseName.toLowerCase().includes('hand')) ? (
+                  exerciseName.toLowerCase().includes('hand') ||
+                  exerciseName.toLowerCase().includes('squeeze') ||
+                  exerciseName.toLowerCase().includes('grip')) ? (
                   <div className="space-y-3">
                     <FingerSyncPanel 
                       computedFingerData={fingerTelemetryDetails}
