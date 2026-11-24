@@ -18,6 +18,7 @@ function FullBodyRig({
   sensorFingerAngles = null,
   sensorWristAngles = null,
   sensorElbowAngles = null,
+  fingerLerpFactors = null,
   resetKey = null
 }) {
   // Load full_rig GLB from public/models directory
@@ -192,7 +193,9 @@ function FullBodyRig({
         const mappedAngleDeg = sensorFingerAngles[fingerKey] !== undefined ? sensorFingerAngles[fingerKey] : 0;
         // In main exercise GLB frame, reverse thumb angle so bending sensor closes thumb inward toward palm
         const effectiveAngle = isThumb ? -mappedAngleDeg : mappedAngleDeg;
-        applyCalibratedFingerRotation(fingerNode, nodeName, base, effectiveAngle, 0.25);
+        // Dynamic lerp factor: fast (0.38) when returning to switch contact (open), slow and smooth (0.12) when bending
+        const dynamicLerp = fingerLerpFactors?.[fingerKey] ?? 0.25;
+        applyCalibratedFingerRotation(fingerNode, nodeName, base, effectiveAngle, dynamicLerp);
       } else {
         // Fallback when sensorFingerAngles is not provided (e.g. demo mode or offline)
         const flexRad = degToRad(Math.max(0, Math.min(90, val)));
@@ -290,6 +293,7 @@ export default function Arm3DVisualizer({
   sensorFingerAngles = null,
   sensorWristAngles = null,
   sensorElbowAngles = null,
+  fingerLerpFactors = null,
   resetKey = null
 }) {
   const controlsRef = useRef();
@@ -314,6 +318,7 @@ export default function Arm3DVisualizer({
             sensorFingerAngles={sensorFingerAngles} 
             sensorWristAngles={sensorWristAngles}
             sensorElbowAngles={sensorElbowAngles}
+            fingerLerpFactors={fingerLerpFactors}
             resetKey={resetKey}
           />
         </Center>

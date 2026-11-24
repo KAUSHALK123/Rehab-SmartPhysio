@@ -29,6 +29,21 @@ const int NUM_FINGERS = 5;
 const int FINGER_PINS[NUM_FINGERS]   = {36, 33, 34, 35, 32};
 const char* FINGER_NAMES[NUM_FINGERS] = {"Thumb", "Index", "Middle", "Ring", "Little"};
 
+// DIGITAL SWITCH CONTACT TECHNIQUE:
+// Pins configured with internal pull-up (no external resistors needed)
+// Thumb Switch  : GPIO 4  (D4)
+// Index Switch  : GPIO 16 (RX2)
+// Middle Switch : GPIO 17 (TX2)
+// Ring Switch   : GPIO 18 (D18)
+// Little Switch : GPIO 19 (D19)
+//
+// Logic:
+// Connected (pin to GND, digitalRead == LOW): Finger is OPEN in GLB (faster smooth return)
+// Disconnected (open circuit, digitalRead == HIGH): Finger is BENDING (governed by continuous flex, smooth and slow)
+const int SWITCH_PINS[NUM_FINGERS] = {4, 16, 17, 18, 19};
+int switchRaw[NUM_FINGERS]         = {HIGH, HIGH, HIGH, HIGH, HIGH};
+bool isFingerOpen[NUM_FINGERS]      = {false, false, false, false, false};
+
 const int PIN_ELBOW    = 39; // VN (GPIO 39)
 const int PIN_PRESSURE = 25; // D25 (GPIO 25)
 
@@ -359,6 +374,8 @@ void setup() {
   for (int i = 0; i < NUM_FINGERS; i++) {
     analogSetPinAttenuation(FINGER_PINS[i], ADC_11db);
     pinMode(FINGER_PINS[i], INPUT);
+    // Configure digital switch pin with internal pull-up (no external resistors needed)
+    pinMode(SWITCH_PINS[i], INPUT_PULLUP);
   }
   analogSetPinAttenuation(PIN_ELBOW, ADC_11db);
   pinMode(PIN_ELBOW, INPUT);
@@ -600,6 +617,12 @@ void loop() {
     lastStreamTime = currentTime;
 
     for (int i = 0; i < NUM_FINGERS; i++) {
+      // 1. Read digital switch state
+      // LOW  = Contacts connected to GND -> Finger is OPEN in GLB
+      // HIGH = Contacts separated / open circuit -> Finger is BENDING (governed by continuous flex)
+      switchRaw[i] = digitalRead(SWITCH_PINS[i]);
+      isFingerOpen[i] = (switchRaw[i] == LOW);
+
       int spread = 0;
       int raw = readOversampled(FINGER_PINS[i], &spread);
       rawValues[i] = raw;
@@ -622,39 +645,54 @@ void loop() {
       } else {
         okFlags[i] = 1;
 
-        float span = R_bent[i] - R_flat[i];
-        float absSpan = fabs(span);
-        if (absSpan < 100.0f) absSpan = 100.0f;
-
-        float deadzone = max(100.0f, 0.04f * absSpan);
-        float deadzoneRatio = deadzone / absSpan;
-
-        float ratio = (absSpan >= 100.0f) ? ((flexR - R_flat[i]) / span) : 0.0f;
-
-        if (ratio > 1.0f) {
-          if (currentTime - lastClampHintTime[i] >= 5000) {
-            lastClampHintTime[i] = currentTime;
-            Serial.printf("[FLEX HINT] %s bent beyond R_bent (%.0fΩ vs %.0fΩ). Send 'c' to recalibrate.\n",
-                          FINGER_NAMES[i], flexR, R_bent[i]);
-          }
-        }
-
-        if (ratio <= deadzoneRatio) {
-          curlValues[i] = 0.0f;
-          lastGoodCurl[i] = 0.0f;
-        } else {
-          float norm = (ratio - deadzoneRatio) / (1.0f - deadzoneRatio);
-          norm = constrain(norm, 0.0f, 1.0f);
-          float curled = pow(norm, 0.65f);
-          float smoothed = lastGoodCurl[i] + EMA_ALPHA[i] * (curled - lastGoodCurl[i]);
+        if (isFingerOpen[i]) {
+          // SWITCH CONNECTED: Finger is confirmed OPEN in GLB
+          // Movement is faster returning to open neutral (0.0 curl)
+          float fastReturnAlpha = 0.45f;
+          float smoothed = lastGoodCurl[i] + fastReturnAlpha * (0.0f - lastGoodCurl[i]);
+          if (smoothed < 0.015f) smoothed = 0.0f;
           curlValues[i] = smoothed;
           lastGoodCurl[i] = smoothed;
+        } else {
+          // SWITCH DISCONNECTED: Finger is BENDING
+          // Continuous flex sensor governs movement.
+          // Smooth and slow GLB movement (gentle EMA alpha = 0.20) for steady flexion
+          float span = R_bent[i] - R_flat[i];
+          float absSpan = fabs(span);
+          if (absSpan < 100.0f) absSpan = 100.0f;
+
+          float deadzone = max(100.0f, 0.04f * absSpan);
+          float deadzoneRatio = deadzone / absSpan;
+
+          float ratio = (absSpan >= 100.0f) ? ((flexR - R_flat[i]) / span) : 0.0f;
+
+          if (ratio > 1.0f) {
+            if (currentTime - lastClampHintTime[i] >= 5000) {
+              lastClampHintTime[i] = currentTime;
+              Serial.printf("[FLEX HINT] %s bent beyond R_bent (%.0fΩ vs %.0fΩ). Send 'c' to recalibrate.\n",
+                            FINGER_NAMES[i], flexR, R_bent[i]);
+            }
+          }
+
+          if (ratio <= deadzoneRatio) {
+            curlValues[i] = 0.0f;
+            lastGoodCurl[i] = 0.0f;
+          } else {
+            float norm = (ratio - deadzoneRatio) / (1.0f - deadzoneRatio);
+            norm = constrain(norm, 0.0f, 1.0f);
+            float curled = pow(norm, 0.65f);
+            // Smooth and slow EMA when bending
+            float slowAlpha = 0.20f;
+            float smoothed = lastGoodCurl[i] + slowAlpha * (curled - lastGoodCurl[i]);
+            curlValues[i] = smoothed;
+            lastGoodCurl[i] = smoothed;
+          }
         }
       }
     }
 
     if (wsConnected) {
-      StaticJsonDocument<512> doc;
+      StaticJsonDocument<768> doc;
       doc["src"] = "esp32";
       doc["seq"] = ++seq;
       doc["t"]   = currentTime;
@@ -687,12 +725,16 @@ void loop() {
       JsonArray curlArr     = doc.createNestedArray("curl");
       JsonArray okArr       = doc.createNestedArray("ok");
       JsonArray lowRangeArr = doc.createNestedArray("lowrange");
+      JsonArray swArr       = doc.createNestedArray("sw");
+      JsonArray connArr     = doc.createNestedArray("connected");
 
       for (int i = 0; i < NUM_FINGERS; i++) {
         rawArr.add(rawValues[i]);
         curlArr.add(round(curlValues[i] * 1000.0f) / 1000.0f);
         okArr.add(okFlags[i]);
         lowRangeArr.add(lowRangeFlags[i]);
+        swArr.add(switchRaw[i]);       // 0 = LOW (connected to GND), 1 = HIGH (disconnected)
+        connArr.add(isFingerOpen[i]);  // true = open finger, false = bending
       }
 
       String payload;

@@ -264,6 +264,10 @@ const FingerSyncPanel = ({
   };
 
   const hasHardwarePacket = rawSensorPacket && Object.keys(rawSensorPacket).length > 0;
+  const hasSwitchTelemetry = fingerKeys.some(({ key }) => {
+    const sw = computedFingerData?.switchConnected?.[key];
+    return sw !== null && sw !== undefined;
+  });
   const getRawVal = (key, idx) => {
     if (rawSensorPacket?.['raw_' + key] !== undefined) return Number(rawSensorPacket['raw_' + key]);
     if (Array.isArray(rawSensorPacket?.raw) && rawSensorPacket.raw[idx] !== undefined) return Number(rawSensorPacket.raw[idx]);
@@ -288,6 +292,12 @@ const FingerSyncPanel = ({
           </span>
         </div>
         <div className="flex items-center gap-1.5">
+          {hasSwitchTelemetry && (
+            <span className="inline-flex items-center gap-1 text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-cyan-50 text-cyan-700 border border-cyan-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />
+              Switch Hybrid
+            </span>
+          )}
           <span className={`inline-flex items-center gap-1 text-[9px] font-extrabold px-2.5 py-1 rounded-full border ${
             simulatedActive
               ? 'bg-purple-50 text-purple-700 border-purple-200 animate-pulse'
@@ -350,6 +360,15 @@ const FingerSyncPanel = ({
                   <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
                     {label}
                   </span>
+                  {debugInfo?.isSwitchConnected !== null && debugInfo?.isSwitchConnected !== undefined && (
+                    <span className={`text-[7px] font-black px-1 py-0.5 rounded leading-none mt-0.5 uppercase tracking-tighter ${
+                      debugInfo.isSwitchConnected
+                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                        : 'bg-cyan-100 text-cyan-700 border border-cyan-300'
+                    }`}>
+                      {debugInfo.isSwitchConnected ? 'OPEN' : 'BEND'}
+                    </span>
+                  )}
                 </div>
               );
             })}
@@ -394,6 +413,15 @@ const FingerSyncPanel = ({
                   <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
                     {label}
                   </span>
+                  {debugInfo?.isSwitchConnected !== null && debugInfo?.isSwitchConnected !== undefined && (
+                    <span className={`text-[7px] font-black px-1 py-0.5 rounded leading-none mt-0.5 uppercase tracking-tighter ${
+                      debugInfo.isSwitchConnected
+                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                        : 'bg-cyan-100 text-cyan-700 border border-cyan-300'
+                    }`}>
+                      {debugInfo.isSwitchConnected ? 'OPEN' : 'BEND'}
+                    </span>
+                  )}
                 </div>
               );
             })}
@@ -2488,6 +2516,7 @@ function LiveExercisePage() {
                         sensorFingerAngles={activeSensorFingerAngles}
                         sensorWristAngles={activeSensorWristAngles}
                         sensorElbowAngles={activeSensorElbowAngles}
+                        fingerLerpFactors={fingerTelemetryDetails?.lerpFactors}
                         onRestAnglesCaptured={handleRestAnglesCaptured}
                       />
                     </div>
@@ -2508,6 +2537,7 @@ function LiveExercisePage() {
                         sensorFingerAngles={activeSensorFingerAngles}
                         sensorWristAngles={activeSensorWristAngles}
                         sensorElbowAngles={activeSensorElbowAngles}
+                        fingerLerpFactors={fingerTelemetryDetails?.lerpFactors}
                         onRestAnglesCaptured={handleRestAnglesCaptured}
                       />
                     </div>
@@ -2526,6 +2556,7 @@ function LiveExercisePage() {
                     sensorFingerAngles={activeSensorFingerAngles}
                     sensorWristAngles={activeSensorWristAngles}
                     sensorElbowAngles={activeSensorElbowAngles}
+                    fingerLerpFactors={fingerTelemetryDetails?.lerpFactors}
                     onRestAnglesCaptured={handleRestAnglesCaptured}
                   />
                 )}

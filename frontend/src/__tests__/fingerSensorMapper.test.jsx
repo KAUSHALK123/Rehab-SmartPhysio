@@ -5,6 +5,7 @@ import {
   processFingerTelemetry, 
   applyCalibratedFingerRotation,
   degToRad,
+  resetDynamicRanges,
   FINGER_KEYS,
   FINGER_RIG_MAP
 } from '../services/fingerSensorMapper';
@@ -245,6 +246,79 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
     it('handles null node or missing base safely without error', () => {
       expect(() => applyCalibratedFingerRotation(null, 'right_thumb', { x: 0, y: 0, z: 0 }, 10)).not.toThrow();
       expect(() => applyCalibratedFingerRotation({ rotation: { x: 0, y: 0, z: 0 } }, 'right_thumb', null, 10)).not.toThrow();
+    });
+  });
+
+  beforeEach(() => {
+    resetDynamicRanges();
+  });
+
+  describe('Digital Switch Technique & Dynamic Lerp', () => {
+    it('sets normalized=0 and fast lerpFactor=0.38 when switch is connected (finger open)', () => {
+      // connected: true (open), false (bending)
+      const telemetry = {
+        connected: [true, false, true, false, false],
+        raw_index: 2200,
+        raw_ring: 2100,
+        raw_little: 2000
+      };
+
+      const result = processFingerTelemetry(telemetry, mockApprovedGlbConfig);
+
+      // Thumb & Middle are connected (switch closed -> finger straight)
+      expect(result.switchConnected.thumb).toBe(true);
+      expect(result.switchStates.thumb).toBe('OPEN');
+      expect(result.normalized.thumb).toBe(0);
+      expect(result.lerpFactors.thumb).toBe(0.38); // Fast return to open
+      expect(result.angles.thumb).toBe(-60); // Straight rest angle
+
+      expect(result.switchConnected.middle).toBe(true);
+      expect(result.switchStates.middle).toBe('OPEN');
+      expect(result.normalized.middle).toBe(0);
+      expect(result.lerpFactors.middle).toBe(0.38);
+
+      // Index is disconnected (switch open -> bending)
+      expect(result.switchConnected.index).toBe(false);
+      expect(result.switchStates.index).toBe('BENDING');
+      expect(result.lerpFactors.index).toBe(0.12); // Buttery smooth slow bend
+      expect(result.normalized.index).toBeGreaterThan(0);
+    });
+
+    it('correctly maps raw ESP32 sw array (0 = LOW/connected/open, 1 = HIGH/disconnected/bending)', () => {
+      const telemetry = {
+        sw: [0, 1, 0, 1, 0], // Thumb, Index, Middle, Ring, Little
+        raw_index: 2000,
+        raw_ring: 1900
+      };
+
+      const result = processFingerTelemetry(telemetry, mockApprovedGlbConfig);
+
+      expect(result.switchConnected.thumb).toBe(true);
+      expect(result.lerpFactors.thumb).toBe(0.38);
+
+      expect(result.switchConnected.index).toBe(false);
+      expect(result.lerpFactors.index).toBe(0.12);
+
+      expect(result.switchConnected.middle).toBe(true);
+      expect(result.lerpFactors.middle).toBe(0.38);
+
+      expect(result.switchConnected.ring).toBe(false);
+      expect(result.lerpFactors.ring).toBe(0.12);
+
+      expect(result.switchConnected.little).toBe(true);
+      expect(result.lerpFactors.little).toBe(0.38);
+    });
+
+    it('defaults to standard lerpFactor=0.25 when switch telemetry is not present', () => {
+      const telemetry = {
+        raw_index: 1800
+      };
+
+      const result = processFingerTelemetry(telemetry, mockApprovedGlbConfig);
+
+      expect(result.switchConnected.index).toBeNull();
+      expect(result.switchStates.index).toBe('N/A');
+      expect(result.lerpFactors.index).toBe(0.25);
     });
   });
 });

@@ -95,6 +95,7 @@ function FullBodyRig({
   sensorFingerAngles = null,
   sensorWristAngles = null,
   sensorElbowAngles = null,
+  fingerLerpFactors = null,
   onRestAnglesCaptured,
   resetKey = null
 }) {
@@ -297,7 +298,8 @@ function FullBodyRig({
         // Real-time sensor-driven or simulated GLB movement (Fix 2 & Fix 3 shared logic)
         const fingerKey = nodeName.replace('right_', '');
         const mappedAngleDeg = sensorFingerAngles[fingerKey] !== undefined ? sensorFingerAngles[fingerKey] : 0;
-        applyCalibratedFingerRotation(fingerNode, nodeName, base, mappedAngleDeg, 0.25);
+        const dynamicLerp = fingerLerpFactors?.[fingerKey] ?? 0.25;
+        applyCalibratedFingerRotation(fingerNode, nodeName, base, mappedAngleDeg, dynamicLerp);
       } else {
         // In calibration mode, non-target fingers remain steady at rest pose
         if (calibrationActive) {
@@ -396,6 +398,7 @@ export default function Trial3DVisualizer({
   sensorFingerAngles = null,
   sensorWristAngles = null,
   sensorElbowAngles = null,
+  fingerLerpFactors = null,
   onRestAnglesCaptured,
   resetKey = null
 }) {
@@ -435,6 +438,7 @@ export default function Trial3DVisualizer({
               sensorFingerAngles={sensorFingerAngles} 
               sensorWristAngles={sensorWristAngles}
               sensorElbowAngles={sensorElbowAngles}
+              fingerLerpFactors={fingerLerpFactors}
               onRestAnglesCaptured={onRestAnglesCaptured}
               resetKey={resetKey}
             />
