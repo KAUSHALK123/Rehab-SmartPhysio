@@ -262,7 +262,7 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       // ─────────────────────────────────────────────────────────────
       normalized = 0;
       filteredVal = 0;
-      lerpFactor = 0.38;
+      lerpFactor = 0.14;
       if (rawReading === null) rawReading = 0;
     } else if (isSwConnected === false) {
       // ─────────────────────────────────────────────────────────────
