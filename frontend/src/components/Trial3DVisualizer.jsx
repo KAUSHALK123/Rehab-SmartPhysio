@@ -278,7 +278,6 @@ function FullBodyRig({
       const base = bases[nodeName] || { x: 0, y: 0, z: 0 };
 
       const isThumb = nodeName === 'right_thumb';
-      const isIndex = nodeName === 'right_index';
 
       if (calibrationActive && targetBone === nodeName) {
         // Calibrating this specific finger bone:
@@ -300,8 +299,7 @@ function FullBodyRig({
         const fingerKey = nodeName.replace('right_', '');
         const mappedAngleDeg = sensorFingerAngles[fingerKey] !== undefined ? sensorFingerAngles[fingerKey] : 0;
         const dynamicLerp = fingerLerpFactors?.[fingerKey] ?? 0.25;
-        // In full_rig GLB frame, thumb (X axis) and index (Z axis) rotate opposite to middle/ring/little to curl inward
-        const effectiveAngle = (isThumb || isIndex) ? -mappedAngleDeg : mappedAngleDeg;
+        const effectiveAngle = isThumb ? -mappedAngleDeg : mappedAngleDeg;
         applyCalibratedFingerRotation(fingerNode, nodeName, base, effectiveAngle, dynamicLerp);
       } else {
         // In calibration mode, non-target fingers remain steady at rest pose
@@ -317,11 +315,6 @@ function FullBodyRig({
             fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, targetX, 0.15);
             fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, 0.15);
             fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, base.z, 0.15);
-          } else if (isIndex) {
-            const targetZ = base.z - flexRad;
-            fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, base.x, 0.15);
-            fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, 0.15);
-            fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, targetZ, 0.15);
           } else {
             const targetZ = base.z + flexRad;
             fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, base.x, 0.15);

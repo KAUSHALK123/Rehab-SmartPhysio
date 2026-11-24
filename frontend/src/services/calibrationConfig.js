@@ -55,9 +55,9 @@ export const FINGER_MOVEMENTS = [
     label: 'Index', 
     bone: 'right_index',
     defaultRanges: {
-      x: { min: -85, max: 10 },
+      x: { min: -15, max: 15 },
       y: { min: -15, max: 15 },
-      z: { min: -15, max: 15 }
+      z: { min: -15, max: 65 }
     }
   },
   { 
@@ -65,9 +65,9 @@ export const FINGER_MOVEMENTS = [
     label: 'Middle', 
     bone: 'right_middle',
     defaultRanges: {
-      x: { min: -85, max: 10 },
+      x: { min: -15, max: 15 },
       y: { min: -15, max: 15 },
-      z: { min: -15, max: 15 }
+      z: { min: -15, max: 65 }
     }
   },
   { 
@@ -75,9 +75,9 @@ export const FINGER_MOVEMENTS = [
     label: 'Ring', 
     bone: 'right_ring',
     defaultRanges: {
-      x: { min: -80, max: 10 },
+      x: { min: -15, max: 15 },
       y: { min: -15, max: 15 },
-      z: { min: -15, max: 15 }
+      z: { min: -15, max: 65 }
     }
   },
   { 
@@ -85,9 +85,9 @@ export const FINGER_MOVEMENTS = [
     label: 'Little', 
     bone: 'right_little',
     defaultRanges: {
-      x: { min: -75, max: 10 },
+      x: { min: -15, max: 15 },
       y: { min: -15, max: 15 },
-      z: { min: -15, max: 15 }
+      z: { min: -15, max: 55 }
     }
   }
 ];

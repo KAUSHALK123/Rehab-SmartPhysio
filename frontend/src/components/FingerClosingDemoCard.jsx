@@ -163,14 +163,8 @@ function FingerClosingRigScene({
         node.rotation.x = THREE.MathUtils.lerp(node.rotation.x, targetX, 0.25);
         node.rotation.y = THREE.MathUtils.lerp(node.rotation.y, base.y, 0.25);
         node.rotation.z = THREE.MathUtils.lerp(node.rotation.z, base.z, 0.25);
-      } else if (name === 'right_index') {
-        // Index: local Z axis inverted relative to middle/ring/little in rig to curl inward toward palm
-        const targetZ = base.z - rad;
-        node.rotation.x = THREE.MathUtils.lerp(node.rotation.x, base.x, 0.25);
-        node.rotation.y = THREE.MathUtils.lerp(node.rotation.y, base.y, 0.25);
-        node.rotation.z = THREE.MathUtils.lerp(node.rotation.z, targetZ, 0.25);
       } else {
-        // Middle, Ring, Little: LOCAL Z axis ONLY (curl inward); X and Y locked to base rest
+        // Index, Middle, Ring, Little: LOCAL Z axis ONLY (curl inward into fist); X and Y locked to base rest
         const targetZ = base.z + rad;
         node.rotation.x = THREE.MathUtils.lerp(node.rotation.x, base.x, 0.25);
         node.rotation.y = THREE.MathUtils.lerp(node.rotation.y, base.y, 0.25);
