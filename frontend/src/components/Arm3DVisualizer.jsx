@@ -186,13 +186,16 @@ function FullBodyRig({
 
       const base = bases[nodeName] || { x: 0, y: 0, z: 0 };
       const isThumb = nodeName === 'right_thumb';
+      const isIndex = nodeName === 'right_index';
 
       if (sensorFingerAngles && typeof sensorFingerAngles === 'object') {
         // Real-time sensor-driven GLB movement from proven Trial logic
         const fingerKey = nodeName.replace('right_', '');
         const mappedAngleDeg = sensorFingerAngles[fingerKey] !== undefined ? sensorFingerAngles[fingerKey] : 0;
-        // In main exercise GLB frame, reverse thumb angle so bending sensor closes thumb inward toward palm
-        const effectiveAngle = isThumb ? -mappedAngleDeg : mappedAngleDeg;
+        // In full_rig GLB frame:
+        // - Thumb: reversed on X axis so bending sensor closes thumb inward toward palm
+        // - Index: inverted on Z axis because index bone orientation in rig is opposite to middle/ring/little
+        const effectiveAngle = (isThumb || isIndex) ? -mappedAngleDeg : mappedAngleDeg;
         // Dynamic lerp factor: fast (0.38) when returning to switch contact (open), slow and smooth (0.12) when bending
         const dynamicLerp = fingerLerpFactors?.[fingerKey] ?? 0.25;
         applyCalibratedFingerRotation(fingerNode, nodeName, base, effectiveAngle, dynamicLerp);
@@ -205,6 +208,12 @@ function FullBodyRig({
           fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, targetX, 0.15);
           fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, 0.15);
           fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, base.z, 0.15);
+        } else if (isIndex) {
+          // Reverse direction so index curls inward toward palm matching middle/ring/little
+          const targetZ = base.z - flexRad;
+          fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, base.x, 0.15);
+          fingerNode.rotation.y = THREE.MathUtils.lerp(fingerNode.rotation.y, base.y, 0.15);
+          fingerNode.rotation.z = THREE.MathUtils.lerp(fingerNode.rotation.z, targetZ, 0.15);
         } else {
           const targetZ = base.z + flexRad;
           fingerNode.rotation.x = THREE.MathUtils.lerp(fingerNode.rotation.x, base.x, 0.15);

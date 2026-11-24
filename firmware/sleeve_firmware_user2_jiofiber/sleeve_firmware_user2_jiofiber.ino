@@ -38,16 +38,16 @@ const char* FINGER_NAMES[NUM_FINGERS] = {"Thumb", "Index", "Middle", "Ring", "Li
 
 // DIGITAL SWITCH CONTACT TECHNIQUE:
 // Pins configured with internal pull-up (no external resistors needed)
-// Thumb Switch  : GPIO 18 (D18)
-// Index Switch  : GPIO 4  (D4) -> User physically attached D4 for Index
+// Thumb Switch  : GPIO 19 (D19) -> Swapped with Little
+// Index Switch  : GPIO 4  (D4)  -> User physically attached D4 for Index
 // Middle Switch : GPIO 23 (D23) / Alternate GPIO 16 (RX2)
 // Ring Switch   : GPIO 17 (TX2)
-// Little Switch : GPIO 19 (D19)
+// Little Switch : GPIO 18 (D18) -> Swapped with Thumb
 //
 // Logic:
 // Switch OPEN / Disconnected (open circuit, HIGH): Finger is BENT in GLB (slow smooth movement)
 // Switch CLOSED / Connected (pin to GND, LOW): Finger is OPEN / STRAIGHT in GLB (fast smooth opening)
-const int SWITCH_PINS[NUM_FINGERS] = {18, 4, 23, 17, 19};
+const int SWITCH_PINS[NUM_FINGERS] = {19, 4, 23, 17, 18};
 const int PIN_SWITCH_MIDDLE_ALT    = 16; // RX2 alternate for Middle
 int switchRaw[NUM_FINGERS]         = {HIGH, HIGH, HIGH, HIGH, HIGH};
 bool isFingerOpen[NUM_FINGERS]      = {false, false, false, false, false};
