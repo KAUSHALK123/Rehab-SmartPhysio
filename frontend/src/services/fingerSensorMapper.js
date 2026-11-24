@@ -250,39 +250,73 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     if (isSwConnected === true) {
       // ─────────────────────────────────────────────────────────────
       // SWITCH TECHNIQUE: CONTACT CONNECTED (digitalRead == LOW)
-      // Means the finger is fully OPEN in GLB.
+      // Contacts touched to GND -> Finger is confirmed fully OPEN in GLB.
       // Dynamic Lerp: faster return to open (0.38)
       // ─────────────────────────────────────────────────────────────
       normalized = 0;
       filteredVal = 0;
       lerpFactor = 0.38;
       if (rawReading === null) rawReading = 0;
-    } else {
-      // Switch is DISCONNECTED (digitalRead == HIGH -> bending) or not installed
-      if (isSwConnected === false) {
-        // Disconnected -> finger is bending; GLB movement is buttery smooth and slow
-        lerpFactor = 0.12;
-      } else {
-        // No switch telemetry present -> fallback standard smoothing
-        lerpFactor = 0.25;
+    } else if (isSwConnected === false) {
+      // ─────────────────────────────────────────────────────────────
+      // SWITCH TECHNIQUE: CONTACT DISCONNECTED (digitalRead == HIGH)
+      // Switch is the MAIN DETERMINATION: Contact broken -> finger is BENDING!
+      // Dynamic Lerp: smooth and slow (0.12)
+      // Parallel Fusion with Flex Sensor:
+      // - Flex modulates the depth of bend (0.50 -> 1.0) if reading active signal
+      // - If flex is 0 ADC (fault/disconnected), switch alone drives 75% bend!
+      // ─────────────────────────────────────────────────────────────
+      lerpFactor = 0.12;
+
+      let flexRatio = 0;
+      if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
+        filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
+        flexRatio = Math.max(0, Math.min(1, filteredVal / 90.0));
+      } else if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
+        const bounds = resolveSensorBounds(finger);
+        let effectiveStraight = bounds.straight;
+        let effectiveBent = bounds.bent;
+
+        const dynSpan = (dynamicRanges[finger].max || 0) - (dynamicRanges[finger].min || 0);
+        if (dynSpan >= 25) {
+          if (bounds.straight > bounds.bent) {
+            effectiveStraight = dynamicRanges[finger].max;
+            effectiveBent = dynamicRanges[finger].min;
+          } else {
+            effectiveStraight = dynamicRanges[finger].min;
+            effectiveBent = dynamicRanges[finger].max;
+          }
+        }
+
+        filteredVal = rawVal;
+        flexRatio = normalizeFlexValue(rawVal, effectiveStraight, effectiveBent, true);
       }
 
+      if (flexRatio > 0.05) {
+        // Parallel fusion: base bend 0.50 from disconnected switch + flex sensor adds up to 0.50
+        normalized = Math.min(1.0, 0.50 + 0.50 * flexRatio);
+      } else {
+        // Disconnected switch alone (e.g. while flex reads 0 ADC or flat):
+        // Main determination drives steady visible bend in GLB!
+        normalized = 0.75;
+      }
+      if (rawReading === null) rawReading = Math.round(normalized * 4095);
+    } else {
+      // No switch installed -> purely flex sensor
+      lerpFactor = 0.25;
+
       if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
-        // 1. Pre-filtered calibrated angle value from firmware or backend mock (0 - 90 deg)
         filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
         const linearRatio = Math.max(0, Math.min(1, filteredVal / 90.0));
-        // Apply ultra-sensitive boost for subtle angle inputs
         normalized = linearRatio > 0 && linearRatio < 1 ? Math.pow(linearRatio, 0.60) : linearRatio;
         if (rawReading === null) {
           rawReading = rawVal !== undefined ? Number(rawVal) : Math.round(normalized * 4095);
         }
       } else if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
-        // 2. Raw 12-bit ADC reading available
         const bounds = resolveSensorBounds(finger);
         let effectiveStraight = bounds.straight;
         let effectiveBent = bounds.bent;
 
-        // Ultra-sensitive dynamic auto-range adapts to micro-bends (span >= 25)
         const dynSpan = (dynamicRanges[finger].max || 0) - (dynamicRanges[finger].min || 0);
         if (dynSpan >= 25) {
           if (bounds.straight > bounds.bent) {

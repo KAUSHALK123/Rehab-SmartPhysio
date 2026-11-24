@@ -690,9 +690,19 @@ void loop() {
     for (int i = 0; i < NUM_FINGERS; i++) {
       // 1. Read digital switch state
       // LOW  = Contacts connected to GND -> Finger is OPEN in GLB
-      // HIGH = Contacts separated / open circuit -> Finger is BENDING (governed by continuous flex)
+      // HIGH = Contacts separated / open circuit -> Finger is BENDING (switch is main determination)
       switchRaw[i] = digitalRead(SWITCH_PINS[i]);
       isFingerOpen[i] = (switchRaw[i] == LOW);
+
+      // Log switch transitions immediately to Serial Monitor for hardware verification
+      static int lastSwLogged[NUM_FINGERS] = {-1, -1, -1, -1, -1};
+      if (switchRaw[i] != lastSwLogged[i]) {
+        lastSwLogged[i] = switchRaw[i];
+        Serial.printf("[SWITCH] %s (GPIO %d): %s -> %s\n",
+                      FINGER_NAMES[i], SWITCH_PINS[i],
+                      isFingerOpen[i] ? "CONNECTED (LOW)" : "DISCONNECTED (HIGH)",
+                      isFingerOpen[i] ? "OPEN (FAST)" : "BENDING (SMOOTH SLOW)");
+      }
 
       int spread = 0;
       int raw = readOversampled(FINGER_PINS[i], &spread);
@@ -712,63 +722,50 @@ void loop() {
 
       if (fault) {
         totalFaultCount[i]++;
-        okFlags[i] = 0;
-        curlValues[i] = lastGoodCurl[i];
-      } else {
-        okFlags[i] = 1;
+      }
 
-        if (isFingerOpen[i]) {
-          // ================================================================
-          // SWITCH CONNECTED: Finger is confirmed OPEN in GLB
-          // Movement is faster returning to open neutral (0.0 curl)
-          // ================================================================
-          float fastReturnAlpha = 0.45f;
-          float smoothed = lastGoodCurl[i] + fastReturnAlpha * (0.0f - lastGoodCurl[i]);
-          if (smoothed < 0.015f) smoothed = 0.0f;
-          curlValues[i] = smoothed;
-          lastGoodCurl[i] = smoothed;
-        } else {
-          // ================================================================
-          // SWITCH DISCONNECTED: Finger is BENDING
-          // Continuous flex sensor governs movement.
-          // Smooth and slow GLB movement (gentle EMA alpha = 0.20) for steady flexion
-          // ================================================================
+      if (isFingerOpen[i]) {
+        // ================================================================
+        // SWITCH CONNECTED: Finger is confirmed OPEN in GLB
+        // Faster return to open neutral (0.0 curl)
+        // ================================================================
+        float fastReturnAlpha = 0.45f;
+        float smoothed = lastGoodCurl[i] + fastReturnAlpha * (0.0f - lastGoodCurl[i]);
+        if (smoothed < 0.015f) smoothed = 0.0f;
+        curlValues[i] = smoothed;
+        lastGoodCurl[i] = smoothed;
+        okFlags[i] = 1;
+      } else {
+        // ================================================================
+        // SWITCH DISCONNECTED: Finger is BENDING
+        // Switch is the main determination.
+        // Parallel fusion: If flex sensor has valid range, fuse analog bend.
+        // If flex sensor reads 0 ADC or faults, switch alone drives bend!
+        // Smooth and slow GLB movement (gentle EMA alpha = 0.20)
+        // ================================================================
+        float targetCurl = 0.75f; // Base bend when switch is open
+
+        if (!fault && isFlexCalibrated) {
           float span = R_bent[i] - R_flat[i];
           float absSpan = fabs(span);
-          if (absSpan < 100.0f) absSpan = 100.0f;
-
-          // Proportional deadzone: 4% of measured span (minimum 100Ω)
-          float deadzone = max(100.0f, 0.04f * absSpan);
-          float deadzoneRatio = deadzone / absSpan;
-
-          float ratio = (absSpan >= 100.0f) ? ((flexR - R_flat[i]) / span) : 0.0f;
-
-          // Rate-limited warning if user bends beyond calibrated R_bent
-          if (ratio > 1.0f) {
-            if (currentTime - lastClampHintTime[i] >= 5000) {
-              lastClampHintTime[i] = currentTime;
-              Serial.printf("[FLEX HINT] %s bent beyond R_bent (%.0fΩ vs %.0fΩ). Send 'c' to recalibrate.\n",
-                            FINGER_NAMES[i], flexR, R_bent[i]);
+          if (absSpan >= 100.0f) {
+            float deadzone = max(100.0f, 0.04f * absSpan);
+            float deadzoneRatio = deadzone / absSpan;
+            float ratio = (flexR - R_flat[i]) / span;
+            if (ratio > deadzoneRatio) {
+              float norm = (ratio - deadzoneRatio) / (1.0f - deadzoneRatio);
+              norm = constrain(norm, 0.0f, 1.0f);
+              float curled = pow(norm, 0.65f);
+              targetCurl = 0.50f + 0.50f * curled;
             }
           }
-
-          if (ratio <= deadzoneRatio) {
-            curlValues[i] = 0.0f;
-            lastGoodCurl[i] = 0.0f;
-          } else {
-            float norm = (ratio - deadzoneRatio) / (1.0f - deadzoneRatio);
-            norm = constrain(norm, 0.0f, 1.0f);
-
-            // Gamma curve 0.65 for responsive, natural flexion
-            float curled = pow(norm, 0.65f);
-
-            // Smooth and slow EMA when bending: gentle alpha 0.20
-            float slowAlpha = 0.20f;
-            float smoothed = lastGoodCurl[i] + slowAlpha * (curled - lastGoodCurl[i]);
-            curlValues[i] = smoothed;
-            lastGoodCurl[i] = smoothed;
-          }
         }
+
+        float slowAlpha = 0.20f;
+        float smoothed = lastGoodCurl[i] + slowAlpha * (targetCurl - lastGoodCurl[i]);
+        curlValues[i] = smoothed;
+        lastGoodCurl[i] = smoothed;
+        okFlags[i] = 1;
       }
     }
 

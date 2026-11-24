@@ -309,6 +309,31 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
       expect(result.lerpFactors.little).toBe(0.38);
     });
 
+    it('drives visible GLB bending even when flex sensor reads 0 ADC when switch disconnects', () => {
+      // Simulates user touching D4 (GPIO 4 = Thumb) then untouching D4 while flex is 0 ADC
+      const touchedD4 = {
+        sw: [0, 0, 0, 0, 0], // D4 touched to GND -> Thumb connected/open
+        raw_thumb: 0         // Flex sensor reads 0 ADC
+      };
+      const touchedResult = processFingerTelemetry(touchedD4, mockApprovedGlbConfig);
+      expect(touchedResult.switchConnected.thumb).toBe(true);
+      expect(touchedResult.switchStates.thumb).toBe('OPEN');
+      expect(touchedResult.normalized.thumb).toBe(0);
+      expect(touchedResult.angles.thumb).toBe(-60); // Straight open hand
+      expect(touchedResult.lerpFactors.thumb).toBe(0.38); // Fast return to open
+
+      const untouchedD4 = {
+        sw: [1, 0, 0, 0, 0], // D4 untouched (open circuit) -> Thumb disconnected/bending
+        raw_thumb: 0         // Flex sensor still reads 0 ADC
+      };
+      const untouchedResult = processFingerTelemetry(untouchedD4, mockApprovedGlbConfig);
+      expect(untouchedResult.switchConnected.thumb).toBe(false);
+      expect(untouchedResult.switchStates.thumb).toBe('BENDING');
+      expect(untouchedResult.normalized.thumb).toBe(0.75); // Main determination drives 75% bend!
+      expect(untouchedResult.angles.thumb).toBe(0);      // -60 + 0.75 * (20 - (-60)) = 0 (Clear 60° rotation from -60° open)
+      expect(untouchedResult.lerpFactors.thumb).toBe(0.12); // Smooth and slow bend
+    });
+
     it('defaults to standard lerpFactor=0.25 when switch telemetry is not present', () => {
       const telemetry = {
         raw_index: 1800

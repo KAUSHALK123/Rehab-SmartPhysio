@@ -1121,8 +1121,9 @@ function LiveExercisePage() {
         setDeviceConnected(true);
         if (data.battery !== undefined) setBattery(data.battery);
 
-        // Check if packet carries finger telemetry (either named fields or array fields)
+        // Check if packet carries finger telemetry (either named fields, array fields, or digital switch states)
         const hasFingerPayload = Array.isArray(data.curl) || Array.isArray(data.raw) ||
+          Array.isArray(data.connected) || Array.isArray(data.sw) ||
           data.thumb !== undefined || data.index !== undefined ||
           data.raw_thumb !== undefined || data.raw_index !== undefined;
 
@@ -2134,12 +2135,14 @@ function LiveExercisePage() {
     }
   };
 
-  // Resolve active calibrated finger angles for 3D visualizer (lock to 0 neutral if not finger exercise)
+  // Resolve active calibrated finger angles for 3D visualizer
   const activeSensorFingerAngles = (isTrial && trialType === 'fingers' && fingerTrialView === 'calibration')
     ? null
     : (devSlidersActive
         ? devComputedFingerAngles
-        : ((isFingerExercise || isFingerClosing) ? sensorFingerAngles : { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 }));
+        : ((isFingerExercise || isFingerClosing || hasSwitchTelemetry || isFlexSynced)
+            ? (sensorFingerAngles || { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 })
+            : { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 }));
 
   // Resolve active calibrated wrist angles for 3D visualizer (enabled for wrist and gently for finger exercises)
   const activeSensorWristAngles = (isTrial && trialType === 'wrist' && wristTrialView === 'calibration')
