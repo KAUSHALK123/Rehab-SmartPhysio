@@ -15,7 +15,7 @@ export default function WristAiCoachOverlay({
   targetReps = 5,
   exerciseName = "Wrist Motion Test",
   isSimulated = false,
-  apiEndpoint = "http://localhost:8000/coach/predict",
+  apiEndpoint = "http://127.0.0.1:8000/coach/predict",
   inlineBottom = false, // If true, renders inside the bottom card box
   onPredictionUpdate = null
 }) {

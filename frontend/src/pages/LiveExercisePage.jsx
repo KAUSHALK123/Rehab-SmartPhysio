@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   ResponsiveContainer, 
@@ -23,7 +23,9 @@ import {
   Cpu,
   ChevronLeft,
   ChevronDown,
-  RefreshCw
+  RefreshCw,
+  Sliders,
+  ShieldCheck
 } from 'lucide-react';
 import { startSession, endSession } from '../services/session';
 import apiClient from '../services/auth';
@@ -38,7 +40,8 @@ import FingerClosingDemoCard from '../components/FingerClosingDemoCard';
 import WristAiCoachOverlay from '../components/WristAiCoachOverlay';
 import FlexAiCoachOverlay from '../components/FlexAiCoachOverlay';
 import RandomForestModelCard from '../components/RandomForestModelCard';
-import { processFingerTelemetry } from '../services/fingerSensorMapper';
+import GloveCalibrationModal from '../components/GloveCalibrationModal';
+import { processFingerTelemetry, mapNormalizedToGlb } from '../services/fingerSensorMapper';
 import { processWristTelemetry, resolveWristMovementId } from '../services/wristSensorMapper';
 import { processElbowTelemetry } from '../services/elbowSensorMapper';
 
@@ -242,7 +245,9 @@ const FingerSyncPanel = ({
   isFlexSynced, 
   onToggleSync,
   simulatedActive = false,
-  onToggleSimulation = () => {}
+  onToggleSimulation = () => {},
+  onOpenCalibration = () => {},
+  isGloveCalibrated = false
 }) => {
   const fingerKeys = [
     { key: 'thumb', label: 'Thumb' },
@@ -259,12 +264,21 @@ const FingerSyncPanel = ({
   };
 
   const hasHardwarePacket = rawSensorPacket && Object.keys(rawSensorPacket).length > 0;
+  const hasSwitchTelemetry = fingerKeys.some(({ key }) => {
+    const sw = computedFingerData?.switchConnected?.[key];
+    return sw !== null && sw !== undefined;
+  });
+  const getRawVal = (key, idx) => {
+    if (rawSensorPacket?.['raw_' + key] !== undefined) return Number(rawSensorPacket['raw_' + key]);
+    if (Array.isArray(rawSensorPacket?.raw) && rawSensorPacket.raw[idx] !== undefined) return Number(rawSensorPacket.raw[idx]);
+    return 0;
+  };
   const sensorsReadingZero = hasHardwarePacket && !simulatedActive && (
-    Number(rawSensorPacket.raw_thumb ?? 0) === 0 &&
-    Number(rawSensorPacket.raw_index ?? 0) === 0 &&
-    Number(rawSensorPacket.raw_middle ?? 0) === 0 &&
-    Number(rawSensorPacket.raw_ring ?? 0) === 0 &&
-    Number(rawSensorPacket.raw_little ?? 0) === 0
+    getRawVal('thumb', 0) === 0 &&
+    getRawVal('index', 1) === 0 &&
+    getRawVal('middle', 2) === 0 &&
+    getRawVal('ring', 3) === 0 &&
+    getRawVal('little', 4) === 0
   );
 
   return (
@@ -278,6 +292,12 @@ const FingerSyncPanel = ({
           </span>
         </div>
         <div className="flex items-center gap-1.5">
+          {hasSwitchTelemetry && (
+            <span className="inline-flex items-center gap-1 text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-cyan-50 text-cyan-700 border border-cyan-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />
+              Switch Hybrid
+            </span>
+          )}
           <span className={`inline-flex items-center gap-1 text-[9px] font-extrabold px-2.5 py-1 rounded-full border ${
             simulatedActive
               ? 'bg-purple-50 text-purple-700 border-purple-200 animate-pulse'
@@ -304,27 +324,6 @@ const FingerSyncPanel = ({
           </span>
         </div>
       </div>
-
-      {/* 0 ADC Diagnostic Warning Banner */}
-      {sensorsReadingZero && (
-        <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1.5">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-amber-800 dark:text-amber-300">
-            <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
-            <span>ESP32 Connected • Flex Pins Reading 0 ADC</span>
-          </div>
-          <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
-            The ESP32 is online, but GPIO pins 32-36 are reading 0V. Check that 3.3V power &amp; GND to the flex voltage dividers are plugged in, or click below to simulate fist movement.
-          </p>
-          <button
-            type="button"
-            onClick={onToggleSimulation}
-            className="mt-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Zap className="w-3 h-3" />
-            Start Simulated Flex (Test Repetitions)
-          </button>
-        </div>
-      )}
 
       {/* Two Side-By-Side Cards */}
       <div className="grid grid-cols-2 gap-3">
@@ -361,6 +360,15 @@ const FingerSyncPanel = ({
                   <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
                     {label}
                   </span>
+                  {debugInfo?.switchState && debugInfo.switchState !== 'N/A' && (
+                    <span className={`text-[7px] font-black px-1 py-0.5 rounded leading-none mt-0.5 uppercase tracking-tighter ${
+                      debugInfo.switchState === 'OPEN'
+                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                        : 'bg-cyan-100 text-cyan-700 border border-cyan-300'
+                    }`}>
+                      {debugInfo.switchState === 'OPEN' ? 'OPEN' : 'BEND'}
+                    </span>
+                  )}
                 </div>
               );
             })}
@@ -377,10 +385,16 @@ const FingerSyncPanel = ({
           </div>
 
           <div className="flex items-end justify-between gap-1.5 h-24 pt-1">
-            {fingerKeys.map(({ key, label }) => {
+            {fingerKeys.map(({ key, label }, idx) => {
               const debugInfo = computedFingerData?.debug?.[key];
-              const flexPct = debugInfo?.normalized !== undefined ? debugInfo.normalized : 0;
-              const rawVal = debugInfo?.raw !== null && debugInfo?.raw !== undefined ? debugInfo.raw : (rawSensorPacket?.['raw_' + key] !== undefined ? rawSensorPacket['raw_' + key] : null);
+              const flexPct = debugInfo?.normalized !== undefined 
+                ? debugInfo.normalized 
+                : (computedFingerData?.percentages?.[key] ?? (Array.isArray(rawSensorPacket?.curl) ? Math.round(rawSensorPacket.curl[idx] * 100) : 0));
+              const rawVal = debugInfo?.raw !== null && debugInfo?.raw !== undefined 
+                ? debugInfo.raw 
+                : (rawSensorPacket?.['raw_' + key] !== undefined 
+                    ? rawSensorPacket['raw_' + key] 
+                    : (Array.isArray(rawSensorPacket?.raw) ? rawSensorPacket.raw[idx] : null));
 
               return (
                 <div key={key} className="flex-1 flex flex-col items-center h-full justify-end min-w-0">
@@ -388,17 +402,26 @@ const FingerSyncPanel = ({
                     {rawVal !== null ? `r:${rawVal}` : 'r:--'}
                   </span>
                   <span className="text-[9px] font-black text-slate-800 mb-1">
-                    {debugInfo ? `${Math.round(flexPct)}%` : '0%'}
+                    {debugInfo || flexPct > 0 ? `${Math.round(flexPct)}%` : '0%'}
                   </span>
                   <div className="w-2.5 bg-slate-200 rounded-full h-full relative overflow-hidden flex flex-col justify-end">
                     <div 
                       className={`w-full rounded-full transition-all duration-150 ease-out ${getBarColor(flexPct)}`}
-                      style={{ height: `${debugInfo ? flexPct : 0}%` }}
+                      style={{ height: `${debugInfo || flexPct > 0 ? flexPct : 0}%` }}
                     />
                   </div>
                   <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
                     {label}
                   </span>
+                  {debugInfo?.switchState && debugInfo.switchState !== 'N/A' && (
+                    <span className={`text-[7px] font-black px-1 py-0.5 rounded leading-none mt-0.5 uppercase tracking-tighter ${
+                      debugInfo.switchState === 'OPEN'
+                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                        : 'bg-cyan-100 text-cyan-700 border border-cyan-300'
+                    }`}>
+                      {debugInfo.switchState === 'OPEN' ? 'OPEN' : 'BEND'}
+                    </span>
+                  )}
                 </div>
               );
             })}
@@ -432,6 +455,20 @@ const FingerSyncPanel = ({
         >
           <Zap className={`w-3.5 h-3.5 ${simulatedActive ? 'text-amber-300' : 'text-slate-500'}`} />
           <span className="truncate">{simulatedActive ? 'Stop Simulation' : 'Simulate Flex Test'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onOpenCalibration}
+          className={`py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
+            isGloveCalibrated
+              ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+              : 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 animate-pulse shadow-sm'
+          }`}
+          title="Open Live Glove Calibration Popup"
+        >
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span className="truncate">{isGloveCalibrated ? 'Recalibrate' : 'Calibrate Glove'}</span>
         </button>
       </div>
     </div>
@@ -645,12 +682,24 @@ function LiveExercisePage() {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Check if we are in trial mode
+  // Check if we are in trial mode or dev diagnostics mode (?dev=1)
   const searchParams = new URLSearchParams(location.search);
   const mode = searchParams.get('mode');
   const trialType = searchParams.get('type') || '';
   const isTrial = mode === 'trial';
+  const isDev = searchParams.get('dev') === '1';
   const VisualizerComponent = isTrial ? Trial3DVisualizer : Arm3DVisualizer;
+
+  // Dev diagnostic sliders & hardware calibration states (?dev=1)
+  const [devSlidersActive, setDevSlidersActive] = useState(false);
+  const [devSliders, setDevSliders] = useState({
+    thumb: 0,
+    index: 0,
+    middle: 0,
+    ring: 0,
+    little: 0
+  });
+  const [calibStatusMsg, setCalibStatusMsg] = useState(null);
 
   // Calibration & Trial Sandbox states
   const [calibTargetBone, setCalibTargetBone] = useState(
@@ -718,6 +767,9 @@ function LiveExercisePage() {
   // Live Telemetry states
   const [deviceConnected, setDeviceConnected] = useState(false);
   const [isHardwareDevice, setIsHardwareDevice] = useState(false);
+  const [isGloveCalibratedForSession, setIsGloveCalibratedForSession] = useState(false);
+  const [showGloveCalibModal, setShowGloveCalibModal] = useState(false);
+  const hasTriggeredInitialCalibRef = useRef(false);
   const [simulatedFingersActive, setSimulatedFingersActive] = useState(false);
   const [battery, setBattery] = useState(100);
   const [telemetryStream, setTelemetryStream] = useState([]);
@@ -734,6 +786,10 @@ function LiveExercisePage() {
     ring: 0,
     little: 0
   });
+  const sensorsRef = useRef(sensors);
+  useEffect(() => {
+    sensorsRef.current = sensors;
+  }, [sensors]);
 
   // State machine variables
   // States: 'rest' | 'moving' | 'target_hold' | 'returning'
@@ -1034,7 +1090,10 @@ function LiveExercisePage() {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
       // If running on Vite dev server (port 5173), redirect WS to FastAPI port 8000
-      const wsHost = host.includes(':5173') ? host.replace(':5173', ':8000') : host;
+      let wsHost = host.includes(':5173') ? host.replace(':5173', ':8000') : host;
+      if (wsHost.startsWith('localhost') || wsHost.startsWith('[::1]')) {
+        wsHost = wsHost.replace('localhost', '127.0.0.1').replace('[::1]', '127.0.0.1');
+      }
       return `${protocol}//${wsHost}/api/v1/device/ws`;
     };
     const ws = new WebSocket(getWsUrl());
@@ -1049,6 +1108,14 @@ function LiveExercisePage() {
       const data = JSON.parse(event.data);
       if (data.type === 'status_update' && data.status === 'hardware_status_changed') {
         setDeviceConnected(data.hardware_connected);
+        if (!data.hardware_connected) {
+          setIsGloveCalibratedForSession(false);
+          hasTriggeredInitialCalibRef.current = false;
+        }
+      }
+
+      if (data.type === 'calib_status') {
+        setCalibStatusMsg(`[${data.phase?.toUpperCase()}]: ${data.msg || ''}`);
       }
 
       if (data.type === 'sensor_data') {
@@ -1056,15 +1123,42 @@ function LiveExercisePage() {
         setIsHardwareDevice(isHardware);
         setDeviceConnected(true);
         if (data.battery !== undefined) setBattery(data.battery);
-        setRawSensorPacket(data);
-        setLastPacketTime(Date.now());
 
-        // 1. Process finger telemetry continuously with dynamic auto-range
-        const computedFingers = processFingerTelemetry(data);
-        if (computedFingers && computedFingers.angles) {
-          setSensorFingerAngles(computedFingers.angles);
-          setFingerTelemetryDetails(computedFingers);
+        // Check if packet carries finger telemetry (either named fields, array fields, or digital switch states)
+        const hasFingerPayload = Array.isArray(data.curl) || Array.isArray(data.raw) ||
+          Array.isArray(data.connected) || Array.isArray(data.sw) ||
+          data.thumb !== undefined || data.index !== undefined ||
+          data.raw_thumb !== undefined || data.raw_index !== undefined;
+
+        // Normalize array formats from ESP32 if present
+        if (Array.isArray(data.curl)) {
+          ['thumb', 'index', 'middle', 'ring', 'little'].forEach((k, i) => {
+            if (data[k] === undefined && data.curl[i] !== undefined) {
+              data[k] = data.curl[i] * 90.0;
+            }
+          });
         }
+        if (Array.isArray(data.raw)) {
+          ['thumb', 'index', 'middle', 'ring', 'little'].forEach((k, i) => {
+            const rk = 'raw_' + k;
+            if (data[rk] === undefined && data.raw[i] !== undefined) {
+              data[rk] = data.raw[i];
+            }
+          });
+        }
+
+        // Only update rawSensorPacket and finger angles if packet contains finger data!
+        // This prevents 50Hz IMU-only packets from overwriting finger state with 0s.
+        let computedFingers = null;
+        if (hasFingerPayload) {
+          setRawSensorPacket(data);
+          computedFingers = processFingerTelemetry(data);
+          if (computedFingers && computedFingers.angles) {
+            setSensorFingerAngles(computedFingers.angles);
+            setFingerTelemetryDetails(computedFingers);
+          }
+        }
+        setLastPacketTime(Date.now());
 
         const rawPitch = data.wrist_pitch ?? data.pitch ?? 0.0;
         const rawRoll = data.wrist_roll ?? data.roll ?? 0.0;
@@ -1137,6 +1231,12 @@ function LiveExercisePage() {
           if (computedFingers?.percentages?.[name] !== undefined) {
             return computedFingers.percentages[name];
           }
+          if (Array.isArray(data.curl)) {
+            const idx = ['thumb', 'index', 'middle', 'ring', 'little'].indexOf(name);
+            if (idx >= 0 && data.curl[idx] !== undefined) {
+              return Math.round(data.curl[idx] * 100);
+            }
+          }
           const val = data[name];
           if (val === undefined || val === null) return 0;
           if (typeof val === 'object') return val.angle || 0;
@@ -1153,23 +1253,22 @@ function LiveExercisePage() {
           return val;
         };
 
+        const prevSensors = sensorsRef.current;
         const parsedSensors = {
           wrist_pitch: rawPitch,
           wrist_roll: rawRoll,
           wrist_yaw: data.wrist_yaw ?? data.yaw ?? 0.0,
           elbow: extractElbow(),
-          pressure: data.pressure ?? 0,
-          thumb: extractFinger('thumb'),
-          index: extractFinger('index'),
-          middle: extractFinger('middle'),
-          ring: extractFinger('ring'),
-          little: extractFinger('little')
+          pressure: data.pressure ?? (prevSensors?.pressure ?? 0),
+          thumb: hasFingerPayload ? extractFinger('thumb') : (prevSensors?.thumb ?? 0),
+          index: hasFingerPayload ? extractFinger('index') : (prevSensors?.index ?? 0),
+          middle: hasFingerPayload ? extractFinger('middle') : (prevSensors?.middle ?? 0),
+          ring: hasFingerPayload ? extractFinger('ring') : (prevSensors?.ring ?? 0),
+          little: hasFingerPayload ? extractFinger('little') : (prevSensors?.little ?? 0)
         };
-
-        setSensors(parsedSensors);
-
-        // Store history for averages & charting
+        sensorsRef.current = parsedSensors;
         telemetryHistoryRef.current.push(parsedSensors);
+        setSensors(parsedSensors);
         
         setTelemetryStream(prev => {
           const updated = [...prev, {
@@ -1189,6 +1288,8 @@ function LiveExercisePage() {
     ws.onclose = () => {
       setDeviceConnected(false);
       setIsHardwareDevice(false);
+      setIsGloveCalibratedForSession(false);
+      hasTriggeredInitialCalibRef.current = false;
       setGuidance('Wearable sleeve disconnected. Attempting to reconnect...');
     };
   };
@@ -1459,13 +1560,15 @@ function LiveExercisePage() {
     // Requirement:
     // - Configured target repetitions: 12 reps (or ex.repetitions)
     // - Closing at least 3 to 4 fingers into a fist (flex bend >= 40%) counts as a repetition
-    // - Progress through Open → Close (>=3 fingers) → Hold → Open
-    // - Saves reps completed, accuracy, duration, and telemetry to backend session
-    const isFingerClosingRoutine = isFingerClosing || 
-      nameLower.includes('finger closing') || 
-      (ex.exercise_name || '').toLowerCase().includes('finger closing');
+    // Main Exercise Repetition Detection: All Finger & Hand Exercises (Finger Closing, Finger Opening, Ball Squeeze, etc.)
+    const isFingerRoutine = isFingerClosing || 
+      isFingerExercise ||
+      nameLower.includes('finger') || 
+      nameLower.includes('hand') ||
+      nameLower.includes('squeeze') ||
+      nameLower.includes('grip');
 
-    if (isFingerClosingRoutine) {
+    if (isFingerRoutine) {
       const targetReps = ex.repetitions || 12;
       const fingerBends = [
         { name: 'Thumb', val: data.thumb ?? 0 },
@@ -2000,6 +2103,12 @@ function LiveExercisePage() {
     little: 0
   };
 
+  // Check if active telemetry stream has digital switch data
+  const hasSwitchTelemetry = useMemo(() => {
+    if (!fingerTelemetryDetails?.switchConnected) return false;
+    return Object.values(fingerTelemetryDetails.switchConnected).some(sw => sw !== null && sw !== undefined);
+  }, [fingerTelemetryDetails]);
+
   const activeSensors = isPaused && frozenSensors 
     ? frozenSensors 
     : ((deviceConnected || simulatedFingersActive) ? sensors : defaultSensors);
@@ -2009,17 +2118,40 @@ function LiveExercisePage() {
     shoulderAngleX: 0,
     elbowAngle: isElbowExercise ? (180 - activeSensors.elbow) : 180,
     wristAngle: isWristExercise ? activeSensors.wrist_pitch : 0,
-    thumb: isFingerExercise ? activeSensors.thumb : 0,
-    index: isFingerExercise ? activeSensors.index : 0,
-    middle: isFingerExercise ? activeSensors.middle : 0,
-    ring: isFingerExercise ? activeSensors.ring : 0,
-    little: isFingerExercise ? activeSensors.little : 0
+    thumb: (isFingerExercise || isFingerClosing || hasSwitchTelemetry || isFlexSynced) ? activeSensors.thumb : 0,
+    index: (isFingerExercise || isFingerClosing || hasSwitchTelemetry || isFlexSynced) ? activeSensors.index : 0,
+    middle: (isFingerExercise || isFingerClosing || hasSwitchTelemetry || isFlexSynced) ? activeSensors.middle : 0,
+    ring: (isFingerExercise || isFingerClosing || hasSwitchTelemetry || isFlexSynced) ? activeSensors.ring : 0,
+    little: (isFingerExercise || isFingerClosing || hasSwitchTelemetry || isFlexSynced) ? activeSensors.little : 0
   };
 
-  // Resolve active calibrated finger angles for 3D visualizer (lock to 0 neutral if not finger exercise)
+  // Dev diagnostic direct finger angles from 0-90 sliders (?dev=1)
+  const devComputedFingerAngles = useMemo(() => {
+    if (!devSlidersActive) return null;
+    return {
+      thumb: mapNormalizedToGlb(devSliders.thumb / 90.0, 'thumb').angle,
+      index: mapNormalizedToGlb(devSliders.index / 90.0, 'index').angle,
+      middle: mapNormalizedToGlb(devSliders.middle / 90.0, 'middle').angle,
+      ring: mapNormalizedToGlb(devSliders.ring / 90.0, 'ring').angle,
+      little: mapNormalizedToGlb(devSliders.little / 90.0, 'little').angle
+    };
+  }, [devSlidersActive, devSliders]);
+
+  const handleTriggerFlexCalib = () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'flex_calib' }));
+      setCalibStatusMsg('Request sent to ESP32: Hold hand FLAT...');
+    } else {
+      setCalibStatusMsg('Device WebSocket not connected');
+    }
+  };
+
+  // Resolve active calibrated finger angles for 3D visualizer (enabled across all finger & hand exercises)
   const activeSensorFingerAngles = (isTrial && trialType === 'fingers' && fingerTrialView === 'calibration')
     ? null
-    : (isFingerExercise ? sensorFingerAngles : { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 });
+    : (devSlidersActive
+        ? devComputedFingerAngles
+        : (sensorFingerAngles || { thumb: 0, index: 0, middle: 0, ring: 0, little: 0 }));
 
   // Resolve active calibrated wrist angles for 3D visualizer (enabled for wrist and gently for finger exercises)
   const activeSensorWristAngles = (isTrial && trialType === 'wrist' && wristTrialView === 'calibration')
@@ -2327,9 +2459,25 @@ function LiveExercisePage() {
 
                 {/* Sleeve Connection / Battery status (relocated to top-left bar) */}
                 {deviceConnected ? (
-                  <div className="bg-slate-950/85 backdrop-blur border border-slate-800 rounded-xl p-2 px-3 flex items-center gap-2 text-xs font-semibold text-green-400 shadow-sm">
-                    <Activity className="w-4 h-4 text-green-400 animate-pulse" />
-                    <span>Battery: {battery}%</span>
+                  <div className="flex items-center gap-2">
+                    <div className="bg-slate-950/85 backdrop-blur border border-slate-800 rounded-xl p-2 px-3 flex items-center gap-2 text-xs font-semibold text-green-400 shadow-sm">
+                      <Activity className="w-4 h-4 text-green-400 animate-pulse" />
+                      <span>Battery: {battery}%</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowGloveCalibModal(true)}
+                      className={`backdrop-blur border rounded-xl p-2 px-3 flex items-center gap-1.5 text-xs font-semibold shadow-sm transition cursor-pointer ${
+                        isGloveCalibratedForSession
+                          ? 'bg-slate-950/85 border-slate-800 text-emerald-400 hover:border-emerald-600'
+                          : 'bg-amber-950/85 border-amber-800 text-amber-300 animate-pulse hover:border-amber-600'
+                      }`}
+                      title="Click to calibrate or recalibrate glove"
+                    >
+                      <ShieldCheck className={`w-3.5 h-3.5 ${isGloveCalibratedForSession ? 'text-emerald-400' : 'text-amber-400'}`} />
+                      <span>{isGloveCalibratedForSession ? 'Glove Calibrated' : 'Calibrate Glove'}</span>
+                    </button>
                   </div>
                 ) : (
                   <div className="bg-slate-950/85 backdrop-blur border border-red-900/80 rounded-xl p-2 px-3 flex items-center gap-2 text-xs font-semibold text-red-400 animate-pulse shadow-sm">
@@ -2380,6 +2528,7 @@ function LiveExercisePage() {
                         sensorFingerAngles={activeSensorFingerAngles}
                         sensorWristAngles={activeSensorWristAngles}
                         sensorElbowAngles={activeSensorElbowAngles}
+                        fingerLerpFactors={fingerTelemetryDetails?.lerpFactors}
                         onRestAnglesCaptured={handleRestAnglesCaptured}
                       />
                     </div>
@@ -2400,6 +2549,7 @@ function LiveExercisePage() {
                         sensorFingerAngles={activeSensorFingerAngles}
                         sensorWristAngles={activeSensorWristAngles}
                         sensorElbowAngles={activeSensorElbowAngles}
+                        fingerLerpFactors={fingerTelemetryDetails?.lerpFactors}
                         onRestAnglesCaptured={handleRestAnglesCaptured}
                       />
                     </div>
@@ -2418,6 +2568,7 @@ function LiveExercisePage() {
                     sensorFingerAngles={activeSensorFingerAngles}
                     sensorWristAngles={activeSensorWristAngles}
                     sensorElbowAngles={activeSensorElbowAngles}
+                    fingerLerpFactors={fingerTelemetryDetails?.lerpFactors}
                     onRestAnglesCaptured={handleRestAnglesCaptured}
                   />
                 )}
@@ -2775,6 +2926,63 @@ function LiveExercisePage() {
                 />
               </div>
 
+              {/* Hidden Dev Diagnostic Panel & Hardware Calibration Trigger (?dev=1) */}
+              {isDev && (
+                <div className="bg-slate-900 text-white rounded-2xl p-4 border border-amber-500/50 mt-4 space-y-3 shadow-lg animate-in fade-in">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div className="flex items-center gap-1.5">
+                      <Sliders className="w-4 h-4 text-amber-400" />
+                      <span className="text-[11px] font-black uppercase tracking-wider text-amber-300">
+                        Dev Diagnostic Controls (?dev=1)
+                      </span>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer text-[11px] font-bold text-slate-300">
+                      <input 
+                        type="checkbox" 
+                        checked={devSlidersActive} 
+                        onChange={(e) => setDevSlidersActive(e.target.checked)}
+                        className="rounded border-slate-700 text-amber-500 accent-amber-500"
+                      />
+                      <span>Bypass Device (Direct Sliders)</span>
+                    </label>
+                  </div>
+
+                  {/* 5 Finger direct 0-90° sliders */}
+                  <div className="grid grid-cols-5 gap-2 pt-1">
+                    {['thumb', 'index', 'middle', 'ring', 'little'].map((f) => (
+                      <div key={f} className="flex flex-col items-center bg-slate-950/60 p-2 rounded-xl border border-slate-800">
+                        <span className="text-[10px] font-bold uppercase text-slate-400">{f}</span>
+                        <span className="text-xs font-black text-amber-400 my-0.5">{devSliders[f]}°</span>
+                        <input 
+                          type="range"
+                          min="0"
+                          max="90"
+                          value={devSliders[f]}
+                          disabled={!devSlidersActive}
+                          onChange={(e) => setDevSliders(prev => ({ ...prev, [f]: Number(e.target.value) }))}
+                          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-400 disabled:opacity-30"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Calibration Trigger & Status */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between pt-2 border-t border-slate-800 gap-2">
+                    <button
+                      type="button"
+                      onClick={handleTriggerFlexCalib}
+                      className="w-full sm:w-auto px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-black uppercase tracking-wider transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-md"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      Calibrate fingers
+                    </button>
+                    <div className="text-[11px] text-slate-300 truncate font-semibold bg-slate-950 px-3 py-1 rounded-lg border border-slate-800 w-full sm:w-auto text-center">
+                      {calibStatusMsg || 'Ready for 2-pose calibration (Flat + Fist)'}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Real-time Exercise Recommendations Section */}
               <div className="border border-slate-100 rounded-2xl p-4 space-y-3 mt-4">
                 <div className="flex justify-between items-start">
@@ -2785,10 +2993,13 @@ function LiveExercisePage() {
                   <WristIcon />
                 </div>
                 
-                {(exerciseDetails?.primary_sensor?.toLowerCase() === 'flex_avg' || 
+                {(isFingerExercise || 
+                  exerciseDetails?.primary_sensor?.toLowerCase() === 'flex_avg' || 
                   exerciseDetails?.target_joint?.toLowerCase()?.includes('finger') ||
                   exerciseName.toLowerCase().includes('finger') || 
-                  exerciseName.toLowerCase().includes('hand')) ? (
+                  exerciseName.toLowerCase().includes('hand') ||
+                  exerciseName.toLowerCase().includes('squeeze') ||
+                  exerciseName.toLowerCase().includes('grip')) ? (
                   <div className="space-y-3">
                     <FingerSyncPanel 
                       computedFingerData={fingerTelemetryDetails}
@@ -2798,6 +3009,8 @@ function LiveExercisePage() {
                       onToggleSync={() => setIsFlexSynced(prev => !prev)}
                       simulatedActive={simulatedFingersActive}
                       onToggleSimulation={() => setSimulatedFingersActive(prev => !prev)}
+                      onOpenCalibration={() => setShowGloveCalibModal(true)}
+                      isGloveCalibrated={isGloveCalibratedForSession}
                     />
                     <div className="grid grid-cols-2 gap-3">
                       <SVGGauge {...primary} />
@@ -3019,6 +3232,37 @@ function LiveExercisePage() {
           </div>
         </div>
       )}
+
+      {/* Live Pre-Exercise Glove Calibration Modal */}
+      <GloveCalibrationModal 
+        isOpen={showGloveCalibModal}
+        onClose={() => setShowGloveCalibModal(false)}
+        onComplete={(newBounds) => {
+          setIsGloveCalibratedForSession(true);
+          setShowGloveCalibModal(false);
+          // Re-compute finger angles immediately with the newly calibrated bounds
+          if (rawSensorPacket && Object.keys(rawSensorPacket).length > 0) {
+            const comp = processFingerTelemetry(rawSensorPacket, null, newBounds);
+            if (comp?.angles) {
+              setSensorFingerAngles(comp.angles);
+              setFingerTelemetryDetails(comp);
+            }
+          }
+        }}
+        rawSensorPacket={rawSensorPacket}
+        liveFingerAngles={sensorFingerAngles}
+        deviceConnected={deviceConnected}
+        isHardwareDevice={isHardwareDevice}
+        onSendFirmwareCalib={() => {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            try {
+              wsRef.current.send(JSON.stringify({ type: 'flex_calib' }));
+            } catch (err) {
+              console.error('Failed to send flex_calib message to websocket', err);
+            }
+          }
+        }}
+      />
     </div>
   );
 }

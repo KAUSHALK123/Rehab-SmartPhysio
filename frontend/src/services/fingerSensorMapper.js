@@ -130,7 +130,14 @@ export const mapNormalizedToGlb = (normalized, fingerKey, glbConfig) => {
   const axis = rigInfo.axis;
 
   const fingerData = glbConfig?.fingers?.[fingerKey];
-  const axisLimits = fingerData?.[axis] || { min: 0, max: 60 };
+  let axisLimits = fingerData?.[axis] || { min: -15, max: 65 };
+
+  // Safeguard against uncalibrated or stale narrow ranges (< 35° span)
+  if (Math.abs(axisLimits.max - axisLimits.min) < 35) {
+    axisLimits = fingerKey === 'thumb' 
+      ? { min: -60, max: 10 } 
+      : (fingerKey === 'little' ? { min: -15, max: 55 } : { min: -15, max: 65 });
+  }
 
   const glbMin = axisLimits.min;
   const glbMax = axisLimits.max;
@@ -159,8 +166,26 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
   const activeGlbConfig = glbConfig || loadCalibrationConfig();
   const sensorBounds = customBounds || loadSensorCalibration();
 
+  // Normalize incoming telemetry if it sends arrays: curl: [...] or raw: [...]
+  const normalizedTelemetry = { ...telemetry };
+  if (Array.isArray(telemetry?.curl)) {
+    FINGER_KEYS.forEach((finger, idx) => {
+      if (normalizedTelemetry[finger] === undefined && telemetry.curl[idx] !== undefined) {
+        normalizedTelemetry[finger] = telemetry.curl[idx] * 90.0;
+      }
+    });
+  }
+  if (Array.isArray(telemetry?.raw)) {
+    FINGER_KEYS.forEach((finger, idx) => {
+      const rawKey = 'raw_' + finger;
+      if (normalizedTelemetry[rawKey] === undefined && telemetry.raw[idx] !== undefined) {
+        normalizedTelemetry[rawKey] = telemetry.raw[idx];
+      }
+    });
+  }
+
   // Extract embedded hardware bounds if present in telemetry packet
-  const packetBounds = telemetry?.bounds || {};
+  const packetBounds = normalizedTelemetry?.bounds || {};
   const resolveSensorBounds = (finger) => {
     const strKey = finger + 'Str';
     const bntKey = finger + 'Bnt';
@@ -174,20 +199,50 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
   };
 
   const results = {
-    angles: {},      // { thumb: deg, index: deg, ... } for GLB
-    normalized: {},  // { thumb: 0-1, index: 0-1, ... }
-    percentages: {}, // { thumb: 0-100, index: 0-100, ... }
-    debug: {}        // full diagnostic info per finger
+    angles: {},          // { thumb: deg, index: deg, ... } for GLB
+    normalized: {},      // { thumb: 0-1, index: 0-1, ... }
+    percentages: {},     // { thumb: 0-100, index: 0-100, ... }
+    lerpFactors: {},     // { thumb: 0.38 (fast open) / 0.12 (slow bend), ... }
+    switchStates: {},    // { thumb: 'OPEN' | 'BENDING' | 'N/A', ... }
+    switchConnected: {}, // { thumb: true | false | null, ... }
+    debug: {}            // full diagnostic info per finger
   };
 
-  FINGER_KEYS.forEach((finger) => {
+  // Helper to extract switch connection state for a finger
+  const getFingerSwitchConnected = (finger, idx) => {
+    // 1. Direct boolean array: telemetry.connected = [true, false, ...] (true = open/connected)
+    if (Array.isArray(normalizedTelemetry?.connected) && normalizedTelemetry.connected[idx] !== undefined) {
+      return Boolean(normalizedTelemetry.connected[idx]);
+    }
+    // 2. Raw pin reading array: telemetry.sw = [0, 1, 0, ...] (0 = LOW = connected = OPEN)
+    if (Array.isArray(normalizedTelemetry?.sw) && normalizedTelemetry.sw[idx] !== undefined) {
+      return Number(normalizedTelemetry.sw[idx]) === 0;
+    }
+    // 3. Named boolean/pin field: sw_thumb, thumb_switch, or thumb_connected
+    if (normalizedTelemetry?.['sw_' + finger] !== undefined) {
+      return Number(normalizedTelemetry['sw_' + finger]) === 0;
+    }
+    if (normalizedTelemetry?.[finger + '_switch'] !== undefined) {
+      return Number(normalizedTelemetry[finger + '_switch']) === 0;
+    }
+    if (normalizedTelemetry?.[finger + '_connected'] !== undefined) {
+      return Boolean(normalizedTelemetry[finger + '_connected']);
+    }
+    return null; // Switch telemetry not available for this packet
+  };
+
+  FINGER_KEYS.forEach((finger, fIndex) => {
     const rawKey = 'raw_' + finger;
-    const rawVal = telemetry?.[rawKey];
-    const angleVal = telemetry?.[finger];
+    const rawVal = normalizedTelemetry?.[rawKey];
+    const angleVal = normalizedTelemetry?.[finger];
 
     let normalized = 0;
     let filteredVal = 0;
     let rawReading = (rawVal !== undefined && rawVal !== null) ? Number(rawVal) : null;
+
+    // Check digital switch state for this finger
+    const isSwConnected = getFingerSwitchConnected(finger, fIndex);
+    let lerpFactor = 0.25;
 
     // Track dynamic physical sensor min/max if reading valid signal (> 30 ADC counts)
     if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
@@ -199,34 +254,94 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       }
     }
 
-    if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
-      // Raw 12-bit ADC reading available
-      const bounds = resolveSensorBounds(finger);
-      let effectiveStraight = bounds.straight;
-      let effectiveBent = bounds.bent;
-
-      // Ultra-sensitive dynamic auto-range adapts to micro-bends (span >= 25)
-      const dynSpan = (dynamicRanges[finger].max || 0) - (dynamicRanges[finger].min || 0);
-      if (dynSpan >= 25) {
-        effectiveStraight = dynamicRanges[finger].min;
-        effectiveBent = dynamicRanges[finger].max;
-      }
-
-      filteredVal = rawVal;
-      normalized = normalizeFlexValue(rawVal, effectiveStraight, effectiveBent, true);
-    } else if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
-      // Pre-filtered angle value from firmware or backend mock (0 - 90 deg)
-      filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
-      const linearRatio = Math.max(0, Math.min(1, filteredVal / 90.0));
-      // Apply ultra-sensitive boost for subtle angle inputs
-      normalized = linearRatio > 0 && linearRatio < 1 ? Math.pow(linearRatio, 0.60) : linearRatio;
-      if (rawReading === null) {
-        rawReading = Math.round(normalized * 4095);
-      }
-    } else {
+    if (isSwConnected === true) {
+      // ─────────────────────────────────────────────────────────────
+      // SWITCH TECHNIQUE: CONTACT CONNECTED TO GND (digitalRead == LOW)
+      // Contacts closed to GND -> Finger is confirmed fully OPEN / STRAIGHT in GLB!
+      // Dynamic Lerp: fast opening (0.38)
+      // ─────────────────────────────────────────────────────────────
       normalized = 0;
       filteredVal = 0;
+      lerpFactor = 0.14;
       if (rawReading === null) rawReading = 0;
+    } else if (isSwConnected === false) {
+      // ─────────────────────────────────────────────────────────────
+      // SWITCH TECHNIQUE: SWITCH OPEN / DISCONNECTED (digitalRead == HIGH)
+      // Switch is MAIN DETERMINATION: Switch open -> finger is BENT in GLB!
+      // Dynamic Lerp: smooth and slow (0.12)
+      // Parallel Fusion with Flex Sensor:
+      // - Flex modulates the depth of bend (0.50 -> 1.0) if reading active signal
+      // - If flex is 0 ADC (fault/disconnected), switch alone drives 75% bend!
+      // ─────────────────────────────────────────────────────────────
+      lerpFactor = 0.12;
+
+      let flexRatio = 0;
+      if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
+        filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
+        flexRatio = Math.max(0, Math.min(1, filteredVal / 90.0));
+      } else if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
+        const bounds = resolveSensorBounds(finger);
+        let effectiveStraight = bounds.straight;
+        let effectiveBent = bounds.bent;
+
+        const dynSpan = (dynamicRanges[finger].max || 0) - (dynamicRanges[finger].min || 0);
+        if (dynSpan >= 25) {
+          if (bounds.straight > bounds.bent) {
+            effectiveStraight = dynamicRanges[finger].max;
+            effectiveBent = dynamicRanges[finger].min;
+          } else {
+            effectiveStraight = dynamicRanges[finger].min;
+            effectiveBent = dynamicRanges[finger].max;
+          }
+        }
+
+        filteredVal = rawVal;
+        flexRatio = normalizeFlexValue(rawVal, effectiveStraight, effectiveBent, true);
+      }
+
+      if (flexRatio > 0.05) {
+        // Parallel fusion: base bend 0.50 from open switch + flex sensor adds up to 0.50
+        normalized = Math.min(1.0, 0.50 + 0.50 * flexRatio);
+      } else {
+        // Switch open alone (e.g. while flex reads 0 ADC or flat):
+        // Main determination drives steady visible bend in GLB!
+        normalized = 0.75;
+      }
+      if (rawReading === null) rawReading = Math.round(normalized * 4095);
+    } else {
+      // No switch installed -> purely flex sensor
+      lerpFactor = 0.25;
+
+      if (angleVal !== undefined && angleVal !== null && Number(angleVal) >= 0) {
+        filteredVal = typeof angleVal === 'object' ? (angleVal.angle ?? 0) : Number(angleVal);
+        const linearRatio = Math.max(0, Math.min(1, filteredVal / 90.0));
+        normalized = linearRatio > 0 && linearRatio < 1 ? Math.pow(linearRatio, 0.60) : linearRatio;
+        if (rawReading === null) {
+          rawReading = rawVal !== undefined ? Number(rawVal) : Math.round(normalized * 4095);
+        }
+      } else if (rawVal !== undefined && rawVal !== null && rawVal > 30) {
+        const bounds = resolveSensorBounds(finger);
+        let effectiveStraight = bounds.straight;
+        let effectiveBent = bounds.bent;
+
+        const dynSpan = (dynamicRanges[finger].max || 0) - (dynamicRanges[finger].min || 0);
+        if (dynSpan >= 25) {
+          if (bounds.straight > bounds.bent) {
+            effectiveStraight = dynamicRanges[finger].max;
+            effectiveBent = dynamicRanges[finger].min;
+          } else {
+            effectiveStraight = dynamicRanges[finger].min;
+            effectiveBent = dynamicRanges[finger].max;
+          }
+        }
+
+        filteredVal = rawVal;
+        normalized = normalizeFlexValue(rawVal, effectiveStraight, effectiveBent, true);
+      } else {
+        normalized = 0;
+        filteredVal = 0;
+        if (rawReading === null) rawReading = 0;
+      }
     }
 
     const glbMapping = mapNormalizedToGlb(normalized, finger, activeGlbConfig);
@@ -234,6 +349,9 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     results.angles[finger] = glbMapping.angle;
     results.normalized[finger] = normalized;
     results.percentages[finger] = Math.round(normalized * 100);
+    results.lerpFactors[finger] = lerpFactor;
+    results.switchConnected[finger] = isSwConnected;
+    results.switchStates[finger] = isSwConnected === true ? 'OPEN' : (isSwConnected === false ? 'BENDING' : 'N/A');
 
     results.debug[finger] = {
       finger,
@@ -245,7 +363,10 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       glbAngle: glbMapping.angle,
       targetBone: glbMapping.targetBone,
       min: glbMapping.min,
-      max: glbMapping.max
+      max: glbMapping.max,
+      lerpFactor,
+      isSwitchConnected: isSwConnected,
+      switchState: results.switchStates[finger]
     };
   });
 

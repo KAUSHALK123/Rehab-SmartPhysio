@@ -200,7 +200,10 @@ function DashboardPage() {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
       // If running on Vite dev server (port 5173), redirect WS to FastAPI port 8000
-      const wsHost = host.includes(':5173') ? host.replace(':5173', ':8000') : host;
+      let wsHost = host.includes(':5173') ? host.replace(':5173', ':8000') : host;
+      if (wsHost.startsWith('localhost') || wsHost.startsWith('[::1]')) {
+        wsHost = wsHost.replace('localhost', '127.0.0.1').replace('[::1]', '127.0.0.1');
+      }
       return `${protocol}//${wsHost}/api/v1/device/ws`;
     };
     const ws = new WebSocket(getWsUrl());
