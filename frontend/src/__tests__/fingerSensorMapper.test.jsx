@@ -124,8 +124,9 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
 
       const result = processFingerTelemetry(packet, mockApprovedGlbConfig);
 
-      expect(result.percentages.thumb).toBe(0);
-      expect(result.angles.thumb).toBe(-60);
+      // Thumb follows index (hardcoded): index is at 100% so thumb also bends
+      expect(result.percentages.thumb).toBe(100); // Thumb follows index (1.0 * 1.15 clamped to 1.0)
+      expect(result.angles.thumb).toBe(20); // Fully bent thumb angle (thumb x range maps differently)
 
       expect(result.percentages.index).toBe(100);
       expect(result.angles.index).toBe(65);
@@ -161,8 +162,9 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
 
       const result = processFingerTelemetry(packet, mockApprovedGlbConfig);
 
-      expect(result.percentages.thumb).toBe(0);
-      expect(result.angles.thumb).toBe(-60);
+      // Thumb follows index (hardcoded): index is at 100% so thumb also bends
+      expect(result.percentages.thumb).toBe(100); // Thumb follows index (1.0 * 1.15 clamped to 1.0)
+      expect(result.angles.thumb).toBe(20); // Fully bent thumb angle (thumb x range maps differently)
 
       expect(result.percentages.index).toBe(100);
       expect(result.angles.index).toBe(65);
@@ -267,16 +269,16 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
       const result = processFingerTelemetry(telemetry, mockApprovedGlbConfig);
 
       // Thumb & Middle are connected to GND (switch closed -> finger straight / open hand)
-      expect(result.switchConnected.thumb).toBe(true);
-      expect(result.switchStates.thumb).toBe('OPEN');
-      expect(result.normalized.thumb).toBe(0);
-      expect(result.lerpFactors.thumb).toBe(0.38); // Fast return to open
-      expect(result.angles.thumb).toBe(-60); // Straight rest angle
+      // BUT thumb follows index hardcode: index is bending, so thumb also bends
+      expect(result.switchConnected.thumb).toBe(false); // Overridden by index bending
+      expect(result.switchStates.thumb).toBe('BENDING');
+      expect(result.normalized.thumb).toBeGreaterThan(0);
+      expect(result.lerpFactors.thumb).toBe(0.10); // Thumb leads index
 
       expect(result.switchConnected.middle).toBe(true);
       expect(result.switchStates.middle).toBe('OPEN');
       expect(result.normalized.middle).toBe(0);
-      expect(result.lerpFactors.middle).toBe(0.38);
+      expect(result.lerpFactors.middle).toBe(0.14);
 
       // Index is disconnected / switch open (switch open circuit -> bending slowly)
       expect(result.switchConnected.index).toBe(false);
@@ -294,16 +296,17 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
 
       const result = processFingerTelemetry(telemetry, mockApprovedGlbConfig);
 
-      expect(result.switchConnected.thumb).toBe(true);
-      expect(result.lerpFactors.thumb).toBe(0.38); // Connected -> OPEN STRAIGHT (fast)
-      expect(result.switchStates.thumb).toBe('OPEN');
+      // Thumb follows index hardcode: index is bending so thumb also bends
+      expect(result.switchConnected.thumb).toBe(false);
+      expect(result.lerpFactors.thumb).toBe(0.10); // Thumb leads
+      expect(result.switchStates.thumb).toBe('BENDING');
 
       expect(result.switchConnected.index).toBe(false);
       expect(result.lerpFactors.index).toBe(0.12); // Switch Open -> BENT (slow)
       expect(result.switchStates.index).toBe('BENDING');
 
       expect(result.switchConnected.middle).toBe(true);
-      expect(result.lerpFactors.middle).toBe(0.38);
+      expect(result.lerpFactors.middle).toBe(0.14);
       expect(result.switchStates.middle).toBe('OPEN');
 
       expect(result.switchConnected.ring).toBe(false);
@@ -311,7 +314,7 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
       expect(result.switchStates.ring).toBe('BENDING');
 
       expect(result.switchConnected.little).toBe(true);
-      expect(result.lerpFactors.little).toBe(0.38);
+      expect(result.lerpFactors.little).toBe(0.14);
       expect(result.switchStates.little).toBe('OPEN');
     });
 
@@ -338,7 +341,7 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
       expect(touchedResult.switchStates.index).toBe('OPEN');
       expect(touchedResult.normalized.index).toBe(0); // Straight open hand!
       expect(touchedResult.angles.index).toBe(-15);   // Straight open hand (-15° rest)
-      expect(touchedResult.lerpFactors.index).toBe(0.38); // Fast return to open
+      expect(touchedResult.lerpFactors.index).toBe(0.14); // Smooth return to open
     });
 
     it('defaults to standard lerpFactor=0.25 when switch telemetry is not present', () => {

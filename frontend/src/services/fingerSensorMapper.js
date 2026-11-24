@@ -370,6 +370,33 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     };
   });
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // HARDCODE: Thumb follows Index bending
+  // When index bends, thumb also bends (thumb leads slightly with 1.15x multiplier).
+  // When index is straight/open, thumb is also straight/open.
+  // This overrides thumb's own switch state with index's movement.
+  // ─────────────────────────────────────────────────────────────────────────
+  if (results.normalized.index > 0.05) {
+    // Index is bending → drive thumb to bend too, slightly ahead (1.15x)
+    const thumbNorm = Math.min(1.0, results.normalized.index * 1.15);
+    const thumbGlb = mapNormalizedToGlb(thumbNorm, 'thumb', activeGlbConfig);
+    results.angles.thumb = thumbGlb.angle;
+    results.normalized.thumb = thumbNorm;
+    results.percentages.thumb = Math.round(thumbNorm * 100);
+    results.lerpFactors.thumb = 0.10; // Slightly faster than index (0.12) so thumb leads
+    results.switchStates.thumb = 'BENDING';
+    results.switchConnected.thumb = false;
+  } else if (results.normalized.index <= 0.05) {
+    // Index is open → thumb is also open
+    const thumbGlb = mapNormalizedToGlb(0, 'thumb', activeGlbConfig);
+    results.angles.thumb = thumbGlb.angle;
+    results.normalized.thumb = 0;
+    results.percentages.thumb = 0;
+    results.lerpFactors.thumb = 0.14; // Same smooth opening speed
+    results.switchStates.thumb = 'OPEN';
+    results.switchConnected.thumb = true;
+  }
+
   return results;
 };
 
