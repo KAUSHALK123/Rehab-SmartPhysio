@@ -247,20 +247,20 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       }
     }
 
-    if (isSwConnected === false) {
+    if (isSwConnected === true) {
       // ─────────────────────────────────────────────────────────────
-      // SWITCH TECHNIQUE: CONTACT DISCONNECTED (digitalRead == HIGH)
-      // Contacts separated / open circuit -> Finger is OPEN WIDE in GLB!
-      // Dynamic Lerp: fast opening back (0.38)
+      // SWITCH TECHNIQUE: CONTACT CONNECTED TO GND (digitalRead == LOW)
+      // Contacts closed to GND -> Finger is confirmed fully OPEN / STRAIGHT in GLB!
+      // Dynamic Lerp: fast opening (0.38)
       // ─────────────────────────────────────────────────────────────
       normalized = 0;
       filteredVal = 0;
       lerpFactor = 0.38;
       if (rawReading === null) rawReading = 0;
-    } else if (isSwConnected === true) {
+    } else if (isSwConnected === false) {
       // ─────────────────────────────────────────────────────────────
-      // SWITCH TECHNIQUE: CONTACT CONNECTED (digitalRead == LOW)
-      // Switch is MAIN DETERMINATION: Contact touched to GND -> finger is CLOSING!
+      // SWITCH TECHNIQUE: SWITCH OPEN / DISCONNECTED (digitalRead == HIGH)
+      // Switch is MAIN DETERMINATION: Switch open -> finger is BENT in GLB!
       // Dynamic Lerp: smooth and slow (0.12)
       // Parallel Fusion with Flex Sensor:
       // - Flex modulates the depth of bend (0.50 -> 1.0) if reading active signal
@@ -293,10 +293,10 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
       }
 
       if (flexRatio > 0.05) {
-        // Parallel fusion: base bend 0.50 from connected switch + flex sensor adds up to 0.50
+        // Parallel fusion: base bend 0.50 from open switch + flex sensor adds up to 0.50
         normalized = Math.min(1.0, 0.50 + 0.50 * flexRatio);
       } else {
-        // Connected switch alone (e.g. while flex reads 0 ADC or flat):
+        // Switch open alone (e.g. while flex reads 0 ADC or flat):
         // Main determination drives steady visible bend in GLB!
         normalized = 0.75;
       }
@@ -344,7 +344,7 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
     results.percentages[finger] = Math.round(normalized * 100);
     results.lerpFactors[finger] = lerpFactor;
     results.switchConnected[finger] = isSwConnected;
-    results.switchStates[finger] = isSwConnected === false ? 'OPEN' : (isSwConnected === true ? 'BENDING' : 'N/A');
+    results.switchStates[finger] = isSwConnected === true ? 'OPEN' : (isSwConnected === false ? 'BENDING' : 'N/A');
 
     results.debug[finger] = {
       finger,

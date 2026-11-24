@@ -38,12 +38,12 @@ const char* FINGER_NAMES[NUM_FINGERS] = {"Thumb", "Index", "Middle", "Ring", "Li
 // Little Switch : GPIO 19 (D19)
 //
 // Logic:
-// Disconnected (open circuit, digitalRead == HIGH): Finger is OPEN WIDE in GLB (faster smooth return)
-// Connected (pin to GND, digitalRead == LOW): Finger is CLOSING / BENDING (smooth and slow movement)
+// Switch OPEN / Disconnected (open circuit, HIGH): Finger is BENT in GLB (slow smooth movement)
+// Switch CLOSED / Connected (pin to GND, LOW): Finger is OPEN / STRAIGHT in GLB (fast smooth opening)
 const int SWITCH_PINS[NUM_FINGERS] = {23, 4, 17, 18, 19};
 const int PIN_SWITCH_THUMB_ALT     = 16; // RX2 alternate for Thumb
 int switchRaw[NUM_FINGERS]         = {HIGH, HIGH, HIGH, HIGH, HIGH};
-bool isFingerOpen[NUM_FINGERS]      = {true, true, true, true, true};
+bool isFingerOpen[NUM_FINGERS]      = {false, false, false, false, false};
 
 const int PIN_ELBOW    = 39; // VN (GPIO 39)
 const int PIN_PRESSURE = 25; // D25 (GPIO 25)
@@ -621,8 +621,8 @@ void loop() {
     for (int i = 0; i < NUM_FINGERS; i++) {
       // 1. Read digital switch state
       // Index is on GPIO 4 (D4). Thumb reads GPIO 23 (D23) or alternate GPIO 16 (RX2).
-      // Disconnected (HIGH) = Contacts open / separated -> Finger is OPEN WIDE in GLB (fast smooth return)
-      // Connected (LOW)    = Contacts touched to GND -> Finger is CLOSING / BENDING (slow smooth movement)
+      // Switch OPEN (HIGH)   = Contacts disconnected / open circuit -> Finger is BENT in GLB (slow smooth movement)
+      // Switch CLOSED (LOW)  = Contacts connected to GND -> Finger is OPEN / STRAIGHT in GLB (fast smooth opening)
       if (i == 0) {
         int rPrimary = digitalRead(SWITCH_PINS[0]);
         int rAlt = digitalRead(PIN_SWITCH_THUMB_ALT);
@@ -632,7 +632,7 @@ void loop() {
       }
       
       bool isTouchedGND = (switchRaw[i] == LOW);
-      isFingerOpen[i] = !isTouchedGND; // Disconnected (HIGH) -> OPEN WIDE; Connected (LOW) -> CLOSING
+      isFingerOpen[i] = isTouchedGND; // Connected to GND (LOW) -> OPEN / STRAIGHT; Switch OPEN (HIGH) -> BENT
 
       // Log switch transitions immediately to Serial Monitor for hardware verification
       static int lastSwLogged[NUM_FINGERS] = {-1, -1, -1, -1, -1};
@@ -640,8 +640,8 @@ void loop() {
         lastSwLogged[i] = switchRaw[i];
         Serial.printf("[SWITCH] %s (GPIO %d): %s -> %s\n",
                       FINGER_NAMES[i], SWITCH_PINS[i],
-                      isTouchedGND ? "CONNECTED to GND (LOW)" : "DISCONNECTED (HIGH)",
-                      isFingerOpen[i] ? "OPEN WIDE (FAST)" : "CLOSING (SMOOTH SLOW)");
+                      isTouchedGND ? "CONNECTED to GND (LOW)" : "OPEN CIRCUIT (HIGH)",
+                      isFingerOpen[i] ? "OPEN STRAIGHT (FAST)" : "BENT (SMOOTH SLOW)");
       }
 
       int spread = 0;
@@ -665,7 +665,7 @@ void loop() {
 
       if (isFingerOpen[i]) {
         // ================================================================
-        // SWITCH DISCONNECTED: Finger is confirmed OPEN WIDE in GLB
+        // SWITCH CONNECTED TO GND: Finger is confirmed OPEN / STRAIGHT in GLB
         // Faster return to open neutral (0.0 curl)
         // ================================================================
         float fastReturnAlpha = 0.45f;
@@ -676,13 +676,13 @@ void loop() {
         okFlags[i] = 1;
       } else {
         // ================================================================
-        // SWITCH CONNECTED (Touched to GND): Finger is CLOSING
+        // SWITCH OPEN (Circuit open / untouched): Finger is BENT
         // Switch is the main determination.
         // Parallel fusion: If flex sensor has valid range, fuse analog bend.
         // If flex sensor reads 0 ADC or faults, switch alone drives bend!
         // Smooth and slow closing movement (gentle EMA alpha = 0.15)
         // ================================================================
-        float targetCurl = 0.75f; // Base bend when switch is closed to GND
+        float targetCurl = 0.75f; // Base bend when switch is open circuit
 
         if (!fault && isFlexCalibrated) {
           float span = R_bent[i] - R_flat[i];
