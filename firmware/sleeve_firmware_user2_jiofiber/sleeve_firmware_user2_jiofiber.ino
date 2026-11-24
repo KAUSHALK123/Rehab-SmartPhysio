@@ -38,17 +38,17 @@ const char* FINGER_NAMES[NUM_FINGERS] = {"Thumb", "Index", "Middle", "Ring", "Li
 
 // DIGITAL SWITCH CONTACT TECHNIQUE:
 // Pins configured with internal pull-up (no external resistors needed)
-// Thumb Switch  : GPIO 23 (D23) / Alternate GPIO 16 (RX2)
+// Thumb Switch  : GPIO 17 (TX2)
 // Index Switch  : GPIO 4  (D4) -> User physically attached D4 for Index
-// Middle Switch : GPIO 17 (TX2)
-// Ring Switch   : GPIO 18 (D18)
+// Middle Switch : GPIO 18 (D18)
+// Ring Switch   : GPIO 23 (D23) / Alternate GPIO 16 (RX2)
 // Little Switch : GPIO 19 (D19)
 //
 // Logic:
 // Switch OPEN / Disconnected (open circuit, HIGH): Finger is BENT in GLB (slow smooth movement)
 // Switch CLOSED / Connected (pin to GND, LOW): Finger is OPEN / STRAIGHT in GLB (fast smooth opening)
-const int SWITCH_PINS[NUM_FINGERS] = {23, 4, 17, 18, 19};
-const int PIN_SWITCH_THUMB_ALT     = 16; // RX2 alternate for Thumb
+const int SWITCH_PINS[NUM_FINGERS] = {17, 4, 18, 23, 19};
+const int PIN_SWITCH_RING_ALT      = 16; // RX2 alternate for Ring
 int switchRaw[NUM_FINGERS]         = {HIGH, HIGH, HIGH, HIGH, HIGH};
 bool isFingerOpen[NUM_FINGERS]      = {false, false, false, false, false};
 
@@ -421,7 +421,7 @@ void setup() {
     // Configure digital switch pin with internal pull-up (no external resistors needed)
     pinMode(SWITCH_PINS[i], INPUT_PULLUP);
   }
-  pinMode(PIN_SWITCH_THUMB_ALT, INPUT_PULLUP);
+  pinMode(PIN_SWITCH_RING_ALT, INPUT_PULLUP);
   analogSetPinAttenuation(PIN_ELBOW, ADC_11db);
   pinMode(PIN_ELBOW, INPUT);
   pinMode(PIN_PRESSURE, INPUT);
@@ -694,10 +694,11 @@ void loop() {
       // Index is on GPIO 4 (D4). Thumb reads GPIO 23 (D23) or alternate GPIO 16 (RX2).
       // Switch OPEN (HIGH)   = Contacts disconnected / open circuit -> Finger is BENT in GLB (slow smooth movement)
       // Switch CLOSED (LOW)  = Contacts connected to GND -> Finger is OPEN / STRAIGHT in GLB (fast smooth opening)
-      if (i == 0) {
-        int rPrimary = digitalRead(SWITCH_PINS[0]);
-        int rAlt = digitalRead(PIN_SWITCH_THUMB_ALT);
-        switchRaw[0] = (rPrimary == LOW || rAlt == LOW) ? LOW : HIGH;
+      if (i == 3) {
+        // Ring checks primary pin 23 or alternate pin 16
+        int rPrimary = digitalRead(SWITCH_PINS[3]);
+        int rAlt = digitalRead(PIN_SWITCH_RING_ALT);
+        switchRaw[3] = (rPrimary == LOW || rAlt == LOW) ? LOW : HIGH;
       } else {
         switchRaw[i] = digitalRead(SWITCH_PINS[i]);
       }
