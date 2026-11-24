@@ -164,7 +164,12 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
   if (Array.isArray(telemetry?.curl)) {
     FINGER_KEYS.forEach((finger, idx) => {
       if (normalizedTelemetry[finger] === undefined && telemetry.curl[idx] !== undefined) {
-        normalizedTelemetry[finger] = telemetry.curl[idx] * 90.0;
+        let curlVal = telemetry.curl[idx];
+        if (finger === 'index') {
+          // Index finger switch mechanism touches GND when bent; invert curl order from firmware
+          curlVal = curlVal > 0.3 ? 0.0 : 0.75;
+        }
+        normalizedTelemetry[finger] = curlVal * 90.0;
       }
     });
   }
@@ -203,25 +208,32 @@ export const processFingerTelemetry = (telemetry = {}, glbConfig = null, customB
 
   // Helper to extract switch connection state for a finger
   const getFingerSwitchConnected = (finger, idx) => {
+    let connected = null;
     // 1. Direct boolean array: telemetry.connected = [true, false, ...] (true = open/connected)
     if (Array.isArray(normalizedTelemetry?.connected) && normalizedTelemetry.connected[idx] !== undefined) {
-      return Boolean(normalizedTelemetry.connected[idx]);
+      connected = Boolean(normalizedTelemetry.connected[idx]);
+    } else if (Array.isArray(normalizedTelemetry?.sw) && normalizedTelemetry.sw[idx] !== undefined) {
+      // 2. Raw pin reading array: telemetry.sw = [0, 1, 0, ...] (0 = LOW = connected = OPEN)
+      connected = Number(normalizedTelemetry.sw[idx]) === 0;
+    } else if (normalizedTelemetry?.['sw_' + finger] !== undefined) {
+      // 3. Named boolean/pin field: sw_thumb, thumb_switch, or thumb_connected
+      connected = Number(normalizedTelemetry['sw_' + finger]) === 0;
+    } else if (normalizedTelemetry?.[finger + '_switch'] !== undefined) {
+      connected = Number(normalizedTelemetry[finger + '_switch']) === 0;
+    } else if (normalizedTelemetry?.[finger + '_connected'] !== undefined) {
+      connected = Boolean(normalizedTelemetry[finger + '_connected']);
     }
-    // 2. Raw pin reading array: telemetry.sw = [0, 1, 0, ...] (0 = LOW = connected = OPEN)
-    if (Array.isArray(normalizedTelemetry?.sw) && normalizedTelemetry.sw[idx] !== undefined) {
-      return Number(normalizedTelemetry.sw[idx]) === 0;
+
+    if (connected === null) return null;
+
+    // Index switch order reversal (without updating sleeve firmware):
+    // Physical index switch contact touches GND (LOW) when bent, and disconnects (HIGH) when open.
+    // Invert connection state so physical bent -> BENT in GLB, physical straight -> OPEN in GLB.
+    if (finger === 'index') {
+      return !connected;
     }
-    // 3. Named boolean/pin field: sw_thumb, thumb_switch, or thumb_connected
-    if (normalizedTelemetry?.['sw_' + finger] !== undefined) {
-      return Number(normalizedTelemetry['sw_' + finger]) === 0;
-    }
-    if (normalizedTelemetry?.[finger + '_switch'] !== undefined) {
-      return Number(normalizedTelemetry[finger + '_switch']) === 0;
-    }
-    if (normalizedTelemetry?.[finger + '_connected'] !== undefined) {
-      return Boolean(normalizedTelemetry[finger + '_connected']);
-    }
-    return null; // Switch telemetry not available for this packet
+
+    return connected;
   };
 
   FINGER_KEYS.forEach((finger, fIndex) => {

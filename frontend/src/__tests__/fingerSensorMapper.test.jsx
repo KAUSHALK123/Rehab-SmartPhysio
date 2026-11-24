@@ -255,8 +255,10 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
 
   describe('Digital Switch Technique & Dynamic Lerp', () => {
     it('sets normalized=0 and fast lerpFactor=0.38 when switch is connected to GND (finger open/straight)', () => {
-      // Connected (true / LOW): finger is OPEN / STRAIGHT (fast lerpFactor = 0.38)
-      // Disconnected (false / HIGH): finger is BENT (slow lerpFactor = 0.12)
+      // For general fingers: connected=true -> OPEN / STRAIGHT (fast lerpFactor = 0.38)
+      // For index finger: inverted order (switched contact closes when bent):
+      // - connected=false (open circuit) -> Index is OPEN / STRAIGHT (fast lerpFactor = 0.38)
+      // - connected=true (touching GND) -> Index is BENT (slow lerpFactor = 0.12)
       const telemetry = {
         connected: [true, false, true, false, false],
         raw_index: 2200,
@@ -278,16 +280,16 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
       expect(result.normalized.middle).toBe(0);
       expect(result.lerpFactors.middle).toBe(0.38);
 
-      // Index is disconnected / switch open (switch open circuit -> bending slowly)
-      expect(result.switchConnected.index).toBe(false);
-      expect(result.switchStates.index).toBe('BENDING');
-      expect(result.lerpFactors.index).toBe(0.12); // Buttery smooth slow bend
-      expect(result.normalized.index).toBeGreaterThan(0);
+      // Index has reversed switch logic: connected=false means index is OPEN / STRAIGHT
+      expect(result.switchConnected.index).toBe(true);
+      expect(result.switchStates.index).toBe('OPEN');
+      expect(result.lerpFactors.index).toBe(0.38);
+      expect(result.normalized.index).toBe(0);
     });
 
-    it('correctly maps raw ESP32 sw array (0 = LOW/connected/open straight, 1 = HIGH/disconnected/bent)', () => {
+    it('correctly maps raw ESP32 sw array (0 = LOW/connected, 1 = HIGH/disconnected)', () => {
       const telemetry = {
-        sw: [0, 1, 0, 1, 0], // Thumb, Index, Middle, Ring, Little
+        sw: [0, 0, 0, 1, 0], // Thumb=0 (open), Index=0 (bent), Middle=0 (open), Ring=1 (bent), Little=0 (open)
         raw_index: 2000,
         raw_ring: 1900
       };
@@ -298,8 +300,9 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
       expect(result.lerpFactors.thumb).toBe(0.38); // Connected -> OPEN STRAIGHT (fast)
       expect(result.switchStates.thumb).toBe('OPEN');
 
+      // For Index: 0 (LOW, contact touching GND) = BENT (slow)
       expect(result.switchConnected.index).toBe(false);
-      expect(result.lerpFactors.index).toBe(0.12); // Switch Open -> BENT (slow)
+      expect(result.lerpFactors.index).toBe(0.12);
       expect(result.switchStates.index).toBe('BENDING');
 
       expect(result.switchConnected.middle).toBe(true);
@@ -315,30 +318,30 @@ describe('fingerSensorMapper Service (Fix 2)', () => {
       expect(result.switchStates.little).toBe('OPEN');
     });
 
-    it('drives visible GLB bending when switch is open circuit, and fast open straight when connected to GND', () => {
-      // Simulates user attaching D4 to Index finger:
-      // When D4 is open circuit (untouched / HIGH) -> Index is BENT (normalized = 0.75, lerpFactor = 0.12)
-      const untouchedIndexD4 = {
-        sw: [0, 1, 0, 0, 0], // Index (sw[1]) open circuit (1 = HIGH)
-        raw_index: 0         // Flex sensor reads 0 ADC
-      };
-      const untouchedResult = processFingerTelemetry(untouchedIndexD4, mockApprovedGlbConfig);
-      expect(untouchedResult.switchConnected.index).toBe(false);
-      expect(untouchedResult.switchStates.index).toBe('BENDING');
-      expect(untouchedResult.normalized.index).toBe(0.75); // Main determination drives 75% bend!
-      expect(untouchedResult.lerpFactors.index).toBe(0.12); // Smooth and slow bend
-
-      // When D4 is touched to GND (0 = LOW) -> Index snaps OPEN STRAIGHT (normalized = 0, lerpFactor = 0.38)
-      const touchedIndexD4 = {
+    it('drives visible GLB bending when index is bent (D4 touches GND), and straight when released', () => {
+      // Index switch order reversal:
+      // When index finger is bent physically -> D4 touches GND (0 = LOW) -> Index is BENT in GLB (normalized = 0.75, lerpFactor = 0.12)
+      const bentIndexD4 = {
         sw: [0, 0, 0, 0, 0], // Index (sw[1]) touched to GND (0 = LOW)
         raw_index: 0
       };
-      const touchedResult = processFingerTelemetry(touchedIndexD4, mockApprovedGlbConfig);
-      expect(touchedResult.switchConnected.index).toBe(true);
-      expect(touchedResult.switchStates.index).toBe('OPEN');
-      expect(touchedResult.normalized.index).toBe(0); // Straight open hand!
-      expect(touchedResult.angles.index).toBe(-15);   // Straight open hand (-15° rest)
-      expect(touchedResult.lerpFactors.index).toBe(0.38); // Fast return to open
+      const bentResult = processFingerTelemetry(bentIndexD4, mockApprovedGlbConfig);
+      expect(bentResult.switchConnected.index).toBe(false);
+      expect(bentResult.switchStates.index).toBe('BENDING');
+      expect(bentResult.normalized.index).toBe(0.75); // Bends in GLB!
+      expect(bentResult.lerpFactors.index).toBe(0.12); // Smooth and slow bend
+
+      // When index finger is open/straight physically -> D4 open circuit (1 = HIGH) -> Index snaps OPEN STRAIGHT in GLB
+      const openIndexD4 = {
+        sw: [0, 1, 0, 0, 0], // Index (sw[1]) untouched / open circuit (1 = HIGH)
+        raw_index: 0
+      };
+      const openResult = processFingerTelemetry(openIndexD4, mockApprovedGlbConfig);
+      expect(openResult.switchConnected.index).toBe(true);
+      expect(openResult.switchStates.index).toBe('OPEN');
+      expect(openResult.normalized.index).toBe(0); // Straight open hand!
+      expect(openResult.angles.index).toBe(-15);   // Straight open hand (-15° rest)
+      expect(openResult.lerpFactors.index).toBe(0.38); // Fast return to open
     });
 
     it('defaults to standard lerpFactor=0.25 when switch telemetry is not present', () => {
