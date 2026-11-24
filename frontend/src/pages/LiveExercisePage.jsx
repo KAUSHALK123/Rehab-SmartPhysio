@@ -360,13 +360,13 @@ const FingerSyncPanel = ({
                   <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
                     {label}
                   </span>
-                  {debugInfo?.isSwitchConnected !== null && debugInfo?.isSwitchConnected !== undefined && (
+                  {debugInfo?.switchState && debugInfo.switchState !== 'N/A' && (
                     <span className={`text-[7px] font-black px-1 py-0.5 rounded leading-none mt-0.5 uppercase tracking-tighter ${
-                      debugInfo.isSwitchConnected
+                      debugInfo.switchState === 'OPEN'
                         ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
                         : 'bg-cyan-100 text-cyan-700 border border-cyan-300'
                     }`}>
-                      {debugInfo.isSwitchConnected ? 'OPEN' : 'BEND'}
+                      {debugInfo.switchState === 'OPEN' ? 'OPEN' : 'BEND'}
                     </span>
                   )}
                 </div>
@@ -413,13 +413,13 @@ const FingerSyncPanel = ({
                   <span className="text-[8px] font-extrabold text-slate-400 mt-1 select-none uppercase">
                     {label}
                   </span>
-                  {debugInfo?.isSwitchConnected !== null && debugInfo?.isSwitchConnected !== undefined && (
+                  {debugInfo?.switchState && debugInfo.switchState !== 'N/A' && (
                     <span className={`text-[7px] font-black px-1 py-0.5 rounded leading-none mt-0.5 uppercase tracking-tighter ${
-                      debugInfo.isSwitchConnected
+                      debugInfo.switchState === 'OPEN'
                         ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
                         : 'bg-cyan-100 text-cyan-700 border border-cyan-300'
                     }`}>
-                      {debugInfo.isSwitchConnected ? 'OPEN' : 'BEND'}
+                      {debugInfo.switchState === 'OPEN' ? 'OPEN' : 'BEND'}
                     </span>
                   )}
                 </div>

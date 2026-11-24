@@ -31,18 +31,19 @@ const char* FINGER_NAMES[NUM_FINGERS] = {"Thumb", "Index", "Middle", "Ring", "Li
 
 // DIGITAL SWITCH CONTACT TECHNIQUE:
 // Pins configured with internal pull-up (no external resistors needed)
-// Thumb Switch  : GPIO 4  (D4)
-// Index Switch  : GPIO 16 (RX2)
+// Thumb Switch  : GPIO 23 (D23) / Alternate GPIO 16 (RX2)
+// Index Switch  : GPIO 4  (D4) -> User physically attached D4 for Index
 // Middle Switch : GPIO 17 (TX2)
 // Ring Switch   : GPIO 18 (D18)
 // Little Switch : GPIO 19 (D19)
 //
 // Logic:
-// Connected (pin to GND, digitalRead == LOW): Finger is OPEN in GLB (faster smooth return)
-// Disconnected (open circuit, digitalRead == HIGH): Finger is BENDING (governed by continuous flex, smooth and slow)
-const int SWITCH_PINS[NUM_FINGERS] = {4, 16, 17, 18, 19};
+// Disconnected (open circuit, digitalRead == HIGH): Finger is OPEN WIDE in GLB (faster smooth return)
+// Connected (pin to GND, digitalRead == LOW): Finger is CLOSING / BENDING (smooth and slow movement)
+const int SWITCH_PINS[NUM_FINGERS] = {23, 4, 17, 18, 19};
+const int PIN_SWITCH_THUMB_ALT     = 16; // RX2 alternate for Thumb
 int switchRaw[NUM_FINGERS]         = {HIGH, HIGH, HIGH, HIGH, HIGH};
-bool isFingerOpen[NUM_FINGERS]      = {false, false, false, false, false};
+bool isFingerOpen[NUM_FINGERS]      = {true, true, true, true, true};
 
 const int PIN_ELBOW    = 39; // VN (GPIO 39)
 const int PIN_PRESSURE = 25; // D25 (GPIO 25)
@@ -377,6 +378,7 @@ void setup() {
     // Configure digital switch pin with internal pull-up (no external resistors needed)
     pinMode(SWITCH_PINS[i], INPUT_PULLUP);
   }
+  pinMode(PIN_SWITCH_THUMB_ALT, INPUT_PULLUP);
   analogSetPinAttenuation(PIN_ELBOW, ADC_11db);
   pinMode(PIN_ELBOW, INPUT);
   pinMode(PIN_PRESSURE, INPUT);
@@ -618,10 +620,19 @@ void loop() {
 
     for (int i = 0; i < NUM_FINGERS; i++) {
       // 1. Read digital switch state
-      // LOW  = Contacts connected to GND -> Finger is OPEN in GLB
-      // HIGH = Contacts separated / open circuit -> Finger is BENDING (switch is main determination)
-      switchRaw[i] = digitalRead(SWITCH_PINS[i]);
-      isFingerOpen[i] = (switchRaw[i] == LOW);
+      // Index is on GPIO 4 (D4). Thumb reads GPIO 23 (D23) or alternate GPIO 16 (RX2).
+      // Disconnected (HIGH) = Contacts open / separated -> Finger is OPEN WIDE in GLB (fast smooth return)
+      // Connected (LOW)    = Contacts touched to GND -> Finger is CLOSING / BENDING (slow smooth movement)
+      if (i == 0) {
+        int rPrimary = digitalRead(SWITCH_PINS[0]);
+        int rAlt = digitalRead(PIN_SWITCH_THUMB_ALT);
+        switchRaw[0] = (rPrimary == LOW || rAlt == LOW) ? LOW : HIGH;
+      } else {
+        switchRaw[i] = digitalRead(SWITCH_PINS[i]);
+      }
+      
+      bool isTouchedGND = (switchRaw[i] == LOW);
+      isFingerOpen[i] = !isTouchedGND; // Disconnected (HIGH) -> OPEN WIDE; Connected (LOW) -> CLOSING
 
       // Log switch transitions immediately to Serial Monitor for hardware verification
       static int lastSwLogged[NUM_FINGERS] = {-1, -1, -1, -1, -1};
@@ -629,8 +640,8 @@ void loop() {
         lastSwLogged[i] = switchRaw[i];
         Serial.printf("[SWITCH] %s (GPIO %d): %s -> %s\n",
                       FINGER_NAMES[i], SWITCH_PINS[i],
-                      isFingerOpen[i] ? "CONNECTED (LOW)" : "DISCONNECTED (HIGH)",
-                      isFingerOpen[i] ? "OPEN (FAST)" : "BENDING (SMOOTH SLOW)");
+                      isTouchedGND ? "CONNECTED to GND (LOW)" : "DISCONNECTED (HIGH)",
+                      isFingerOpen[i] ? "OPEN WIDE (FAST)" : "CLOSING (SMOOTH SLOW)");
       }
 
       int spread = 0;
@@ -654,7 +665,7 @@ void loop() {
 
       if (isFingerOpen[i]) {
         // ================================================================
-        // SWITCH CONNECTED: Finger is confirmed OPEN in GLB
+        // SWITCH DISCONNECTED: Finger is confirmed OPEN WIDE in GLB
         // Faster return to open neutral (0.0 curl)
         // ================================================================
         float fastReturnAlpha = 0.45f;
@@ -665,13 +676,13 @@ void loop() {
         okFlags[i] = 1;
       } else {
         // ================================================================
-        // SWITCH DISCONNECTED: Finger is BENDING
+        // SWITCH CONNECTED (Touched to GND): Finger is CLOSING
         // Switch is the main determination.
         // Parallel fusion: If flex sensor has valid range, fuse analog bend.
         // If flex sensor reads 0 ADC or faults, switch alone drives bend!
-        // Smooth and slow GLB movement (gentle EMA alpha = 0.20)
+        // Smooth and slow closing movement (gentle EMA alpha = 0.15)
         // ================================================================
-        float targetCurl = 0.75f; // Base bend when switch is open
+        float targetCurl = 0.75f; // Base bend when switch is closed to GND
 
         if (!fault && isFlexCalibrated) {
           float span = R_bent[i] - R_flat[i];
@@ -689,7 +700,7 @@ void loop() {
           }
         }
 
-        float slowAlpha = 0.20f;
+        float slowAlpha = 0.15f; // Gentle, slow closing movement
         float smoothed = lastGoodCurl[i] + slowAlpha * (targetCurl - lastGoodCurl[i]);
         curlValues[i] = smoothed;
         lastGoodCurl[i] = smoothed;
